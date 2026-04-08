@@ -1,5 +1,6 @@
 """Command execution utilities."""
 
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,24 +21,24 @@ def run_command(
     cmd: str,
     cwd: Path | None = None,
     timeout: int | None = 300,
-    shell: bool = True,
 ) -> CommandResult:
     """
     Run a shell command and capture output.
 
     Args:
-        cmd: Command to run
+        cmd: Command to run (will be safely parsed with shlex.split)
         cwd: Working directory (defaults to current directory)
         timeout: Timeout in seconds (default: 300)
-        shell: Whether to run in shell (default: True)
 
     Returns:
         CommandResult with execution details
     """
     try:
+        # Use shlex.split for safe command parsing (no shell injection)
+        cmd_list = shlex.split(cmd)
+
         result = subprocess.run(
-            cmd,
-            shell=shell,
+            cmd_list,
             cwd=cwd,
             capture_output=True,
             text=True,

@@ -63,19 +63,19 @@ ai-tools init --workspace
 ai-tools monorepo sync --json
 
 # Check status across all repos
-ai-tools mono status
+ai-tools monorepo status
 
 # Create coordinated branches
-ai-tools mono branch feat/multi-repo-change
+ai-tools monorepo branch feat/multi-repo-change
 
 # Run tests across all repos
-ai-tools mono test
+ai-tools monorepo test
 
 # Run command in all repos
-ai-tools mono foreach -- git status
+ai-tools monorepo foreach -- git status
 
 # Submit PRs for all modified repos
-ai-tools mono submit
+ai-tools monorepo submit
 ```
 
 ## Command Reference
@@ -93,7 +93,7 @@ ai-tools mono submit
 - `lint [--fix]` - Run quality checks
 - `submit` - Push branch and create PR
 
-### Monorepo Commands (`ai-tools monorepo` or `ai-tools mono`)
+### Monorepo Commands (`ai-tools monorepo`)
 
 - `status` - Status across all child repositories
 - `sync` - Clone missing repos and update existing

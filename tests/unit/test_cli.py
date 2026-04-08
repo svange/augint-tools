@@ -1,3 +1,5 @@
+import json
+
 from click.testing import CliRunner
 
 from augint_tools.cli.__main__ import cli
@@ -13,24 +15,46 @@ class TestCli:
         assert "repo" in result.output
         assert "monorepo" in result.output
 
-    def test_repo_status_stub(self):
+    def test_repo_status(self):
+        """Test repo status in a real git repo."""
         runner = CliRunner()
         result = runner.invoke(cli, ["repo", "status"])
+        # Should succeed (we're in a git repo)
         assert result.exit_code == 0
-        assert '"command": "status"' in result.output
-        assert '"implemented": false' in result.output
-        assert '"scope": "repo"' in result.output
+        assert "status" in result.output.lower()
+        assert "branch" in result.output.lower()
 
-    def test_monorepo_status_stub(self):
+    def test_repo_status_json(self):
+        """Test repo status with JSON output."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["repo", "status", "--json"])
+        assert result.exit_code == 0
+
+        # Parse JSON
+        data = json.loads(result.output)
+        assert data["command"] == "status"
+        assert data["scope"] == "repo"
+        assert "repo" in data
+        assert "branch" in data["repo"]
+
+    def test_monorepo_status_no_workspace(self):
+        """Test monorepo status without workspace.toml."""
         runner = CliRunner()
         result = runner.invoke(cli, ["monorepo", "status"])
-        assert result.exit_code == 0
-        assert '"command": "status"' in result.output
-        assert '"implemented": false' in result.output
-        assert '"scope": "monorepo"' in result.output
+        # Should fail (no workspace.toml)
+        assert result.exit_code == 1
+        assert "workspace.toml" in result.output.lower()
 
-    def test_mono_alias(self):
+    def test_monorepo_status_json_no_workspace(self):
+        """Test monorepo status JSON without workspace.toml."""
         runner = CliRunner()
-        result = runner.invoke(cli, ["mono", "--help"])
-        assert result.exit_code == 0
-        assert "Workspace and monorepo orchestration commands" in result.output
+        result = runner.invoke(cli, ["monorepo", "status", "--json"])
+        # Should fail (no workspace.toml)
+        assert result.exit_code == 0  # JSON mode doesn't exit with error
+
+        # Parse JSON
+        data = json.loads(result.output)
+        assert data["command"] == "status"
+        assert data["scope"] == "monorepo"
+        assert data["status"] == "error"
+        assert "workspace.toml" in data["error"].lower()

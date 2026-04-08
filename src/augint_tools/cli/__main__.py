@@ -30,9 +30,6 @@ cli.add_command(init)
 cli.add_command(repo)
 cli.add_command(monorepo)
 
-# Register mono as an alias for monorepo
-cli.add_command(monorepo, name="mono")
-
 
 def main():
     """Main entry point."""

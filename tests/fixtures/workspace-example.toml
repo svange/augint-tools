@@ -1,0 +1,27 @@
+[workspace]
+name = "test-workspace"
+repos_dir = "repos"
+
+[[repo]]
+name = "lib-a"
+path = "repos/lib-a"
+url = "https://github.com/test/lib-a.git"
+repo_type = "library"
+base_branch = "main"
+pr_target_branch = "main"
+install = "uv sync"
+test = "pytest -v"
+lint = "ruff check ."
+depends_on = []
+
+[[repo]]
+name = "lib-b"
+path = "repos/lib-b"
+url = "https://github.com/test/lib-b.git"
+repo_type = "library"
+base_branch = "main"
+pr_target_branch = "main"
+install = "uv sync"
+test = "pytest -v"
+lint = "ruff check ."
+depends_on = ["lib-a"]

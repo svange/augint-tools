@@ -324,7 +324,7 @@ jobs:
         run: |
           mkdir -p docs
           uv run pdoc --output-dir docs \
-            src/augint_tools || true
+            src/gh_secrets_and_vars_async || true
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

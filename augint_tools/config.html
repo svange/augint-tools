@@ -46,6 +46,12 @@
                                 <a class="variable" href="#AiShellConfig.dev_branch">dev_branch</a>
                         </li>
                         <li>
+                                <a class="variable" href="#AiShellConfig.ai_tools_repo">ai_tools_repo</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#AiShellConfig.ai_tools_commands">ai_tools_commands</a>
+                        </li>
+                        <li>
                                 <a class="variable" href="#AiShellConfig.base_branch">base_branch</a>
                         </li>
                         <li>
@@ -55,10 +61,49 @@
 
             </li>
             <li>
-                    <a class="function" href="#load_ai_shell_config">load_ai_shell_config</a>
+                    <a class="class" href="#AiToolsCommandsConfig">AiToolsCommandsConfig</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="function" href="#AiToolsCommandsConfig.__init__">AiToolsCommandsConfig</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#AiToolsCommandsConfig.quality">quality</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#AiToolsCommandsConfig.tests">tests</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#AiToolsCommandsConfig.security">security</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#AiToolsCommandsConfig.licenses">licenses</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#AiToolsCommandsConfig.build">build</a>
+                        </li>
+                </ul>
+
+            </li>
+            <li>
+                    <a class="class" href="#AiToolsRepoConfig">AiToolsRepoConfig</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="function" href="#AiToolsRepoConfig.__init__">AiToolsRepoConfig</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#AiToolsRepoConfig.update_work_branch_strategy">update_work_branch_strategy</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#AiToolsRepoConfig.default_submit_preset">default_submit_preset</a>
+                        </li>
+                </ul>
+
             </li>
             <li>
                     <a class="function" href="#create_ai_shell_config">create_ai_shell_config</a>
+            </li>
+            <li>
+                    <a class="function" href="#load_ai_shell_config">load_ai_shell_config</a>
             </li>
             <li>
                     <a class="class" href="#WorkspaceConfig">WorkspaceConfig</a>
@@ -145,17 +190,25 @@
 
                         <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;Configuration parsing utilities.&quot;&quot;&quot;</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
-</span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.config.ai_shell</span><span class="w"> </span><span class="kn">import</span> <span class="n">AiShellConfig</span><span class="p">,</span> <span class="n">create_ai_shell_config</span><span class="p">,</span> <span class="n">load_ai_shell_config</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.config.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="n">RepoConfig</span><span class="p">,</span> <span class="n">WorkspaceConfig</span><span class="p">,</span> <span class="n">load_workspace_config</span>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a>    <span class="s2">&quot;AiShellConfig&quot;</span><span class="p">,</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a>    <span class="s2">&quot;load_ai_shell_config&quot;</span><span class="p">,</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a>    <span class="s2">&quot;create_ai_shell_config&quot;</span><span class="p">,</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a>    <span class="s2">&quot;WorkspaceConfig&quot;</span><span class="p">,</span>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a>    <span class="s2">&quot;RepoConfig&quot;</span><span class="p">,</span>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>    <span class="s2">&quot;load_workspace_config&quot;</span><span class="p">,</span>
-</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="p">]</span>
+</span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.config.ai_shell</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a>    <span class="n">AiShellConfig</span><span class="p">,</span>
+</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a>    <span class="n">AiToolsCommandsConfig</span><span class="p">,</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>    <span class="n">AiToolsRepoConfig</span><span class="p">,</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a>    <span class="n">create_ai_shell_config</span><span class="p">,</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a>    <span class="n">load_ai_shell_config</span><span class="p">,</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="p">)</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.config.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="n">RepoConfig</span><span class="p">,</span> <span class="n">WorkspaceConfig</span><span class="p">,</span> <span class="n">load_workspace_config</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>    <span class="s2">&quot;AiShellConfig&quot;</span><span class="p">,</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="s2">&quot;AiToolsCommandsConfig&quot;</span><span class="p">,</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="s2">&quot;AiToolsRepoConfig&quot;</span><span class="p">,</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>    <span class="s2">&quot;create_ai_shell_config&quot;</span><span class="p">,</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="s2">&quot;load_ai_shell_config&quot;</span><span class="p">,</span>
+</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a>    <span class="s2">&quot;WorkspaceConfig&quot;</span><span class="p">,</span>
+</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>    <span class="s2">&quot;RepoConfig&quot;</span><span class="p">,</span>
+</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a>    <span class="s2">&quot;load_workspace_config&quot;</span><span class="p">,</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a><span class="p">]</span>
 </span></pre></div>
 
 
@@ -172,25 +225,27 @@
 
     </div>
     <a class="headerlink" href="#AiShellConfig"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AiShellConfig-11"><a href="#AiShellConfig-11"><span class="linenos">11</span></a><span class="nd">@dataclass</span>
-</span><span id="AiShellConfig-12"><a href="#AiShellConfig-12"><span class="linenos">12</span></a><span class="k">class</span><span class="w"> </span><span class="nc">AiShellConfig</span><span class="p">:</span>
-</span><span id="AiShellConfig-13"><a href="#AiShellConfig-13"><span class="linenos">13</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration from ai-shell.toml.&quot;&quot;&quot;</span>
-</span><span id="AiShellConfig-14"><a href="#AiShellConfig-14"><span class="linenos">14</span></a>
-</span><span id="AiShellConfig-15"><a href="#AiShellConfig-15"><span class="linenos">15</span></a>    <span class="n">repo_type</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &quot;library&quot;, &quot;service&quot;, or &quot;workspace&quot;</span>
-</span><span id="AiShellConfig-16"><a href="#AiShellConfig-16"><span class="linenos">16</span></a>    <span class="n">branch_strategy</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &quot;main&quot; or &quot;dev&quot;</span>
-</span><span id="AiShellConfig-17"><a href="#AiShellConfig-17"><span class="linenos">17</span></a>    <span class="n">dev_branch</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;dev&quot;</span>  <span class="c1"># Name of dev branch (only used when strategy is &quot;dev&quot;)</span>
-</span><span id="AiShellConfig-18"><a href="#AiShellConfig-18"><span class="linenos">18</span></a>
-</span><span id="AiShellConfig-19"><a href="#AiShellConfig-19"><span class="linenos">19</span></a>    <span class="nd">@property</span>
-</span><span id="AiShellConfig-20"><a href="#AiShellConfig-20"><span class="linenos">20</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">base_branch</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="AiShellConfig-21"><a href="#AiShellConfig-21"><span class="linenos">21</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the base branch for feature branches.&quot;&quot;&quot;</span>
-</span><span id="AiShellConfig-22"><a href="#AiShellConfig-22"><span class="linenos">22</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_strategy</span> <span class="o">==</span> <span class="s2">&quot;dev&quot;</span><span class="p">:</span>
-</span><span id="AiShellConfig-23"><a href="#AiShellConfig-23"><span class="linenos">23</span></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">dev_branch</span>
-</span><span id="AiShellConfig-24"><a href="#AiShellConfig-24"><span class="linenos">24</span></a>        <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
-</span><span id="AiShellConfig-25"><a href="#AiShellConfig-25"><span class="linenos">25</span></a>
-</span><span id="AiShellConfig-26"><a href="#AiShellConfig-26"><span class="linenos">26</span></a>    <span class="nd">@property</span>
-</span><span id="AiShellConfig-27"><a href="#AiShellConfig-27"><span class="linenos">27</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">pr_target_branch</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="AiShellConfig-28"><a href="#AiShellConfig-28"><span class="linenos">28</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the PR target branch.&quot;&quot;&quot;</span>
-</span><span id="AiShellConfig-29"><a href="#AiShellConfig-29"><span class="linenos">29</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_branch</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AiShellConfig-30"><a href="#AiShellConfig-30"><span class="linenos">30</span></a><span class="nd">@dataclass</span>
+</span><span id="AiShellConfig-31"><a href="#AiShellConfig-31"><span class="linenos">31</span></a><span class="k">class</span><span class="w"> </span><span class="nc">AiShellConfig</span><span class="p">:</span>
+</span><span id="AiShellConfig-32"><a href="#AiShellConfig-32"><span class="linenos">32</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration from ai-shell.toml.&quot;&quot;&quot;</span>
+</span><span id="AiShellConfig-33"><a href="#AiShellConfig-33"><span class="linenos">33</span></a>
+</span><span id="AiShellConfig-34"><a href="#AiShellConfig-34"><span class="linenos">34</span></a>    <span class="n">repo_type</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &quot;library&quot;, &quot;service&quot;, or &quot;workspace&quot;</span>
+</span><span id="AiShellConfig-35"><a href="#AiShellConfig-35"><span class="linenos">35</span></a>    <span class="n">branch_strategy</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &quot;main&quot; or &quot;dev&quot;</span>
+</span><span id="AiShellConfig-36"><a href="#AiShellConfig-36"><span class="linenos">36</span></a>    <span class="n">dev_branch</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;dev&quot;</span>
+</span><span id="AiShellConfig-37"><a href="#AiShellConfig-37"><span class="linenos">37</span></a>    <span class="n">ai_tools_repo</span><span class="p">:</span> <span class="n">AiToolsRepoConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">AiToolsRepoConfig</span><span class="p">)</span>
+</span><span id="AiShellConfig-38"><a href="#AiShellConfig-38"><span class="linenos">38</span></a>    <span class="n">ai_tools_commands</span><span class="p">:</span> <span class="n">AiToolsCommandsConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">AiToolsCommandsConfig</span><span class="p">)</span>
+</span><span id="AiShellConfig-39"><a href="#AiShellConfig-39"><span class="linenos">39</span></a>
+</span><span id="AiShellConfig-40"><a href="#AiShellConfig-40"><span class="linenos">40</span></a>    <span class="nd">@property</span>
+</span><span id="AiShellConfig-41"><a href="#AiShellConfig-41"><span class="linenos">41</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">base_branch</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="AiShellConfig-42"><a href="#AiShellConfig-42"><span class="linenos">42</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the base branch for feature branches.&quot;&quot;&quot;</span>
+</span><span id="AiShellConfig-43"><a href="#AiShellConfig-43"><span class="linenos">43</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_strategy</span> <span class="o">==</span> <span class="s2">&quot;dev&quot;</span><span class="p">:</span>
+</span><span id="AiShellConfig-44"><a href="#AiShellConfig-44"><span class="linenos">44</span></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">dev_branch</span>
+</span><span id="AiShellConfig-45"><a href="#AiShellConfig-45"><span class="linenos">45</span></a>        <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
+</span><span id="AiShellConfig-46"><a href="#AiShellConfig-46"><span class="linenos">46</span></a>
+</span><span id="AiShellConfig-47"><a href="#AiShellConfig-47"><span class="linenos">47</span></a>    <span class="nd">@property</span>
+</span><span id="AiShellConfig-48"><a href="#AiShellConfig-48"><span class="linenos">48</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">pr_target_branch</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="AiShellConfig-49"><a href="#AiShellConfig-49"><span class="linenos">49</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the PR target branch.&quot;&quot;&quot;</span>
+</span><span id="AiShellConfig-50"><a href="#AiShellConfig-50"><span class="linenos">50</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_branch</span>
 </span></pre></div>
 
 
@@ -201,7 +256,7 @@
                             <div id="AiShellConfig.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">AiShellConfig</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">repo_type</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="n">branch_strategy</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="n">dev_branch</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;dev&#39;</span></span>)</span>
+        <span class="name">AiShellConfig</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">repo_type</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">branch_strategy</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">dev_branch</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;dev&#39;</span>,</span><span class="param">	<span class="n">ai_tools_repo</span><span class="p">:</span> <span class="n"><a href="#AiToolsRepoConfig">AiToolsRepoConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">ai_tools_commands</span><span class="p">:</span> <span class="n"><a href="#AiToolsCommandsConfig">AiToolsCommandsConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span></span>)</span>
 
         
     </div>
@@ -244,6 +299,28 @@
     
 
                             </div>
+                            <div id="AiShellConfig.ai_tools_repo" class="classattr">
+                                <div class="attr variable">
+            <span class="name">ai_tools_repo</span><span class="annotation">: <a href="#AiToolsRepoConfig">AiToolsRepoConfig</a></span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiShellConfig.ai_tools_repo"></a>
+    
+    
+
+                            </div>
+                            <div id="AiShellConfig.ai_tools_commands" class="classattr">
+                                <div class="attr variable">
+            <span class="name">ai_tools_commands</span><span class="annotation">: <a href="#AiToolsCommandsConfig">AiToolsCommandsConfig</a></span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiShellConfig.ai_tools_commands"></a>
+    
+    
+
+                            </div>
                             <div id="AiShellConfig.base_branch" class="classattr">
                                         <input id="AiShellConfig.base_branch-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr variable">
@@ -253,12 +330,12 @@
 
     </div>
     <a class="headerlink" href="#AiShellConfig.base_branch"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AiShellConfig.base_branch-19"><a href="#AiShellConfig.base_branch-19"><span class="linenos">19</span></a>    <span class="nd">@property</span>
-</span><span id="AiShellConfig.base_branch-20"><a href="#AiShellConfig.base_branch-20"><span class="linenos">20</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">base_branch</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="AiShellConfig.base_branch-21"><a href="#AiShellConfig.base_branch-21"><span class="linenos">21</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the base branch for feature branches.&quot;&quot;&quot;</span>
-</span><span id="AiShellConfig.base_branch-22"><a href="#AiShellConfig.base_branch-22"><span class="linenos">22</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_strategy</span> <span class="o">==</span> <span class="s2">&quot;dev&quot;</span><span class="p">:</span>
-</span><span id="AiShellConfig.base_branch-23"><a href="#AiShellConfig.base_branch-23"><span class="linenos">23</span></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">dev_branch</span>
-</span><span id="AiShellConfig.base_branch-24"><a href="#AiShellConfig.base_branch-24"><span class="linenos">24</span></a>        <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AiShellConfig.base_branch-40"><a href="#AiShellConfig.base_branch-40"><span class="linenos">40</span></a>    <span class="nd">@property</span>
+</span><span id="AiShellConfig.base_branch-41"><a href="#AiShellConfig.base_branch-41"><span class="linenos">41</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">base_branch</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="AiShellConfig.base_branch-42"><a href="#AiShellConfig.base_branch-42"><span class="linenos">42</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the base branch for feature branches.&quot;&quot;&quot;</span>
+</span><span id="AiShellConfig.base_branch-43"><a href="#AiShellConfig.base_branch-43"><span class="linenos">43</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_strategy</span> <span class="o">==</span> <span class="s2">&quot;dev&quot;</span><span class="p">:</span>
+</span><span id="AiShellConfig.base_branch-44"><a href="#AiShellConfig.base_branch-44"><span class="linenos">44</span></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">dev_branch</span>
+</span><span id="AiShellConfig.base_branch-45"><a href="#AiShellConfig.base_branch-45"><span class="linenos">45</span></a>        <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
 </span></pre></div>
 
 
@@ -276,10 +353,10 @@
 
     </div>
     <a class="headerlink" href="#AiShellConfig.pr_target_branch"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AiShellConfig.pr_target_branch-26"><a href="#AiShellConfig.pr_target_branch-26"><span class="linenos">26</span></a>    <span class="nd">@property</span>
-</span><span id="AiShellConfig.pr_target_branch-27"><a href="#AiShellConfig.pr_target_branch-27"><span class="linenos">27</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">pr_target_branch</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="AiShellConfig.pr_target_branch-28"><a href="#AiShellConfig.pr_target_branch-28"><span class="linenos">28</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the PR target branch.&quot;&quot;&quot;</span>
-</span><span id="AiShellConfig.pr_target_branch-29"><a href="#AiShellConfig.pr_target_branch-29"><span class="linenos">29</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_branch</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AiShellConfig.pr_target_branch-47"><a href="#AiShellConfig.pr_target_branch-47"><span class="linenos">47</span></a>    <span class="nd">@property</span>
+</span><span id="AiShellConfig.pr_target_branch-48"><a href="#AiShellConfig.pr_target_branch-48"><span class="linenos">48</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">pr_target_branch</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="AiShellConfig.pr_target_branch-49"><a href="#AiShellConfig.pr_target_branch-49"><span class="linenos">49</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the PR target branch.&quot;&quot;&quot;</span>
+</span><span id="AiShellConfig.pr_target_branch-50"><a href="#AiShellConfig.pr_target_branch-50"><span class="linenos">50</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_branch</span>
 </span></pre></div>
 
 
@@ -289,65 +366,168 @@
 
                             </div>
                 </section>
-                <section id="load_ai_shell_config">
-                            <input id="load_ai_shell_config-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-<div class="attr function">
-            
-        <span class="def">def</span>
-        <span class="name">load_ai_shell_config</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n"><a href="#AiShellConfig">AiShellConfig</a></span> <span class="o">|</span> <span class="kc">None</span>:</span></span>
+                <section id="AiToolsCommandsConfig">
+                            <input id="AiToolsCommandsConfig-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr class">
+                    <div class="decorator decorator-dataclass">@dataclass</div>
 
-                <label class="view-source-button" for="load_ai_shell_config-view-source"><span>View Source</span></label>
+    <span class="def">class</span>
+    <span class="name">AiToolsCommandsConfig</span>:
+
+                <label class="view-source-button" for="AiToolsCommandsConfig-view-source"><span>View Source</span></label>
 
     </div>
-    <a class="headerlink" href="#load_ai_shell_config"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="load_ai_shell_config-32"><a href="#load_ai_shell_config-32"><span class="linenos">32</span></a><span class="k">def</span><span class="w"> </span><span class="nf">load_ai_shell_config</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AiShellConfig</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="load_ai_shell_config-33"><a href="#load_ai_shell_config-33"><span class="linenos">33</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="load_ai_shell_config-34"><a href="#load_ai_shell_config-34"><span class="linenos">34</span></a><span class="sd">    Load ai-shell.toml configuration.</span>
-</span><span id="load_ai_shell_config-35"><a href="#load_ai_shell_config-35"><span class="linenos">35</span></a>
-</span><span id="load_ai_shell_config-36"><a href="#load_ai_shell_config-36"><span class="linenos">36</span></a><span class="sd">    Args:</span>
-</span><span id="load_ai_shell_config-37"><a href="#load_ai_shell_config-37"><span class="linenos">37</span></a><span class="sd">        path: Path to ai-shell.toml (defaults to current directory)</span>
-</span><span id="load_ai_shell_config-38"><a href="#load_ai_shell_config-38"><span class="linenos">38</span></a>
-</span><span id="load_ai_shell_config-39"><a href="#load_ai_shell_config-39"><span class="linenos">39</span></a><span class="sd">    Returns:</span>
-</span><span id="load_ai_shell_config-40"><a href="#load_ai_shell_config-40"><span class="linenos">40</span></a><span class="sd">        AiShellConfig if file exists and valid, None otherwise</span>
-</span><span id="load_ai_shell_config-41"><a href="#load_ai_shell_config-41"><span class="linenos">41</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="load_ai_shell_config-42"><a href="#load_ai_shell_config-42"><span class="linenos">42</span></a>    <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="load_ai_shell_config-43"><a href="#load_ai_shell_config-43"><span class="linenos">43</span></a>        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;ai-shell.toml&quot;</span><span class="p">)</span>
-</span><span id="load_ai_shell_config-44"><a href="#load_ai_shell_config-44"><span class="linenos">44</span></a>
-</span><span id="load_ai_shell_config-45"><a href="#load_ai_shell_config-45"><span class="linenos">45</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-</span><span id="load_ai_shell_config-46"><a href="#load_ai_shell_config-46"><span class="linenos">46</span></a>        <span class="k">return</span> <span class="kc">None</span>
-</span><span id="load_ai_shell_config-47"><a href="#load_ai_shell_config-47"><span class="linenos">47</span></a>
-</span><span id="load_ai_shell_config-48"><a href="#load_ai_shell_config-48"><span class="linenos">48</span></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="load_ai_shell_config-49"><a href="#load_ai_shell_config-49"><span class="linenos">49</span></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-</span><span id="load_ai_shell_config-50"><a href="#load_ai_shell_config-50"><span class="linenos">50</span></a>            <span class="n">data</span> <span class="o">=</span> <span class="n">tomllib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
-</span><span id="load_ai_shell_config-51"><a href="#load_ai_shell_config-51"><span class="linenos">51</span></a>
-</span><span id="load_ai_shell_config-52"><a href="#load_ai_shell_config-52"><span class="linenos">52</span></a>        <span class="n">project</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;project&quot;</span><span class="p">,</span> <span class="p">{})</span>
-</span><span id="load_ai_shell_config-53"><a href="#load_ai_shell_config-53"><span class="linenos">53</span></a>
-</span><span id="load_ai_shell_config-54"><a href="#load_ai_shell_config-54"><span class="linenos">54</span></a>        <span class="c1"># Map old &quot;iac&quot; to &quot;service&quot; for backward compatibility</span>
-</span><span id="load_ai_shell_config-55"><a href="#load_ai_shell_config-55"><span class="linenos">55</span></a>        <span class="n">repo_type</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;repo_type&quot;</span><span class="p">,</span> <span class="s2">&quot;library&quot;</span><span class="p">)</span>
-</span><span id="load_ai_shell_config-56"><a href="#load_ai_shell_config-56"><span class="linenos">56</span></a>        <span class="k">if</span> <span class="n">repo_type</span> <span class="o">==</span> <span class="s2">&quot;iac&quot;</span><span class="p">:</span>
-</span><span id="load_ai_shell_config-57"><a href="#load_ai_shell_config-57"><span class="linenos">57</span></a>            <span class="n">repo_type</span> <span class="o">=</span> <span class="s2">&quot;service&quot;</span>
-</span><span id="load_ai_shell_config-58"><a href="#load_ai_shell_config-58"><span class="linenos">58</span></a>
-</span><span id="load_ai_shell_config-59"><a href="#load_ai_shell_config-59"><span class="linenos">59</span></a>        <span class="k">return</span> <span class="n">AiShellConfig</span><span class="p">(</span>
-</span><span id="load_ai_shell_config-60"><a href="#load_ai_shell_config-60"><span class="linenos">60</span></a>            <span class="n">repo_type</span><span class="o">=</span><span class="n">repo_type</span><span class="p">,</span>
-</span><span id="load_ai_shell_config-61"><a href="#load_ai_shell_config-61"><span class="linenos">61</span></a>            <span class="n">branch_strategy</span><span class="o">=</span><span class="n">project</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;branch_strategy&quot;</span><span class="p">,</span> <span class="s2">&quot;main&quot;</span><span class="p">),</span>
-</span><span id="load_ai_shell_config-62"><a href="#load_ai_shell_config-62"><span class="linenos">62</span></a>            <span class="n">dev_branch</span><span class="o">=</span><span class="n">project</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dev_branch&quot;</span><span class="p">,</span> <span class="s2">&quot;dev&quot;</span><span class="p">),</span>
-</span><span id="load_ai_shell_config-63"><a href="#load_ai_shell_config-63"><span class="linenos">63</span></a>        <span class="p">)</span>
-</span><span id="load_ai_shell_config-64"><a href="#load_ai_shell_config-64"><span class="linenos">64</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-</span><span id="load_ai_shell_config-65"><a href="#load_ai_shell_config-65"><span class="linenos">65</span></a>        <span class="c1"># Return None for any parsing errors</span>
-</span><span id="load_ai_shell_config-66"><a href="#load_ai_shell_config-66"><span class="linenos">66</span></a>        <span class="k">return</span> <span class="kc">None</span>
+    <a class="headerlink" href="#AiToolsCommandsConfig"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AiToolsCommandsConfig-19"><a href="#AiToolsCommandsConfig-19"><span class="linenos">19</span></a><span class="nd">@dataclass</span>
+</span><span id="AiToolsCommandsConfig-20"><a href="#AiToolsCommandsConfig-20"><span class="linenos">20</span></a><span class="k">class</span><span class="w"> </span><span class="nc">AiToolsCommandsConfig</span><span class="p">:</span>
+</span><span id="AiToolsCommandsConfig-21"><a href="#AiToolsCommandsConfig-21"><span class="linenos">21</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration from [ai_tools.commands] section.&quot;&quot;&quot;</span>
+</span><span id="AiToolsCommandsConfig-22"><a href="#AiToolsCommandsConfig-22"><span class="linenos">22</span></a>
+</span><span id="AiToolsCommandsConfig-23"><a href="#AiToolsCommandsConfig-23"><span class="linenos">23</span></a>    <span class="n">quality</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="AiToolsCommandsConfig-24"><a href="#AiToolsCommandsConfig-24"><span class="linenos">24</span></a>    <span class="n">tests</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="AiToolsCommandsConfig-25"><a href="#AiToolsCommandsConfig-25"><span class="linenos">25</span></a>    <span class="n">security</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="AiToolsCommandsConfig-26"><a href="#AiToolsCommandsConfig-26"><span class="linenos">26</span></a>    <span class="n">licenses</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="AiToolsCommandsConfig-27"><a href="#AiToolsCommandsConfig-27"><span class="linenos">27</span></a>    <span class="n">build</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>Load ai-shell.toml configuration.</p>
-
-<p>Args:
-    path: Path to ai-shell.toml (defaults to current directory)</p>
-
-<p>Returns:
-    AiShellConfig if file exists and valid, None otherwise</p>
+            <div class="docstring"><p>Configuration from [ai_tools.commands] section.</p>
 </div>
 
 
+                            <div id="AiToolsCommandsConfig.__init__" class="classattr">
+                                <div class="attr function">
+            
+        <span class="name">AiToolsCommandsConfig</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">quality</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">tests</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">security</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">licenses</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">build</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span>)</span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiToolsCommandsConfig.__init__"></a>
+    
+    
+
+                            </div>
+                            <div id="AiToolsCommandsConfig.quality" class="classattr">
+                                <div class="attr variable">
+            <span class="name">quality</span><span class="annotation">: str | None</span>        =
+<span class="default_value">None</span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiToolsCommandsConfig.quality"></a>
+    
+    
+
+                            </div>
+                            <div id="AiToolsCommandsConfig.tests" class="classattr">
+                                <div class="attr variable">
+            <span class="name">tests</span><span class="annotation">: str | None</span>        =
+<span class="default_value">None</span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiToolsCommandsConfig.tests"></a>
+    
+    
+
+                            </div>
+                            <div id="AiToolsCommandsConfig.security" class="classattr">
+                                <div class="attr variable">
+            <span class="name">security</span><span class="annotation">: str | None</span>        =
+<span class="default_value">None</span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiToolsCommandsConfig.security"></a>
+    
+    
+
+                            </div>
+                            <div id="AiToolsCommandsConfig.licenses" class="classattr">
+                                <div class="attr variable">
+            <span class="name">licenses</span><span class="annotation">: str | None</span>        =
+<span class="default_value">None</span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiToolsCommandsConfig.licenses"></a>
+    
+    
+
+                            </div>
+                            <div id="AiToolsCommandsConfig.build" class="classattr">
+                                <div class="attr variable">
+            <span class="name">build</span><span class="annotation">: str | None</span>        =
+<span class="default_value">None</span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiToolsCommandsConfig.build"></a>
+    
+    
+
+                            </div>
+                </section>
+                <section id="AiToolsRepoConfig">
+                            <input id="AiToolsRepoConfig-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr class">
+                    <div class="decorator decorator-dataclass">@dataclass</div>
+
+    <span class="def">class</span>
+    <span class="name">AiToolsRepoConfig</span>:
+
+                <label class="view-source-button" for="AiToolsRepoConfig-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#AiToolsRepoConfig"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AiToolsRepoConfig-11"><a href="#AiToolsRepoConfig-11"><span class="linenos">11</span></a><span class="nd">@dataclass</span>
+</span><span id="AiToolsRepoConfig-12"><a href="#AiToolsRepoConfig-12"><span class="linenos">12</span></a><span class="k">class</span><span class="w"> </span><span class="nc">AiToolsRepoConfig</span><span class="p">:</span>
+</span><span id="AiToolsRepoConfig-13"><a href="#AiToolsRepoConfig-13"><span class="linenos">13</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration from [ai_tools.repo] section.&quot;&quot;&quot;</span>
+</span><span id="AiToolsRepoConfig-14"><a href="#AiToolsRepoConfig-14"><span class="linenos">14</span></a>
+</span><span id="AiToolsRepoConfig-15"><a href="#AiToolsRepoConfig-15"><span class="linenos">15</span></a>    <span class="n">update_work_branch_strategy</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;rebase&quot;</span>  <span class="c1"># rebase | merge</span>
+</span><span id="AiToolsRepoConfig-16"><a href="#AiToolsRepoConfig-16"><span class="linenos">16</span></a>    <span class="n">default_submit_preset</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;default&quot;</span>  <span class="c1"># quick | default | full | ci</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Configuration from [ai_tools.repo] section.</p>
+</div>
+
+
+                            <div id="AiToolsRepoConfig.__init__" class="classattr">
+                                <div class="attr function">
+            
+        <span class="name">AiToolsRepoConfig</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">update_work_branch_strategy</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;rebase&#39;</span>,</span><span class="param">	<span class="n">default_submit_preset</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span></span>)</span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiToolsRepoConfig.__init__"></a>
+    
+    
+
+                            </div>
+                            <div id="AiToolsRepoConfig.update_work_branch_strategy" class="classattr">
+                                <div class="attr variable">
+            <span class="name">update_work_branch_strategy</span><span class="annotation">: str</span>        =
+<span class="default_value">&#39;rebase&#39;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiToolsRepoConfig.update_work_branch_strategy"></a>
+    
+    
+
+                            </div>
+                            <div id="AiToolsRepoConfig.default_submit_preset" class="classattr">
+                                <div class="attr variable">
+            <span class="name">default_submit_preset</span><span class="annotation">: str</span>        =
+<span class="default_value">&#39;default&#39;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#AiToolsRepoConfig.default_submit_preset"></a>
+    
+    
+
+                            </div>
                 </section>
                 <section id="create_ai_shell_config">
                             <input id="create_ai_shell_config-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
@@ -360,54 +540,52 @@
 
     </div>
     <a class="headerlink" href="#create_ai_shell_config"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="create_ai_shell_config-69"><a href="#create_ai_shell_config-69"><span class="linenos"> 69</span></a><span class="k">def</span><span class="w"> </span><span class="nf">create_ai_shell_config</span><span class="p">(</span>
-</span><span id="create_ai_shell_config-70"><a href="#create_ai_shell_config-70"><span class="linenos"> 70</span></a>    <span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
-</span><span id="create_ai_shell_config-71"><a href="#create_ai_shell_config-71"><span class="linenos"> 71</span></a>    <span class="n">repo_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="create_ai_shell_config-72"><a href="#create_ai_shell_config-72"><span class="linenos"> 72</span></a>    <span class="n">branch_strategy</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="create_ai_shell_config-73"><a href="#create_ai_shell_config-73"><span class="linenos"> 73</span></a>    <span class="n">dev_branch</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;dev&quot;</span><span class="p">,</span>
-</span><span id="create_ai_shell_config-74"><a href="#create_ai_shell_config-74"><span class="linenos"> 74</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-75"><a href="#create_ai_shell_config-75"><span class="linenos"> 75</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="create_ai_shell_config-76"><a href="#create_ai_shell_config-76"><span class="linenos"> 76</span></a><span class="sd">    Create or update ai-shell.toml configuration.</span>
-</span><span id="create_ai_shell_config-77"><a href="#create_ai_shell_config-77"><span class="linenos"> 77</span></a>
-</span><span id="create_ai_shell_config-78"><a href="#create_ai_shell_config-78"><span class="linenos"> 78</span></a><span class="sd">    Args:</span>
-</span><span id="create_ai_shell_config-79"><a href="#create_ai_shell_config-79"><span class="linenos"> 79</span></a><span class="sd">        path: Path to ai-shell.toml</span>
-</span><span id="create_ai_shell_config-80"><a href="#create_ai_shell_config-80"><span class="linenos"> 80</span></a><span class="sd">        repo_type: Repository type (&quot;library&quot;, &quot;service&quot;, &quot;workspace&quot;)</span>
-</span><span id="create_ai_shell_config-81"><a href="#create_ai_shell_config-81"><span class="linenos"> 81</span></a><span class="sd">        branch_strategy: Branch strategy (&quot;main&quot; or &quot;dev&quot;), auto-detected if None</span>
-</span><span id="create_ai_shell_config-82"><a href="#create_ai_shell_config-82"><span class="linenos"> 82</span></a><span class="sd">        dev_branch: Name of dev branch (default: &quot;dev&quot;)</span>
-</span><span id="create_ai_shell_config-83"><a href="#create_ai_shell_config-83"><span class="linenos"> 83</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="create_ai_shell_config-84"><a href="#create_ai_shell_config-84"><span class="linenos"> 84</span></a>    <span class="c1"># Auto-detect branch strategy if not provided</span>
-</span><span id="create_ai_shell_config-85"><a href="#create_ai_shell_config-85"><span class="linenos"> 85</span></a>    <span class="k">if</span> <span class="n">branch_strategy</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-86"><a href="#create_ai_shell_config-86"><span class="linenos"> 86</span></a>        <span class="k">if</span> <span class="n">repo_type</span> <span class="o">==</span> <span class="s2">&quot;library&quot;</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-87"><a href="#create_ai_shell_config-87"><span class="linenos"> 87</span></a>            <span class="n">branch_strategy</span> <span class="o">=</span> <span class="s2">&quot;main&quot;</span>
-</span><span id="create_ai_shell_config-88"><a href="#create_ai_shell_config-88"><span class="linenos"> 88</span></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-89"><a href="#create_ai_shell_config-89"><span class="linenos"> 89</span></a>            <span class="n">branch_strategy</span> <span class="o">=</span> <span class="s2">&quot;dev&quot;</span>
-</span><span id="create_ai_shell_config-90"><a href="#create_ai_shell_config-90"><span class="linenos"> 90</span></a>
-</span><span id="create_ai_shell_config-91"><a href="#create_ai_shell_config-91"><span class="linenos"> 91</span></a>    <span class="c1"># Load existing config if present</span>
-</span><span id="create_ai_shell_config-92"><a href="#create_ai_shell_config-92"><span class="linenos"> 92</span></a>    <span class="n">existing_data</span> <span class="o">=</span> <span class="p">{}</span>
-</span><span id="create_ai_shell_config-93"><a href="#create_ai_shell_config-93"><span class="linenos"> 93</span></a>    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-</span><span id="create_ai_shell_config-94"><a href="#create_ai_shell_config-94"><span class="linenos"> 94</span></a>        <span class="k">try</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-95"><a href="#create_ai_shell_config-95"><span class="linenos"> 95</span></a>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-96"><a href="#create_ai_shell_config-96"><span class="linenos"> 96</span></a>                <span class="n">existing_data</span> <span class="o">=</span> <span class="n">tomllib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
-</span><span id="create_ai_shell_config-97"><a href="#create_ai_shell_config-97"><span class="linenos"> 97</span></a>        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-98"><a href="#create_ai_shell_config-98"><span class="linenos"> 98</span></a>            <span class="k">pass</span>
-</span><span id="create_ai_shell_config-99"><a href="#create_ai_shell_config-99"><span class="linenos"> 99</span></a>
-</span><span id="create_ai_shell_config-100"><a href="#create_ai_shell_config-100"><span class="linenos">100</span></a>    <span class="c1"># Update project section</span>
-</span><span id="create_ai_shell_config-101"><a href="#create_ai_shell_config-101"><span class="linenos">101</span></a>    <span class="k">if</span> <span class="s2">&quot;project&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">existing_data</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-102"><a href="#create_ai_shell_config-102"><span class="linenos">102</span></a>        <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-</span><span id="create_ai_shell_config-103"><a href="#create_ai_shell_config-103"><span class="linenos">103</span></a>
-</span><span id="create_ai_shell_config-104"><a href="#create_ai_shell_config-104"><span class="linenos">104</span></a>    <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">][</span><span class="s2">&quot;repo_type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">repo_type</span>
-</span><span id="create_ai_shell_config-105"><a href="#create_ai_shell_config-105"><span class="linenos">105</span></a>    <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">][</span><span class="s2">&quot;branch_strategy&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">branch_strategy</span>
-</span><span id="create_ai_shell_config-106"><a href="#create_ai_shell_config-106"><span class="linenos">106</span></a>
-</span><span id="create_ai_shell_config-107"><a href="#create_ai_shell_config-107"><span class="linenos">107</span></a>    <span class="c1"># Only add dev_branch if strategy is &quot;dev&quot;</span>
-</span><span id="create_ai_shell_config-108"><a href="#create_ai_shell_config-108"><span class="linenos">108</span></a>    <span class="k">if</span> <span class="n">branch_strategy</span> <span class="o">==</span> <span class="s2">&quot;dev&quot;</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-109"><a href="#create_ai_shell_config-109"><span class="linenos">109</span></a>        <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">][</span><span class="s2">&quot;dev_branch&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dev_branch</span>
-</span><span id="create_ai_shell_config-110"><a href="#create_ai_shell_config-110"><span class="linenos">110</span></a>    <span class="k">elif</span> <span class="s2">&quot;dev_branch&quot;</span> <span class="ow">in</span> <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">]:</span>
-</span><span id="create_ai_shell_config-111"><a href="#create_ai_shell_config-111"><span class="linenos">111</span></a>        <span class="c1"># Remove dev_branch if switching to main strategy</span>
-</span><span id="create_ai_shell_config-112"><a href="#create_ai_shell_config-112"><span class="linenos">112</span></a>        <span class="k">del</span> <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">][</span><span class="s2">&quot;dev_branch&quot;</span><span class="p">]</span>
-</span><span id="create_ai_shell_config-113"><a href="#create_ai_shell_config-113"><span class="linenos">113</span></a>
-</span><span id="create_ai_shell_config-114"><a href="#create_ai_shell_config-114"><span class="linenos">114</span></a>    <span class="c1"># Write config</span>
-</span><span id="create_ai_shell_config-115"><a href="#create_ai_shell_config-115"><span class="linenos">115</span></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;wb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-</span><span id="create_ai_shell_config-116"><a href="#create_ai_shell_config-116"><span class="linenos">116</span></a>        <span class="n">tomli_w</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">existing_data</span><span class="p">,</span> <span class="n">f</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="create_ai_shell_config-108"><a href="#create_ai_shell_config-108"><span class="linenos">108</span></a><span class="k">def</span><span class="w"> </span><span class="nf">create_ai_shell_config</span><span class="p">(</span>
+</span><span id="create_ai_shell_config-109"><a href="#create_ai_shell_config-109"><span class="linenos">109</span></a>    <span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+</span><span id="create_ai_shell_config-110"><a href="#create_ai_shell_config-110"><span class="linenos">110</span></a>    <span class="n">repo_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="create_ai_shell_config-111"><a href="#create_ai_shell_config-111"><span class="linenos">111</span></a>    <span class="n">branch_strategy</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="create_ai_shell_config-112"><a href="#create_ai_shell_config-112"><span class="linenos">112</span></a>    <span class="n">dev_branch</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;dev&quot;</span><span class="p">,</span>
+</span><span id="create_ai_shell_config-113"><a href="#create_ai_shell_config-113"><span class="linenos">113</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-114"><a href="#create_ai_shell_config-114"><span class="linenos">114</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create or update ai-shell.toml configuration.</span>
+</span><span id="create_ai_shell_config-115"><a href="#create_ai_shell_config-115"><span class="linenos">115</span></a>
+</span><span id="create_ai_shell_config-116"><a href="#create_ai_shell_config-116"><span class="linenos">116</span></a><span class="sd">    Args:</span>
+</span><span id="create_ai_shell_config-117"><a href="#create_ai_shell_config-117"><span class="linenos">117</span></a><span class="sd">        path: Path to ai-shell.toml</span>
+</span><span id="create_ai_shell_config-118"><a href="#create_ai_shell_config-118"><span class="linenos">118</span></a><span class="sd">        repo_type: Repository type (&quot;library&quot;, &quot;service&quot;, &quot;workspace&quot;)</span>
+</span><span id="create_ai_shell_config-119"><a href="#create_ai_shell_config-119"><span class="linenos">119</span></a><span class="sd">        branch_strategy: Branch strategy (&quot;main&quot; or &quot;dev&quot;), auto-detected if None</span>
+</span><span id="create_ai_shell_config-120"><a href="#create_ai_shell_config-120"><span class="linenos">120</span></a><span class="sd">        dev_branch: Name of dev branch (default: &quot;dev&quot;)</span>
+</span><span id="create_ai_shell_config-121"><a href="#create_ai_shell_config-121"><span class="linenos">121</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="create_ai_shell_config-122"><a href="#create_ai_shell_config-122"><span class="linenos">122</span></a>    <span class="c1"># Auto-detect branch strategy if not provided</span>
+</span><span id="create_ai_shell_config-123"><a href="#create_ai_shell_config-123"><span class="linenos">123</span></a>    <span class="k">if</span> <span class="n">branch_strategy</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-124"><a href="#create_ai_shell_config-124"><span class="linenos">124</span></a>        <span class="k">if</span> <span class="n">repo_type</span> <span class="o">==</span> <span class="s2">&quot;library&quot;</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-125"><a href="#create_ai_shell_config-125"><span class="linenos">125</span></a>            <span class="n">branch_strategy</span> <span class="o">=</span> <span class="s2">&quot;main&quot;</span>
+</span><span id="create_ai_shell_config-126"><a href="#create_ai_shell_config-126"><span class="linenos">126</span></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-127"><a href="#create_ai_shell_config-127"><span class="linenos">127</span></a>            <span class="n">branch_strategy</span> <span class="o">=</span> <span class="s2">&quot;dev&quot;</span>
+</span><span id="create_ai_shell_config-128"><a href="#create_ai_shell_config-128"><span class="linenos">128</span></a>
+</span><span id="create_ai_shell_config-129"><a href="#create_ai_shell_config-129"><span class="linenos">129</span></a>    <span class="c1"># Load existing config if present</span>
+</span><span id="create_ai_shell_config-130"><a href="#create_ai_shell_config-130"><span class="linenos">130</span></a>    <span class="n">existing_data</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{}</span>
+</span><span id="create_ai_shell_config-131"><a href="#create_ai_shell_config-131"><span class="linenos">131</span></a>    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+</span><span id="create_ai_shell_config-132"><a href="#create_ai_shell_config-132"><span class="linenos">132</span></a>        <span class="k">try</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-133"><a href="#create_ai_shell_config-133"><span class="linenos">133</span></a>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-134"><a href="#create_ai_shell_config-134"><span class="linenos">134</span></a>                <span class="n">existing_data</span> <span class="o">=</span> <span class="n">tomllib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+</span><span id="create_ai_shell_config-135"><a href="#create_ai_shell_config-135"><span class="linenos">135</span></a>        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-136"><a href="#create_ai_shell_config-136"><span class="linenos">136</span></a>            <span class="k">pass</span>
+</span><span id="create_ai_shell_config-137"><a href="#create_ai_shell_config-137"><span class="linenos">137</span></a>
+</span><span id="create_ai_shell_config-138"><a href="#create_ai_shell_config-138"><span class="linenos">138</span></a>    <span class="c1"># Update project section</span>
+</span><span id="create_ai_shell_config-139"><a href="#create_ai_shell_config-139"><span class="linenos">139</span></a>    <span class="k">if</span> <span class="s2">&quot;project&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">existing_data</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-140"><a href="#create_ai_shell_config-140"><span class="linenos">140</span></a>        <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+</span><span id="create_ai_shell_config-141"><a href="#create_ai_shell_config-141"><span class="linenos">141</span></a>
+</span><span id="create_ai_shell_config-142"><a href="#create_ai_shell_config-142"><span class="linenos">142</span></a>    <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">][</span><span class="s2">&quot;repo_type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">repo_type</span>
+</span><span id="create_ai_shell_config-143"><a href="#create_ai_shell_config-143"><span class="linenos">143</span></a>    <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">][</span><span class="s2">&quot;branch_strategy&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">branch_strategy</span>
+</span><span id="create_ai_shell_config-144"><a href="#create_ai_shell_config-144"><span class="linenos">144</span></a>
+</span><span id="create_ai_shell_config-145"><a href="#create_ai_shell_config-145"><span class="linenos">145</span></a>    <span class="c1"># Only add dev_branch if strategy is &quot;dev&quot;</span>
+</span><span id="create_ai_shell_config-146"><a href="#create_ai_shell_config-146"><span class="linenos">146</span></a>    <span class="k">if</span> <span class="n">branch_strategy</span> <span class="o">==</span> <span class="s2">&quot;dev&quot;</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-147"><a href="#create_ai_shell_config-147"><span class="linenos">147</span></a>        <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">][</span><span class="s2">&quot;dev_branch&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dev_branch</span>
+</span><span id="create_ai_shell_config-148"><a href="#create_ai_shell_config-148"><span class="linenos">148</span></a>    <span class="k">elif</span> <span class="s2">&quot;dev_branch&quot;</span> <span class="ow">in</span> <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">]:</span>
+</span><span id="create_ai_shell_config-149"><a href="#create_ai_shell_config-149"><span class="linenos">149</span></a>        <span class="k">del</span> <span class="n">existing_data</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">][</span><span class="s2">&quot;dev_branch&quot;</span><span class="p">]</span>
+</span><span id="create_ai_shell_config-150"><a href="#create_ai_shell_config-150"><span class="linenos">150</span></a>
+</span><span id="create_ai_shell_config-151"><a href="#create_ai_shell_config-151"><span class="linenos">151</span></a>    <span class="c1"># Write config</span>
+</span><span id="create_ai_shell_config-152"><a href="#create_ai_shell_config-152"><span class="linenos">152</span></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;wb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span><span id="create_ai_shell_config-153"><a href="#create_ai_shell_config-153"><span class="linenos">153</span></a>        <span class="n">tomli_w</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">existing_data</span><span class="p">,</span> <span class="n">f</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -418,6 +596,84 @@
     repo_type: Repository type ("library", "service", "workspace")
     branch_strategy: Branch strategy ("main" or "dev"), auto-detected if None
     dev_branch: Name of dev branch (default: "dev")</p>
+</div>
+
+
+                </section>
+                <section id="load_ai_shell_config">
+                            <input id="load_ai_shell_config-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">load_ai_shell_config</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n"><a href="#AiShellConfig">AiShellConfig</a></span> <span class="o">|</span> <span class="kc">None</span>:</span></span>
+
+                <label class="view-source-button" for="load_ai_shell_config-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#load_ai_shell_config"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="load_ai_shell_config-53"><a href="#load_ai_shell_config-53"><span class="linenos"> 53</span></a><span class="k">def</span><span class="w"> </span><span class="nf">load_ai_shell_config</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AiShellConfig</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="load_ai_shell_config-54"><a href="#load_ai_shell_config-54"><span class="linenos"> 54</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Load ai-shell.toml configuration.</span>
+</span><span id="load_ai_shell_config-55"><a href="#load_ai_shell_config-55"><span class="linenos"> 55</span></a>
+</span><span id="load_ai_shell_config-56"><a href="#load_ai_shell_config-56"><span class="linenos"> 56</span></a><span class="sd">    Args:</span>
+</span><span id="load_ai_shell_config-57"><a href="#load_ai_shell_config-57"><span class="linenos"> 57</span></a><span class="sd">        path: Path to ai-shell.toml (defaults to current directory)</span>
+</span><span id="load_ai_shell_config-58"><a href="#load_ai_shell_config-58"><span class="linenos"> 58</span></a>
+</span><span id="load_ai_shell_config-59"><a href="#load_ai_shell_config-59"><span class="linenos"> 59</span></a><span class="sd">    Returns:</span>
+</span><span id="load_ai_shell_config-60"><a href="#load_ai_shell_config-60"><span class="linenos"> 60</span></a><span class="sd">        AiShellConfig if file exists and valid, None otherwise</span>
+</span><span id="load_ai_shell_config-61"><a href="#load_ai_shell_config-61"><span class="linenos"> 61</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="load_ai_shell_config-62"><a href="#load_ai_shell_config-62"><span class="linenos"> 62</span></a>    <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="load_ai_shell_config-63"><a href="#load_ai_shell_config-63"><span class="linenos"> 63</span></a>        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;ai-shell.toml&quot;</span><span class="p">)</span>
+</span><span id="load_ai_shell_config-64"><a href="#load_ai_shell_config-64"><span class="linenos"> 64</span></a>
+</span><span id="load_ai_shell_config-65"><a href="#load_ai_shell_config-65"><span class="linenos"> 65</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+</span><span id="load_ai_shell_config-66"><a href="#load_ai_shell_config-66"><span class="linenos"> 66</span></a>        <span class="k">return</span> <span class="kc">None</span>
+</span><span id="load_ai_shell_config-67"><a href="#load_ai_shell_config-67"><span class="linenos"> 67</span></a>
+</span><span id="load_ai_shell_config-68"><a href="#load_ai_shell_config-68"><span class="linenos"> 68</span></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="load_ai_shell_config-69"><a href="#load_ai_shell_config-69"><span class="linenos"> 69</span></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span><span id="load_ai_shell_config-70"><a href="#load_ai_shell_config-70"><span class="linenos"> 70</span></a>            <span class="n">data</span> <span class="o">=</span> <span class="n">tomllib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+</span><span id="load_ai_shell_config-71"><a href="#load_ai_shell_config-71"><span class="linenos"> 71</span></a>
+</span><span id="load_ai_shell_config-72"><a href="#load_ai_shell_config-72"><span class="linenos"> 72</span></a>        <span class="n">project</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;project&quot;</span><span class="p">,</span> <span class="p">{})</span>
+</span><span id="load_ai_shell_config-73"><a href="#load_ai_shell_config-73"><span class="linenos"> 73</span></a>
+</span><span id="load_ai_shell_config-74"><a href="#load_ai_shell_config-74"><span class="linenos"> 74</span></a>        <span class="c1"># Map old &quot;iac&quot; to &quot;service&quot; for backward compatibility</span>
+</span><span id="load_ai_shell_config-75"><a href="#load_ai_shell_config-75"><span class="linenos"> 75</span></a>        <span class="n">repo_type</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;repo_type&quot;</span><span class="p">,</span> <span class="s2">&quot;library&quot;</span><span class="p">)</span>
+</span><span id="load_ai_shell_config-76"><a href="#load_ai_shell_config-76"><span class="linenos"> 76</span></a>        <span class="k">if</span> <span class="n">repo_type</span> <span class="o">==</span> <span class="s2">&quot;iac&quot;</span><span class="p">:</span>
+</span><span id="load_ai_shell_config-77"><a href="#load_ai_shell_config-77"><span class="linenos"> 77</span></a>            <span class="n">repo_type</span> <span class="o">=</span> <span class="s2">&quot;service&quot;</span>
+</span><span id="load_ai_shell_config-78"><a href="#load_ai_shell_config-78"><span class="linenos"> 78</span></a>
+</span><span id="load_ai_shell_config-79"><a href="#load_ai_shell_config-79"><span class="linenos"> 79</span></a>        <span class="c1"># Parse [ai_tools] sections</span>
+</span><span id="load_ai_shell_config-80"><a href="#load_ai_shell_config-80"><span class="linenos"> 80</span></a>        <span class="n">ai_tools</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ai_tools&quot;</span><span class="p">,</span> <span class="p">{})</span>
+</span><span id="load_ai_shell_config-81"><a href="#load_ai_shell_config-81"><span class="linenos"> 81</span></a>        <span class="n">repo_section</span> <span class="o">=</span> <span class="n">ai_tools</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;repo&quot;</span><span class="p">,</span> <span class="p">{})</span>
+</span><span id="load_ai_shell_config-82"><a href="#load_ai_shell_config-82"><span class="linenos"> 82</span></a>        <span class="n">commands_section</span> <span class="o">=</span> <span class="n">ai_tools</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;commands&quot;</span><span class="p">,</span> <span class="p">{})</span>
+</span><span id="load_ai_shell_config-83"><a href="#load_ai_shell_config-83"><span class="linenos"> 83</span></a>
+</span><span id="load_ai_shell_config-84"><a href="#load_ai_shell_config-84"><span class="linenos"> 84</span></a>        <span class="n">ai_tools_repo</span> <span class="o">=</span> <span class="n">AiToolsRepoConfig</span><span class="p">(</span>
+</span><span id="load_ai_shell_config-85"><a href="#load_ai_shell_config-85"><span class="linenos"> 85</span></a>            <span class="n">update_work_branch_strategy</span><span class="o">=</span><span class="n">repo_section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;update_work_branch_strategy&quot;</span><span class="p">,</span> <span class="s2">&quot;rebase&quot;</span><span class="p">),</span>
+</span><span id="load_ai_shell_config-86"><a href="#load_ai_shell_config-86"><span class="linenos"> 86</span></a>            <span class="n">default_submit_preset</span><span class="o">=</span><span class="n">repo_section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;default_submit_preset&quot;</span><span class="p">,</span> <span class="s2">&quot;default&quot;</span><span class="p">),</span>
+</span><span id="load_ai_shell_config-87"><a href="#load_ai_shell_config-87"><span class="linenos"> 87</span></a>        <span class="p">)</span>
+</span><span id="load_ai_shell_config-88"><a href="#load_ai_shell_config-88"><span class="linenos"> 88</span></a>
+</span><span id="load_ai_shell_config-89"><a href="#load_ai_shell_config-89"><span class="linenos"> 89</span></a>        <span class="n">ai_tools_commands</span> <span class="o">=</span> <span class="n">AiToolsCommandsConfig</span><span class="p">(</span>
+</span><span id="load_ai_shell_config-90"><a href="#load_ai_shell_config-90"><span class="linenos"> 90</span></a>            <span class="n">quality</span><span class="o">=</span><span class="n">commands_section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;quality&quot;</span><span class="p">),</span>
+</span><span id="load_ai_shell_config-91"><a href="#load_ai_shell_config-91"><span class="linenos"> 91</span></a>            <span class="n">tests</span><span class="o">=</span><span class="n">commands_section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tests&quot;</span><span class="p">),</span>
+</span><span id="load_ai_shell_config-92"><a href="#load_ai_shell_config-92"><span class="linenos"> 92</span></a>            <span class="n">security</span><span class="o">=</span><span class="n">commands_section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;security&quot;</span><span class="p">),</span>
+</span><span id="load_ai_shell_config-93"><a href="#load_ai_shell_config-93"><span class="linenos"> 93</span></a>            <span class="n">licenses</span><span class="o">=</span><span class="n">commands_section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;licenses&quot;</span><span class="p">),</span>
+</span><span id="load_ai_shell_config-94"><a href="#load_ai_shell_config-94"><span class="linenos"> 94</span></a>            <span class="n">build</span><span class="o">=</span><span class="n">commands_section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;build&quot;</span><span class="p">),</span>
+</span><span id="load_ai_shell_config-95"><a href="#load_ai_shell_config-95"><span class="linenos"> 95</span></a>        <span class="p">)</span>
+</span><span id="load_ai_shell_config-96"><a href="#load_ai_shell_config-96"><span class="linenos"> 96</span></a>
+</span><span id="load_ai_shell_config-97"><a href="#load_ai_shell_config-97"><span class="linenos"> 97</span></a>        <span class="k">return</span> <span class="n">AiShellConfig</span><span class="p">(</span>
+</span><span id="load_ai_shell_config-98"><a href="#load_ai_shell_config-98"><span class="linenos"> 98</span></a>            <span class="n">repo_type</span><span class="o">=</span><span class="n">repo_type</span><span class="p">,</span>
+</span><span id="load_ai_shell_config-99"><a href="#load_ai_shell_config-99"><span class="linenos"> 99</span></a>            <span class="n">branch_strategy</span><span class="o">=</span><span class="n">project</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;branch_strategy&quot;</span><span class="p">,</span> <span class="s2">&quot;main&quot;</span><span class="p">),</span>
+</span><span id="load_ai_shell_config-100"><a href="#load_ai_shell_config-100"><span class="linenos">100</span></a>            <span class="n">dev_branch</span><span class="o">=</span><span class="n">project</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dev_branch&quot;</span><span class="p">,</span> <span class="s2">&quot;dev&quot;</span><span class="p">),</span>
+</span><span id="load_ai_shell_config-101"><a href="#load_ai_shell_config-101"><span class="linenos">101</span></a>            <span class="n">ai_tools_repo</span><span class="o">=</span><span class="n">ai_tools_repo</span><span class="p">,</span>
+</span><span id="load_ai_shell_config-102"><a href="#load_ai_shell_config-102"><span class="linenos">102</span></a>            <span class="n">ai_tools_commands</span><span class="o">=</span><span class="n">ai_tools_commands</span><span class="p">,</span>
+</span><span id="load_ai_shell_config-103"><a href="#load_ai_shell_config-103"><span class="linenos">103</span></a>        <span class="p">)</span>
+</span><span id="load_ai_shell_config-104"><a href="#load_ai_shell_config-104"><span class="linenos">104</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+</span><span id="load_ai_shell_config-105"><a href="#load_ai_shell_config-105"><span class="linenos">105</span></a>        <span class="k">return</span> <span class="kc">None</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Load ai-shell.toml configuration.</p>
+
+<p>Args:
+    path: Path to ai-shell.toml (defaults to current directory)</p>
+
+<p>Returns:
+    AiShellConfig if file exists and valid, None otherwise</p>
 </div>
 
 

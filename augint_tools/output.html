@@ -31,19 +31,82 @@
             <h2>API Documentation</h2>
                 <ul class="memberlist">
             <li>
-                    <a class="function" href="#emit_output">emit_output</a>
+                    <a class="class" href="#CommandResponse">CommandResponse</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="function" href="#CommandResponse.__init__">CommandResponse</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CommandResponse.command">command</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CommandResponse.scope">scope</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CommandResponse.status">status</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CommandResponse.summary">summary</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CommandResponse.result">result</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CommandResponse.next_actions">next_actions</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CommandResponse.warnings">warnings</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CommandResponse.errors">errors</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CommandResponse.exit_code">exit_code</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#CommandResponse.to_dict">to_dict</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#CommandResponse.error">error</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#CommandResponse.ok">ok</a>
+                        </li>
+                </ul>
+
             </li>
             <li>
-                    <a class="function" href="#emit_json">emit_json</a>
+                    <a class="class" href="#ExitCode">ExitCode</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="variable" href="#ExitCode.SUCCESS">SUCCESS</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#ExitCode.FAILURE">FAILURE</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#ExitCode.ACTION_REQUIRED">ACTION_REQUIRED</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#ExitCode.BLOCKED">BLOCKED</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#ExitCode.PARTIAL">PARTIAL</a>
+                        </li>
+                </ul>
+
             </li>
             <li>
                     <a class="function" href="#emit_error">emit_error</a>
             </li>
             <li>
-                    <a class="function" href="#emit_warning">emit_warning</a>
+                    <a class="function" href="#emit_response">emit_response</a>
             </li>
             <li>
-                    <a class="function" href="#create_error_response">create_error_response</a>
+                    <a class="function" href="#emit_stub">emit_stub</a>
+            </li>
+            <li>
+                    <a class="function" href="#emit_warning">emit_warning</a>
             </li>
     </ul>
 
@@ -71,97 +134,418 @@
                         <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;Output formatting utilities.&quot;&quot;&quot;</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.output.formatter</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a>    <span class="n">create_error_response</span><span class="p">,</span>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a>    <span class="n">emit_error</span><span class="p">,</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>    <span class="n">emit_json</span><span class="p">,</span>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a>    <span class="n">emit_output</span><span class="p">,</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a>    <span class="n">emit_warning</span><span class="p">,</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="p">)</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a>    <span class="n">emit_error</span><span class="p">,</span>
+</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a>    <span class="n">emit_response</span><span class="p">,</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>    <span class="n">emit_stub</span><span class="p">,</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a>    <span class="n">emit_warning</span><span class="p">,</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="p">)</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.output.response</span><span class="w"> </span><span class="kn">import</span> <span class="n">CommandResponse</span><span class="p">,</span> <span class="n">ExitCode</span>
 </span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;emit_output&quot;</span><span class="p">,</span> <span class="s2">&quot;emit_json&quot;</span><span class="p">,</span> <span class="s2">&quot;emit_error&quot;</span><span class="p">,</span> <span class="s2">&quot;emit_warning&quot;</span><span class="p">,</span> <span class="s2">&quot;create_error_response&quot;</span><span class="p">]</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>    <span class="s2">&quot;CommandResponse&quot;</span><span class="p">,</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>    <span class="s2">&quot;ExitCode&quot;</span><span class="p">,</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="s2">&quot;emit_error&quot;</span><span class="p">,</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="s2">&quot;emit_response&quot;</span><span class="p">,</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>    <span class="s2">&quot;emit_stub&quot;</span><span class="p">,</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="s2">&quot;emit_warning&quot;</span><span class="p">,</span>
+</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a><span class="p">]</span>
 </span></pre></div>
 
 
             </section>
-                <section id="emit_output">
-                            <input id="emit_output-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-<div class="attr function">
-            
-        <span class="def">def</span>
-        <span class="name">emit_output</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">command</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">scope</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">as_json</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;ok&#39;</span>,</span><span class="param">	<span class="o">**</span><span class="n">data</span><span class="p">:</span> <span class="n">Any</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+                <section id="CommandResponse">
+                            <input id="CommandResponse-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr class">
+                    <div class="decorator decorator-dataclass">@dataclass</div>
 
-                <label class="view-source-button" for="emit_output-view-source"><span>View Source</span></label>
+    <span class="def">class</span>
+    <span class="name">CommandResponse</span>:
+
+                <label class="view-source-button" for="CommandResponse-view-source"><span>View Source</span></label>
 
     </div>
-    <a class="headerlink" href="#emit_output"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_output-21"><a href="#emit_output-21"><span class="linenos">21</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_output</span><span class="p">(</span>
-</span><span id="emit_output-22"><a href="#emit_output-22"><span class="linenos">22</span></a>    <span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="emit_output-23"><a href="#emit_output-23"><span class="linenos">23</span></a>    <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="emit_output-24"><a href="#emit_output-24"><span class="linenos">24</span></a>    <span class="n">as_json</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-</span><span id="emit_output-25"><a href="#emit_output-25"><span class="linenos">25</span></a>    <span class="n">status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;ok&quot;</span><span class="p">,</span>
-</span><span id="emit_output-26"><a href="#emit_output-26"><span class="linenos">26</span></a>    <span class="o">**</span><span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-</span><span id="emit_output-27"><a href="#emit_output-27"><span class="linenos">27</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="emit_output-28"><a href="#emit_output-28"><span class="linenos">28</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="emit_output-29"><a href="#emit_output-29"><span class="linenos">29</span></a><span class="sd">    Emit command output in JSON or human-readable format.</span>
-</span><span id="emit_output-30"><a href="#emit_output-30"><span class="linenos">30</span></a>
-</span><span id="emit_output-31"><a href="#emit_output-31"><span class="linenos">31</span></a><span class="sd">    Args:</span>
-</span><span id="emit_output-32"><a href="#emit_output-32"><span class="linenos">32</span></a><span class="sd">        command: Command name (e.g., &quot;status&quot;, &quot;branch&quot;)</span>
-</span><span id="emit_output-33"><a href="#emit_output-33"><span class="linenos">33</span></a><span class="sd">        scope: Command scope (&quot;repo&quot; or &quot;monorepo&quot;)</span>
-</span><span id="emit_output-34"><a href="#emit_output-34"><span class="linenos">34</span></a><span class="sd">        as_json: Whether to output JSON format</span>
-</span><span id="emit_output-35"><a href="#emit_output-35"><span class="linenos">35</span></a><span class="sd">        status: Command status (&quot;ok&quot; or &quot;error&quot;)</span>
-</span><span id="emit_output-36"><a href="#emit_output-36"><span class="linenos">36</span></a><span class="sd">        **data: Additional data to include in response</span>
-</span><span id="emit_output-37"><a href="#emit_output-37"><span class="linenos">37</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="emit_output-38"><a href="#emit_output-38"><span class="linenos">38</span></a>    <span class="n">response</span> <span class="o">=</span> <span class="p">{</span>
-</span><span id="emit_output-39"><a href="#emit_output-39"><span class="linenos">39</span></a>        <span class="s2">&quot;command&quot;</span><span class="p">:</span> <span class="n">command</span><span class="p">,</span>
-</span><span id="emit_output-40"><a href="#emit_output-40"><span class="linenos">40</span></a>        <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="n">status</span><span class="p">,</span>
-</span><span id="emit_output-41"><a href="#emit_output-41"><span class="linenos">41</span></a>        <span class="s2">&quot;scope&quot;</span><span class="p">:</span> <span class="n">scope</span><span class="p">,</span>
-</span><span id="emit_output-42"><a href="#emit_output-42"><span class="linenos">42</span></a>        <span class="o">**</span><span class="n">data</span><span class="p">,</span>
-</span><span id="emit_output-43"><a href="#emit_output-43"><span class="linenos">43</span></a>    <span class="p">}</span>
-</span><span id="emit_output-44"><a href="#emit_output-44"><span class="linenos">44</span></a>
-</span><span id="emit_output-45"><a href="#emit_output-45"><span class="linenos">45</span></a>    <span class="k">if</span> <span class="n">as_json</span><span class="p">:</span>
-</span><span id="emit_output-46"><a href="#emit_output-46"><span class="linenos">46</span></a>        <span class="n">emit_json</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
-</span><span id="emit_output-47"><a href="#emit_output-47"><span class="linenos">47</span></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="emit_output-48"><a href="#emit_output-48"><span class="linenos">48</span></a>        <span class="n">_emit_human</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+    <a class="headerlink" href="#CommandResponse"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="CommandResponse-28"><a href="#CommandResponse-28"><span class="linenos">28</span></a><span class="nd">@dataclass</span>
+</span><span id="CommandResponse-29"><a href="#CommandResponse-29"><span class="linenos">29</span></a><span class="k">class</span><span class="w"> </span><span class="nc">CommandResponse</span><span class="p">:</span>
+</span><span id="CommandResponse-30"><a href="#CommandResponse-30"><span class="linenos">30</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Canonical output envelope for every AI-facing command.</span>
+</span><span id="CommandResponse-31"><a href="#CommandResponse-31"><span class="linenos">31</span></a>
+</span><span id="CommandResponse-32"><a href="#CommandResponse-32"><span class="linenos">32</span></a><span class="sd">    Every command must construct one of these and pass it to emit_response().</span>
+</span><span id="CommandResponse-33"><a href="#CommandResponse-33"><span class="linenos">33</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="CommandResponse-34"><a href="#CommandResponse-34"><span class="linenos">34</span></a>
+</span><span id="CommandResponse-35"><a href="#CommandResponse-35"><span class="linenos">35</span></a>    <span class="n">command</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="CommandResponse-36"><a href="#CommandResponse-36"><span class="linenos">36</span></a>    <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="CommandResponse-37"><a href="#CommandResponse-37"><span class="linenos">37</span></a>    <span class="n">status</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="CommandResponse-38"><a href="#CommandResponse-38"><span class="linenos">38</span></a>    <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="CommandResponse-39"><a href="#CommandResponse-39"><span class="linenos">39</span></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+</span><span id="CommandResponse-40"><a href="#CommandResponse-40"><span class="linenos">40</span></a>    <span class="n">next_actions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="CommandResponse-41"><a href="#CommandResponse-41"><span class="linenos">41</span></a>    <span class="n">warnings</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="CommandResponse-42"><a href="#CommandResponse-42"><span class="linenos">42</span></a>    <span class="n">errors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="CommandResponse-43"><a href="#CommandResponse-43"><span class="linenos">43</span></a>
+</span><span id="CommandResponse-44"><a href="#CommandResponse-44"><span class="linenos">44</span></a>    <span class="nd">@property</span>
+</span><span id="CommandResponse-45"><a href="#CommandResponse-45"><span class="linenos">45</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">exit_code</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+</span><span id="CommandResponse-46"><a href="#CommandResponse-46"><span class="linenos">46</span></a>        <span class="k">return</span> <span class="n">STATUS_EXIT_MAP</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">status</span><span class="p">,</span> <span class="n">ExitCode</span><span class="o">.</span><span class="n">FAILURE</span><span class="p">)</span>
+</span><span id="CommandResponse-47"><a href="#CommandResponse-47"><span class="linenos">47</span></a>
+</span><span id="CommandResponse-48"><a href="#CommandResponse-48"><span class="linenos">48</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+</span><span id="CommandResponse-49"><a href="#CommandResponse-49"><span class="linenos">49</span></a>        <span class="k">return</span> <span class="p">{</span>
+</span><span id="CommandResponse-50"><a href="#CommandResponse-50"><span class="linenos">50</span></a>            <span class="s2">&quot;command&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">command</span><span class="p">,</span>
+</span><span id="CommandResponse-51"><a href="#CommandResponse-51"><span class="linenos">51</span></a>            <span class="s2">&quot;scope&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">scope</span><span class="p">,</span>
+</span><span id="CommandResponse-52"><a href="#CommandResponse-52"><span class="linenos">52</span></a>            <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">status</span><span class="p">,</span>
+</span><span id="CommandResponse-53"><a href="#CommandResponse-53"><span class="linenos">53</span></a>            <span class="s2">&quot;summary&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">summary</span><span class="p">,</span>
+</span><span id="CommandResponse-54"><a href="#CommandResponse-54"><span class="linenos">54</span></a>            <span class="s2">&quot;next_actions&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">next_actions</span><span class="p">,</span>
+</span><span id="CommandResponse-55"><a href="#CommandResponse-55"><span class="linenos">55</span></a>            <span class="s2">&quot;warnings&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">warnings</span><span class="p">,</span>
+</span><span id="CommandResponse-56"><a href="#CommandResponse-56"><span class="linenos">56</span></a>            <span class="s2">&quot;errors&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">errors</span><span class="p">,</span>
+</span><span id="CommandResponse-57"><a href="#CommandResponse-57"><span class="linenos">57</span></a>            <span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">result</span><span class="p">,</span>
+</span><span id="CommandResponse-58"><a href="#CommandResponse-58"><span class="linenos">58</span></a>        <span class="p">}</span>
+</span><span id="CommandResponse-59"><a href="#CommandResponse-59"><span class="linenos">59</span></a>
+</span><span id="CommandResponse-60"><a href="#CommandResponse-60"><span class="linenos">60</span></a>    <span class="nd">@staticmethod</span>
+</span><span id="CommandResponse-61"><a href="#CommandResponse-61"><span class="linenos">61</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">error</span><span class="p">(</span>
+</span><span id="CommandResponse-62"><a href="#CommandResponse-62"><span class="linenos">62</span></a>        <span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse-63"><a href="#CommandResponse-63"><span class="linenos">63</span></a>        <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse-64"><a href="#CommandResponse-64"><span class="linenos">64</span></a>        <span class="n">error</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse-65"><a href="#CommandResponse-65"><span class="linenos">65</span></a>        <span class="o">**</span><span class="n">result_kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+</span><span id="CommandResponse-66"><a href="#CommandResponse-66"><span class="linenos">66</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;CommandResponse&quot;</span><span class="p">:</span>
+</span><span id="CommandResponse-67"><a href="#CommandResponse-67"><span class="linenos">67</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Convenience constructor for error responses.&quot;&quot;&quot;</span>
+</span><span id="CommandResponse-68"><a href="#CommandResponse-68"><span class="linenos">68</span></a>        <span class="k">return</span> <span class="n">CommandResponse</span><span class="p">(</span>
+</span><span id="CommandResponse-69"><a href="#CommandResponse-69"><span class="linenos">69</span></a>            <span class="n">command</span><span class="o">=</span><span class="n">command</span><span class="p">,</span>
+</span><span id="CommandResponse-70"><a href="#CommandResponse-70"><span class="linenos">70</span></a>            <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">,</span>
+</span><span id="CommandResponse-71"><a href="#CommandResponse-71"><span class="linenos">71</span></a>            <span class="n">status</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+</span><span id="CommandResponse-72"><a href="#CommandResponse-72"><span class="linenos">72</span></a>            <span class="n">summary</span><span class="o">=</span><span class="n">error</span><span class="p">,</span>
+</span><span id="CommandResponse-73"><a href="#CommandResponse-73"><span class="linenos">73</span></a>            <span class="n">errors</span><span class="o">=</span><span class="p">[</span><span class="n">error</span><span class="p">],</span>
+</span><span id="CommandResponse-74"><a href="#CommandResponse-74"><span class="linenos">74</span></a>            <span class="n">result</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">result_kwargs</span><span class="p">),</span>
+</span><span id="CommandResponse-75"><a href="#CommandResponse-75"><span class="linenos">75</span></a>        <span class="p">)</span>
+</span><span id="CommandResponse-76"><a href="#CommandResponse-76"><span class="linenos">76</span></a>
+</span><span id="CommandResponse-77"><a href="#CommandResponse-77"><span class="linenos">77</span></a>    <span class="nd">@staticmethod</span>
+</span><span id="CommandResponse-78"><a href="#CommandResponse-78"><span class="linenos">78</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span>
+</span><span id="CommandResponse-79"><a href="#CommandResponse-79"><span class="linenos">79</span></a>        <span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse-80"><a href="#CommandResponse-80"><span class="linenos">80</span></a>        <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse-81"><a href="#CommandResponse-81"><span class="linenos">81</span></a>        <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse-82"><a href="#CommandResponse-82"><span class="linenos">82</span></a>        <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="CommandResponse-83"><a href="#CommandResponse-83"><span class="linenos">83</span></a>        <span class="n">next_actions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="CommandResponse-84"><a href="#CommandResponse-84"><span class="linenos">84</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;CommandResponse&quot;</span><span class="p">:</span>
+</span><span id="CommandResponse-85"><a href="#CommandResponse-85"><span class="linenos">85</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Convenience constructor for success responses.&quot;&quot;&quot;</span>
+</span><span id="CommandResponse-86"><a href="#CommandResponse-86"><span class="linenos">86</span></a>        <span class="k">return</span> <span class="n">CommandResponse</span><span class="p">(</span>
+</span><span id="CommandResponse-87"><a href="#CommandResponse-87"><span class="linenos">87</span></a>            <span class="n">command</span><span class="o">=</span><span class="n">command</span><span class="p">,</span>
+</span><span id="CommandResponse-88"><a href="#CommandResponse-88"><span class="linenos">88</span></a>            <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">,</span>
+</span><span id="CommandResponse-89"><a href="#CommandResponse-89"><span class="linenos">89</span></a>            <span class="n">status</span><span class="o">=</span><span class="s2">&quot;ok&quot;</span><span class="p">,</span>
+</span><span id="CommandResponse-90"><a href="#CommandResponse-90"><span class="linenos">90</span></a>            <span class="n">summary</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span>
+</span><span id="CommandResponse-91"><a href="#CommandResponse-91"><span class="linenos">91</span></a>            <span class="n">result</span><span class="o">=</span><span class="n">result</span> <span class="ow">or</span> <span class="p">{},</span>
+</span><span id="CommandResponse-92"><a href="#CommandResponse-92"><span class="linenos">92</span></a>            <span class="n">next_actions</span><span class="o">=</span><span class="n">next_actions</span> <span class="ow">or</span> <span class="p">[],</span>
+</span><span id="CommandResponse-93"><a href="#CommandResponse-93"><span class="linenos">93</span></a>        <span class="p">)</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>Emit command output in JSON or human-readable format.</p>
+            <div class="docstring"><p>Canonical output envelope for every AI-facing command.</p>
 
-<p>Args:
-    command: Command name (e.g., "status", "branch")
-    scope: Command scope ("repo" or "monorepo")
-    as_json: Whether to output JSON format
-    status: Command status ("ok" or "error")
-    **data: Additional data to include in response</p>
+<p>Every command must construct one of these and pass it to emit_response().</p>
 </div>
 
 
+                            <div id="CommandResponse.__init__" class="classattr">
+                                <div class="attr function">
+            
+        <span class="name">CommandResponse</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">command</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">scope</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">status</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">next_actions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">warnings</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">errors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span></span>)</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CommandResponse.__init__"></a>
+    
+    
+
+                            </div>
+                            <div id="CommandResponse.command" class="classattr">
+                                <div class="attr variable">
+            <span class="name">command</span><span class="annotation">: str</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CommandResponse.command"></a>
+    
+    
+
+                            </div>
+                            <div id="CommandResponse.scope" class="classattr">
+                                <div class="attr variable">
+            <span class="name">scope</span><span class="annotation">: str</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CommandResponse.scope"></a>
+    
+    
+
+                            </div>
+                            <div id="CommandResponse.status" class="classattr">
+                                <div class="attr variable">
+            <span class="name">status</span><span class="annotation">: str</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CommandResponse.status"></a>
+    
+    
+
+                            </div>
+                            <div id="CommandResponse.summary" class="classattr">
+                                <div class="attr variable">
+            <span class="name">summary</span><span class="annotation">: str</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CommandResponse.summary"></a>
+    
+    
+
+                            </div>
+                            <div id="CommandResponse.result" class="classattr">
+                                <div class="attr variable">
+            <span class="name">result</span><span class="annotation">: dict[str, typing.Any]</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CommandResponse.result"></a>
+    
+    
+
+                            </div>
+                            <div id="CommandResponse.next_actions" class="classattr">
+                                <div class="attr variable">
+            <span class="name">next_actions</span><span class="annotation">: list[str]</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CommandResponse.next_actions"></a>
+    
+    
+
+                            </div>
+                            <div id="CommandResponse.warnings" class="classattr">
+                                <div class="attr variable">
+            <span class="name">warnings</span><span class="annotation">: list[str]</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CommandResponse.warnings"></a>
+    
+    
+
+                            </div>
+                            <div id="CommandResponse.errors" class="classattr">
+                                <div class="attr variable">
+            <span class="name">errors</span><span class="annotation">: list[str]</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CommandResponse.errors"></a>
+    
+    
+
+                            </div>
+                            <div id="CommandResponse.exit_code" class="classattr">
+                                        <input id="CommandResponse.exit_code-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr variable">
+            <span class="name">exit_code</span><span class="annotation">: int</span>
+
+                <label class="view-source-button" for="CommandResponse.exit_code-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#CommandResponse.exit_code"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="CommandResponse.exit_code-44"><a href="#CommandResponse.exit_code-44"><span class="linenos">44</span></a>    <span class="nd">@property</span>
+</span><span id="CommandResponse.exit_code-45"><a href="#CommandResponse.exit_code-45"><span class="linenos">45</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">exit_code</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+</span><span id="CommandResponse.exit_code-46"><a href="#CommandResponse.exit_code-46"><span class="linenos">46</span></a>        <span class="k">return</span> <span class="n">STATUS_EXIT_MAP</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">status</span><span class="p">,</span> <span class="n">ExitCode</span><span class="o">.</span><span class="n">FAILURE</span><span class="p">)</span>
+</span></pre></div>
+
+
+    
+
+                            </div>
+                            <div id="CommandResponse.to_dict" class="classattr">
+                                        <input id="CommandResponse.to_dict-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">to_dict</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span></span><span class="return-annotation">) -> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]</span>:</span></span>
+
+                <label class="view-source-button" for="CommandResponse.to_dict-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#CommandResponse.to_dict"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="CommandResponse.to_dict-48"><a href="#CommandResponse.to_dict-48"><span class="linenos">48</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+</span><span id="CommandResponse.to_dict-49"><a href="#CommandResponse.to_dict-49"><span class="linenos">49</span></a>        <span class="k">return</span> <span class="p">{</span>
+</span><span id="CommandResponse.to_dict-50"><a href="#CommandResponse.to_dict-50"><span class="linenos">50</span></a>            <span class="s2">&quot;command&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">command</span><span class="p">,</span>
+</span><span id="CommandResponse.to_dict-51"><a href="#CommandResponse.to_dict-51"><span class="linenos">51</span></a>            <span class="s2">&quot;scope&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">scope</span><span class="p">,</span>
+</span><span id="CommandResponse.to_dict-52"><a href="#CommandResponse.to_dict-52"><span class="linenos">52</span></a>            <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">status</span><span class="p">,</span>
+</span><span id="CommandResponse.to_dict-53"><a href="#CommandResponse.to_dict-53"><span class="linenos">53</span></a>            <span class="s2">&quot;summary&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">summary</span><span class="p">,</span>
+</span><span id="CommandResponse.to_dict-54"><a href="#CommandResponse.to_dict-54"><span class="linenos">54</span></a>            <span class="s2">&quot;next_actions&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">next_actions</span><span class="p">,</span>
+</span><span id="CommandResponse.to_dict-55"><a href="#CommandResponse.to_dict-55"><span class="linenos">55</span></a>            <span class="s2">&quot;warnings&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">warnings</span><span class="p">,</span>
+</span><span id="CommandResponse.to_dict-56"><a href="#CommandResponse.to_dict-56"><span class="linenos">56</span></a>            <span class="s2">&quot;errors&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">errors</span><span class="p">,</span>
+</span><span id="CommandResponse.to_dict-57"><a href="#CommandResponse.to_dict-57"><span class="linenos">57</span></a>            <span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">result</span><span class="p">,</span>
+</span><span id="CommandResponse.to_dict-58"><a href="#CommandResponse.to_dict-58"><span class="linenos">58</span></a>        <span class="p">}</span>
+</span></pre></div>
+
+
+    
+
+                            </div>
+                            <div id="CommandResponse.error" class="classattr">
+                                        <input id="CommandResponse.error-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+                    <div class="decorator decorator-staticmethod">@staticmethod</div>
+
+        <span class="def">def</span>
+        <span class="name">error</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">command</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">scope</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">error</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="o">**</span><span class="n">result_kwargs</span><span class="p">:</span> <span class="n">Any</span></span><span class="return-annotation">) -> <span class="n"><a href="#CommandResponse">CommandResponse</a></span>:</span></span>
+
+                <label class="view-source-button" for="CommandResponse.error-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#CommandResponse.error"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="CommandResponse.error-60"><a href="#CommandResponse.error-60"><span class="linenos">60</span></a>    <span class="nd">@staticmethod</span>
+</span><span id="CommandResponse.error-61"><a href="#CommandResponse.error-61"><span class="linenos">61</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">error</span><span class="p">(</span>
+</span><span id="CommandResponse.error-62"><a href="#CommandResponse.error-62"><span class="linenos">62</span></a>        <span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse.error-63"><a href="#CommandResponse.error-63"><span class="linenos">63</span></a>        <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse.error-64"><a href="#CommandResponse.error-64"><span class="linenos">64</span></a>        <span class="n">error</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse.error-65"><a href="#CommandResponse.error-65"><span class="linenos">65</span></a>        <span class="o">**</span><span class="n">result_kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+</span><span id="CommandResponse.error-66"><a href="#CommandResponse.error-66"><span class="linenos">66</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;CommandResponse&quot;</span><span class="p">:</span>
+</span><span id="CommandResponse.error-67"><a href="#CommandResponse.error-67"><span class="linenos">67</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Convenience constructor for error responses.&quot;&quot;&quot;</span>
+</span><span id="CommandResponse.error-68"><a href="#CommandResponse.error-68"><span class="linenos">68</span></a>        <span class="k">return</span> <span class="n">CommandResponse</span><span class="p">(</span>
+</span><span id="CommandResponse.error-69"><a href="#CommandResponse.error-69"><span class="linenos">69</span></a>            <span class="n">command</span><span class="o">=</span><span class="n">command</span><span class="p">,</span>
+</span><span id="CommandResponse.error-70"><a href="#CommandResponse.error-70"><span class="linenos">70</span></a>            <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">,</span>
+</span><span id="CommandResponse.error-71"><a href="#CommandResponse.error-71"><span class="linenos">71</span></a>            <span class="n">status</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+</span><span id="CommandResponse.error-72"><a href="#CommandResponse.error-72"><span class="linenos">72</span></a>            <span class="n">summary</span><span class="o">=</span><span class="n">error</span><span class="p">,</span>
+</span><span id="CommandResponse.error-73"><a href="#CommandResponse.error-73"><span class="linenos">73</span></a>            <span class="n">errors</span><span class="o">=</span><span class="p">[</span><span class="n">error</span><span class="p">],</span>
+</span><span id="CommandResponse.error-74"><a href="#CommandResponse.error-74"><span class="linenos">74</span></a>            <span class="n">result</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">result_kwargs</span><span class="p">),</span>
+</span><span id="CommandResponse.error-75"><a href="#CommandResponse.error-75"><span class="linenos">75</span></a>        <span class="p">)</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Convenience constructor for error responses.</p>
+</div>
+
+
+                            </div>
+                            <div id="CommandResponse.ok" class="classattr">
+                                        <input id="CommandResponse.ok-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+                    <div class="decorator decorator-staticmethod">@staticmethod</div>
+
+        <span class="def">def</span>
+        <span class="name">ok</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">command</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">scope</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">next_actions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n"><a href="#CommandResponse">CommandResponse</a></span>:</span></span>
+
+                <label class="view-source-button" for="CommandResponse.ok-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#CommandResponse.ok"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="CommandResponse.ok-77"><a href="#CommandResponse.ok-77"><span class="linenos">77</span></a>    <span class="nd">@staticmethod</span>
+</span><span id="CommandResponse.ok-78"><a href="#CommandResponse.ok-78"><span class="linenos">78</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span>
+</span><span id="CommandResponse.ok-79"><a href="#CommandResponse.ok-79"><span class="linenos">79</span></a>        <span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse.ok-80"><a href="#CommandResponse.ok-80"><span class="linenos">80</span></a>        <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse.ok-81"><a href="#CommandResponse.ok-81"><span class="linenos">81</span></a>        <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="CommandResponse.ok-82"><a href="#CommandResponse.ok-82"><span class="linenos">82</span></a>        <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="CommandResponse.ok-83"><a href="#CommandResponse.ok-83"><span class="linenos">83</span></a>        <span class="n">next_actions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="CommandResponse.ok-84"><a href="#CommandResponse.ok-84"><span class="linenos">84</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;CommandResponse&quot;</span><span class="p">:</span>
+</span><span id="CommandResponse.ok-85"><a href="#CommandResponse.ok-85"><span class="linenos">85</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Convenience constructor for success responses.&quot;&quot;&quot;</span>
+</span><span id="CommandResponse.ok-86"><a href="#CommandResponse.ok-86"><span class="linenos">86</span></a>        <span class="k">return</span> <span class="n">CommandResponse</span><span class="p">(</span>
+</span><span id="CommandResponse.ok-87"><a href="#CommandResponse.ok-87"><span class="linenos">87</span></a>            <span class="n">command</span><span class="o">=</span><span class="n">command</span><span class="p">,</span>
+</span><span id="CommandResponse.ok-88"><a href="#CommandResponse.ok-88"><span class="linenos">88</span></a>            <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">,</span>
+</span><span id="CommandResponse.ok-89"><a href="#CommandResponse.ok-89"><span class="linenos">89</span></a>            <span class="n">status</span><span class="o">=</span><span class="s2">&quot;ok&quot;</span><span class="p">,</span>
+</span><span id="CommandResponse.ok-90"><a href="#CommandResponse.ok-90"><span class="linenos">90</span></a>            <span class="n">summary</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span>
+</span><span id="CommandResponse.ok-91"><a href="#CommandResponse.ok-91"><span class="linenos">91</span></a>            <span class="n">result</span><span class="o">=</span><span class="n">result</span> <span class="ow">or</span> <span class="p">{},</span>
+</span><span id="CommandResponse.ok-92"><a href="#CommandResponse.ok-92"><span class="linenos">92</span></a>            <span class="n">next_actions</span><span class="o">=</span><span class="n">next_actions</span> <span class="ow">or</span> <span class="p">[],</span>
+</span><span id="CommandResponse.ok-93"><a href="#CommandResponse.ok-93"><span class="linenos">93</span></a>        <span class="p">)</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Convenience constructor for success responses.</p>
+</div>
+
+
+                            </div>
                 </section>
-                <section id="emit_json">
-                            <input id="emit_json-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-<div class="attr function">
+                <section id="ExitCode">
+                            <input id="ExitCode-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr class">
             
-        <span class="def">def</span>
-        <span class="name">emit_json</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+    <span class="def">class</span>
+    <span class="name">ExitCode</span><wbr>(<span class="base">enum.IntEnum</span>):
 
-                <label class="view-source-button" for="emit_json-view-source"><span>View Source</span></label>
+                <label class="view-source-button" for="ExitCode-view-source"><span>View Source</span></label>
 
     </div>
-    <a class="headerlink" href="#emit_json"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_json-12"><a href="#emit_json-12"><span class="linenos">12</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_json</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="emit_json-13"><a href="#emit_json-13"><span class="linenos">13</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit JSON output to stdout.&quot;&quot;&quot;</span>
-</span><span id="emit_json-14"><a href="#emit_json-14"><span class="linenos">14</span></a>    <span class="c1"># Add timestamp if not present</span>
-</span><span id="emit_json-15"><a href="#emit_json-15"><span class="linenos">15</span></a>    <span class="k">if</span> <span class="s2">&quot;timestamp&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
-</span><span id="emit_json-16"><a href="#emit_json-16"><span class="linenos">16</span></a>        <span class="n">data</span><span class="p">[</span><span class="s2">&quot;timestamp&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">UTC</span><span class="p">)</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
-</span><span id="emit_json-17"><a href="#emit_json-17"><span class="linenos">17</span></a>
-</span><span id="emit_json-18"><a href="#emit_json-18"><span class="linenos">18</span></a>    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
+    <a class="headerlink" href="#ExitCode"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="ExitCode-9"><a href="#ExitCode-9"><span class="linenos"> 9</span></a><span class="k">class</span><span class="w"> </span><span class="nc">ExitCode</span><span class="p">(</span><span class="n">IntEnum</span><span class="p">):</span>
+</span><span id="ExitCode-10"><a href="#ExitCode-10"><span class="linenos">10</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Consistent exit codes per spec.&quot;&quot;&quot;</span>
+</span><span id="ExitCode-11"><a href="#ExitCode-11"><span class="linenos">11</span></a>
+</span><span id="ExitCode-12"><a href="#ExitCode-12"><span class="linenos">12</span></a>    <span class="n">SUCCESS</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="ExitCode-13"><a href="#ExitCode-13"><span class="linenos">13</span></a>    <span class="n">FAILURE</span> <span class="o">=</span> <span class="mi">1</span>
+</span><span id="ExitCode-14"><a href="#ExitCode-14"><span class="linenos">14</span></a>    <span class="n">ACTION_REQUIRED</span> <span class="o">=</span> <span class="mi">2</span>
+</span><span id="ExitCode-15"><a href="#ExitCode-15"><span class="linenos">15</span></a>    <span class="n">BLOCKED</span> <span class="o">=</span> <span class="mi">3</span>
+</span><span id="ExitCode-16"><a href="#ExitCode-16"><span class="linenos">16</span></a>    <span class="n">PARTIAL</span> <span class="o">=</span> <span class="mi">4</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>Emit JSON output to stdout.</p>
+            <div class="docstring"><p>Consistent exit codes per spec.</p>
 </div>
 
 
+                            <div id="ExitCode.SUCCESS" class="classattr">
+                                <div class="attr variable">
+            <span class="name">SUCCESS</span>        =
+<span class="default_value">&lt;<a href="#ExitCode.SUCCESS">ExitCode.SUCCESS</a>: 0&gt;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#ExitCode.SUCCESS"></a>
+    
+    
+
+                            </div>
+                            <div id="ExitCode.FAILURE" class="classattr">
+                                <div class="attr variable">
+            <span class="name">FAILURE</span>        =
+<span class="default_value">&lt;<a href="#ExitCode.FAILURE">ExitCode.FAILURE</a>: 1&gt;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#ExitCode.FAILURE"></a>
+    
+    
+
+                            </div>
+                            <div id="ExitCode.ACTION_REQUIRED" class="classattr">
+                                <div class="attr variable">
+            <span class="name">ACTION_REQUIRED</span>        =
+<span class="default_value">&lt;<a href="#ExitCode.ACTION_REQUIRED">ExitCode.ACTION_REQUIRED</a>: 2&gt;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#ExitCode.ACTION_REQUIRED"></a>
+    
+    
+
+                            </div>
+                            <div id="ExitCode.BLOCKED" class="classattr">
+                                <div class="attr variable">
+            <span class="name">BLOCKED</span>        =
+<span class="default_value">&lt;<a href="#ExitCode.BLOCKED">ExitCode.BLOCKED</a>: 3&gt;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#ExitCode.BLOCKED"></a>
+    
+    
+
+                            </div>
+                            <div id="ExitCode.PARTIAL" class="classattr">
+                                <div class="attr variable">
+            <span class="name">PARTIAL</span>        =
+<span class="default_value">&lt;<a href="#ExitCode.PARTIAL">ExitCode.PARTIAL</a>: 4&gt;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#ExitCode.PARTIAL"></a>
+    
+    
+
+                            </div>
                 </section>
                 <section id="emit_error">
                             <input id="emit_error-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
@@ -174,25 +558,107 @@
 
     </div>
     <a class="headerlink" href="#emit_error"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_error-162"><a href="#emit_error-162"><span class="linenos">162</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_error</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">exit_code</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="emit_error-163"><a href="#emit_error-163"><span class="linenos">163</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="emit_error-164"><a href="#emit_error-164"><span class="linenos">164</span></a><span class="sd">    Emit error message to stderr.</span>
-</span><span id="emit_error-165"><a href="#emit_error-165"><span class="linenos">165</span></a>
-</span><span id="emit_error-166"><a href="#emit_error-166"><span class="linenos">166</span></a><span class="sd">    Args:</span>
-</span><span id="emit_error-167"><a href="#emit_error-167"><span class="linenos">167</span></a><span class="sd">        message: Error message</span>
-</span><span id="emit_error-168"><a href="#emit_error-168"><span class="linenos">168</span></a><span class="sd">        exit_code: Optional exit code (exits if provided)</span>
-</span><span id="emit_error-169"><a href="#emit_error-169"><span class="linenos">169</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="emit_error-170"><a href="#emit_error-170"><span class="linenos">170</span></a>    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">click</span><span class="o">.</span><span class="n">style</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">fg</span><span class="o">=</span><span class="s2">&quot;red&quot;</span><span class="p">),</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="emit_error-171"><a href="#emit_error-171"><span class="linenos">171</span></a>    <span class="k">if</span> <span class="n">exit_code</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="emit_error-172"><a href="#emit_error-172"><span class="linenos">172</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">exit_code</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_error-256"><a href="#emit_error-256"><span class="linenos">256</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_error</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">exit_code</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="emit_error-257"><a href="#emit_error-257"><span class="linenos">257</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit error message to stderr.&quot;&quot;&quot;</span>
+</span><span id="emit_error-258"><a href="#emit_error-258"><span class="linenos">258</span></a>    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">click</span><span class="o">.</span><span class="n">style</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">fg</span><span class="o">=</span><span class="s2">&quot;red&quot;</span><span class="p">),</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="emit_error-259"><a href="#emit_error-259"><span class="linenos">259</span></a>    <span class="k">if</span> <span class="n">exit_code</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="emit_error-260"><a href="#emit_error-260"><span class="linenos">260</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">exit_code</span><span class="p">)</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Emit error message to stderr.</p>
+</div>
+
+
+                </section>
+                <section id="emit_response">
+                            <input id="emit_response-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">emit_response</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">response</span><span class="p">:</span> <span class="n"><a href="#CommandResponse">CommandResponse</a></span>,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">json_mode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">actionable</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">summary_only</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+
+                <label class="view-source-button" for="emit_response-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#emit_response"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_response-14"><a href="#emit_response-14"><span class="linenos">14</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_response</span><span class="p">(</span>
+</span><span id="emit_response-15"><a href="#emit_response-15"><span class="linenos">15</span></a>    <span class="n">response</span><span class="p">:</span> <span class="n">CommandResponse</span><span class="p">,</span>
+</span><span id="emit_response-16"><a href="#emit_response-16"><span class="linenos">16</span></a>    <span class="o">*</span><span class="p">,</span>
+</span><span id="emit_response-17"><a href="#emit_response-17"><span class="linenos">17</span></a>    <span class="n">json_mode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="emit_response-18"><a href="#emit_response-18"><span class="linenos">18</span></a>    <span class="n">actionable</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="emit_response-19"><a href="#emit_response-19"><span class="linenos">19</span></a>    <span class="n">summary_only</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="emit_response-20"><a href="#emit_response-20"><span class="linenos">20</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="emit_response-21"><a href="#emit_response-21"><span class="linenos">21</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit a CommandResponse in JSON or human-readable format.</span>
+</span><span id="emit_response-22"><a href="#emit_response-22"><span class="linenos">22</span></a>
+</span><span id="emit_response-23"><a href="#emit_response-23"><span class="linenos">23</span></a><span class="sd">    Args:</span>
+</span><span id="emit_response-24"><a href="#emit_response-24"><span class="linenos">24</span></a><span class="sd">        response: The response to emit.</span>
+</span><span id="emit_response-25"><a href="#emit_response-25"><span class="linenos">25</span></a><span class="sd">        json_mode: Output as JSON.</span>
+</span><span id="emit_response-26"><a href="#emit_response-26"><span class="linenos">26</span></a><span class="sd">        actionable: Suppress passing/no-op items.</span>
+</span><span id="emit_response-27"><a href="#emit_response-27"><span class="linenos">27</span></a><span class="sd">        summary_only: Emit only status, summary, and next_actions.</span>
+</span><span id="emit_response-28"><a href="#emit_response-28"><span class="linenos">28</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="emit_response-29"><a href="#emit_response-29"><span class="linenos">29</span></a>    <span class="k">if</span> <span class="n">actionable</span> <span class="ow">and</span> <span class="n">response</span><span class="o">.</span><span class="n">status</span> <span class="o">==</span> <span class="s2">&quot;ok&quot;</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">response</span><span class="o">.</span><span class="n">warnings</span><span class="p">:</span>
+</span><span id="emit_response-30"><a href="#emit_response-30"><span class="linenos">30</span></a>        <span class="k">return</span>
+</span><span id="emit_response-31"><a href="#emit_response-31"><span class="linenos">31</span></a>
+</span><span id="emit_response-32"><a href="#emit_response-32"><span class="linenos">32</span></a>    <span class="n">data</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+</span><span id="emit_response-33"><a href="#emit_response-33"><span class="linenos">33</span></a>
+</span><span id="emit_response-34"><a href="#emit_response-34"><span class="linenos">34</span></a>    <span class="k">if</span> <span class="n">json_mode</span><span class="p">:</span>
+</span><span id="emit_response-35"><a href="#emit_response-35"><span class="linenos">35</span></a>        <span class="k">if</span> <span class="n">summary_only</span><span class="p">:</span>
+</span><span id="emit_response-36"><a href="#emit_response-36"><span class="linenos">36</span></a>            <span class="n">data</span> <span class="o">=</span> <span class="p">{</span>
+</span><span id="emit_response-37"><a href="#emit_response-37"><span class="linenos">37</span></a>                <span class="s2">&quot;command&quot;</span><span class="p">:</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;command&quot;</span><span class="p">],</span>
+</span><span id="emit_response-38"><a href="#emit_response-38"><span class="linenos">38</span></a>                <span class="s2">&quot;scope&quot;</span><span class="p">:</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;scope&quot;</span><span class="p">],</span>
+</span><span id="emit_response-39"><a href="#emit_response-39"><span class="linenos">39</span></a>                <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">],</span>
+</span><span id="emit_response-40"><a href="#emit_response-40"><span class="linenos">40</span></a>                <span class="s2">&quot;summary&quot;</span><span class="p">:</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;summary&quot;</span><span class="p">],</span>
+</span><span id="emit_response-41"><a href="#emit_response-41"><span class="linenos">41</span></a>                <span class="s2">&quot;next_actions&quot;</span><span class="p">:</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;next_actions&quot;</span><span class="p">],</span>
+</span><span id="emit_response-42"><a href="#emit_response-42"><span class="linenos">42</span></a>            <span class="p">}</span>
+</span><span id="emit_response-43"><a href="#emit_response-43"><span class="linenos">43</span></a>        <span class="n">_emit_json</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+</span><span id="emit_response-44"><a href="#emit_response-44"><span class="linenos">44</span></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="emit_response-45"><a href="#emit_response-45"><span class="linenos">45</span></a>        <span class="k">if</span> <span class="n">summary_only</span><span class="p">:</span>
+</span><span id="emit_response-46"><a href="#emit_response-46"><span class="linenos">46</span></a>            <span class="n">_emit_summary</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+</span><span id="emit_response-47"><a href="#emit_response-47"><span class="linenos">47</span></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="emit_response-48"><a href="#emit_response-48"><span class="linenos">48</span></a>            <span class="n">_emit_human</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Emit a CommandResponse in JSON or human-readable format.</p>
 
 <p>Args:
-    message: Error message
-    exit_code: Optional exit code (exits if provided)</p>
+    response: The response to emit.
+    json_mode: Output as JSON.
+    actionable: Suppress passing/no-op items.
+    summary_only: Emit only status, summary, and next_actions.</p>
+</div>
+
+
+                </section>
+                <section id="emit_stub">
+                            <input id="emit_stub-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">emit_stub</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">command</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="n">scope</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="o">*</span>, </span><span class="param"><span class="n">json_mode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+
+                <label class="view-source-button" for="emit_stub-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#emit_stub"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_stub-268"><a href="#emit_stub-268"><span class="linenos">268</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_stub</span><span class="p">(</span><span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">json_mode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="emit_stub-269"><a href="#emit_stub-269"><span class="linenos">269</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit a stub response for unimplemented commands.&quot;&quot;&quot;</span>
+</span><span id="emit_stub-270"><a href="#emit_stub-270"><span class="linenos">270</span></a>    <span class="n">response</span> <span class="o">=</span> <span class="n">CommandResponse</span><span class="p">(</span>
+</span><span id="emit_stub-271"><a href="#emit_stub-271"><span class="linenos">271</span></a>        <span class="n">command</span><span class="o">=</span><span class="n">command</span><span class="p">,</span>
+</span><span id="emit_stub-272"><a href="#emit_stub-272"><span class="linenos">272</span></a>        <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">,</span>
+</span><span id="emit_stub-273"><a href="#emit_stub-273"><span class="linenos">273</span></a>        <span class="n">status</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+</span><span id="emit_stub-274"><a href="#emit_stub-274"><span class="linenos">274</span></a>        <span class="n">summary</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">command</span><span class="si">}</span><span class="s2"> is not yet implemented&quot;</span><span class="p">,</span>
+</span><span id="emit_stub-275"><a href="#emit_stub-275"><span class="linenos">275</span></a>        <span class="n">errors</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Not yet implemented&quot;</span><span class="p">],</span>
+</span><span id="emit_stub-276"><a href="#emit_stub-276"><span class="linenos">276</span></a>        <span class="n">result</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;implemented&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">},</span>
+</span><span id="emit_stub-277"><a href="#emit_stub-277"><span class="linenos">277</span></a>    <span class="p">)</span>
+</span><span id="emit_stub-278"><a href="#emit_stub-278"><span class="linenos">278</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">json_mode</span><span class="p">:</span>
+</span><span id="emit_stub-279"><a href="#emit_stub-279"><span class="linenos">279</span></a>        <span class="n">emit_warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">command</span><span class="si">}</span><span class="s2"> is not yet implemented&quot;</span><span class="p">)</span>
+</span><span id="emit_stub-280"><a href="#emit_stub-280"><span class="linenos">280</span></a>    <span class="n">emit_response</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">json_mode</span><span class="o">=</span><span class="n">json_mode</span><span class="p">)</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Emit a stub response for unimplemented commands.</p>
 </div>
 
 
@@ -208,46 +674,13 @@
 
     </div>
     <a class="headerlink" href="#emit_warning"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_warning-175"><a href="#emit_warning-175"><span class="linenos">175</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_warning</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="emit_warning-176"><a href="#emit_warning-176"><span class="linenos">176</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit warning message to stderr.&quot;&quot;&quot;</span>
-</span><span id="emit_warning-177"><a href="#emit_warning-177"><span class="linenos">177</span></a>    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">click</span><span class="o">.</span><span class="n">style</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Warning: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">fg</span><span class="o">=</span><span class="s2">&quot;yellow&quot;</span><span class="p">),</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_warning-263"><a href="#emit_warning-263"><span class="linenos">263</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_warning</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="emit_warning-264"><a href="#emit_warning-264"><span class="linenos">264</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit warning message to stderr.&quot;&quot;&quot;</span>
+</span><span id="emit_warning-265"><a href="#emit_warning-265"><span class="linenos">265</span></a>    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">click</span><span class="o">.</span><span class="n">style</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Warning: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">fg</span><span class="o">=</span><span class="s2">&quot;yellow&quot;</span><span class="p">),</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Emit warning message to stderr.</p>
-</div>
-
-
-                </section>
-                <section id="create_error_response">
-                            <input id="create_error_response-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-<div class="attr function">
-            
-        <span class="def">def</span>
-        <span class="name">create_error_response</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">command</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">scope</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">error</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="o">**</span><span class="n">extra</span><span class="p">:</span> <span class="n">Any</span></span><span class="return-annotation">) -> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]</span>:</span></span>
-
-                <label class="view-source-button" for="create_error_response-view-source"><span>View Source</span></label>
-
-    </div>
-    <a class="headerlink" href="#create_error_response"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="create_error_response-180"><a href="#create_error_response-180"><span class="linenos">180</span></a><span class="k">def</span><span class="w"> </span><span class="nf">create_error_response</span><span class="p">(</span>
-</span><span id="create_error_response-181"><a href="#create_error_response-181"><span class="linenos">181</span></a>    <span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="create_error_response-182"><a href="#create_error_response-182"><span class="linenos">182</span></a>    <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="create_error_response-183"><a href="#create_error_response-183"><span class="linenos">183</span></a>    <span class="n">error</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="create_error_response-184"><a href="#create_error_response-184"><span class="linenos">184</span></a>    <span class="o">**</span><span class="n">extra</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-</span><span id="create_error_response-185"><a href="#create_error_response-185"><span class="linenos">185</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-</span><span id="create_error_response-186"><a href="#create_error_response-186"><span class="linenos">186</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create error response dict.&quot;&quot;&quot;</span>
-</span><span id="create_error_response-187"><a href="#create_error_response-187"><span class="linenos">187</span></a>    <span class="k">return</span> <span class="p">{</span>
-</span><span id="create_error_response-188"><a href="#create_error_response-188"><span class="linenos">188</span></a>        <span class="s2">&quot;command&quot;</span><span class="p">:</span> <span class="n">command</span><span class="p">,</span>
-</span><span id="create_error_response-189"><a href="#create_error_response-189"><span class="linenos">189</span></a>        <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
-</span><span id="create_error_response-190"><a href="#create_error_response-190"><span class="linenos">190</span></a>        <span class="s2">&quot;scope&quot;</span><span class="p">:</span> <span class="n">scope</span><span class="p">,</span>
-</span><span id="create_error_response-191"><a href="#create_error_response-191"><span class="linenos">191</span></a>        <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="n">error</span><span class="p">,</span>
-</span><span id="create_error_response-192"><a href="#create_error_response-192"><span class="linenos">192</span></a>        <span class="o">**</span><span class="n">extra</span><span class="p">,</span>
-</span><span id="create_error_response-193"><a href="#create_error_response-193"><span class="linenos">193</span></a>    <span class="p">}</span>
-</span></pre></div>
-
-
-            <div class="docstring"><p>Create error response dict.</p>
 </div>
 
 

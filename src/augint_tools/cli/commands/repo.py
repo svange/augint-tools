@@ -1,12 +1,12 @@
 """Single repository workflow commands."""
 
+import sys
 from pathlib import Path
 
 import click
 
-from augint_tools.config import load_ai_shell_config
-from augint_tools.execution import run_command
-from augint_tools.execution.runner import discover_lint_command, discover_test_command
+from augint_tools.checks import resolve_plan, run_plan
+from augint_tools.detection import detect
 from augint_tools.git import (
     branch_exists,
     create_branch,
@@ -20,43 +20,75 @@ from augint_tools.github import (
     create_pr,
     enable_automerge,
     get_open_prs,
-    is_gh_authenticated,
-    is_gh_available,
     list_issues,
 )
-from augint_tools.output import (
-    create_error_response,
-    emit_error,
-    emit_json,
-    emit_output,
-    emit_warning,
-)
+from augint_tools.github.cli import run_gh
+from augint_tools.output import CommandResponse, emit_response, emit_stub
+
+
+def _get_output_opts(ctx: click.Context) -> dict:
+    """Extract global output options from Click context."""
+    obj = ctx.obj or {}
+    return {
+        "json_mode": obj.get("json_mode", False),
+        "actionable": obj.get("actionable", False),
+        "summary_only": obj.get("summary_only", False),
+    }
+
+
+def _require_git(ctx: click.Context, command: str) -> Path | None:
+    """Check we're in a git repo, emit error if not. Returns cwd or None."""
+    cwd = Path.cwd()
+    if not is_git_repo(cwd):
+        emit_response(
+            CommandResponse.error(command, "repo", "Not in a git repository"),
+            **_get_output_opts(ctx),
+        )
+        sys.exit(1)
+    return cwd
+
+
+# --- Top-level group ---
 
 
 @click.group()
-def repo() -> None:
+@click.pass_context
+def repo(ctx):
     """Single repository workflow commands."""
-    pass
+    ctx.ensure_object(dict)
+
+
+# --- repo inspect ---
 
 
 @repo.command()
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON")
-def status(as_json: bool) -> None:
-    """Show repository status."""
-    cwd = Path.cwd()
+@click.pass_context
+def inspect(ctx):
+    """One-call snapshot of repo kind, branch policy, toolchain, and command plan."""
+    _require_git(ctx, "repo inspect")
+    context = detect()
+    emit_response(
+        CommandResponse.ok(
+            "repo inspect",
+            "repo",
+            f"{context.language} {context.repo_kind} ({context.framework})",
+            result=context.to_dict(),
+        ),
+        **_get_output_opts(ctx),
+    )
 
-    # Check if in git repo
-    if not is_git_repo(cwd):
-        if as_json:
-            emit_json(create_error_response("status", "repo", "Not in a git repository"))
-        else:
-            emit_error("Not in a git repository", exit_code=1)
-        return
 
-    # Get git status
+# --- repo status ---
+
+
+@repo.command()
+@click.pass_context
+def status(ctx):
+    """Summarize git state, upstream, open PR, latest CI run, and next action."""
+    cwd = _require_git(ctx, "repo status")
+    context = detect(cwd)
     repo_status = get_repo_status(cwd)
 
-    # Build repo info
     repo_info = {
         "path": str(cwd),
         "branch": repo_status.branch,
@@ -64,411 +96,718 @@ def status(as_json: bool) -> None:
         "dirty_files": repo_status.dirty_files,
         "ahead": repo_status.ahead,
         "behind": repo_status.behind,
+        "base_branch": context.target_pr_branch,
     }
 
-    # Load config to get base branch
-    config = load_ai_shell_config(cwd / "ai-shell.toml")
-    if config:
-        repo_info["base_branch"] = config.base_branch
-        repo_info["pr_target"] = config.pr_target_branch
+    # GitHub info
+    open_prs = []
+    ci_run = None
+    if context.github.authenticated and repo_status.branch:
+        prs = get_open_prs(branch=repo_status.branch)
+        open_prs = [
+            {"number": pr.number, "title": pr.title, "url": pr.url, "state": pr.state} for pr in prs
+        ]
+        repo_info["open_prs"] = open_prs
 
-    # Get GitHub info if available
-    github_info = {
-        "available": False,
-        "authenticated": False,
-        "open_prs": [],
-    }
+        # Latest CI run
+        try:
+            result = run_gh(
+                [
+                    "run",
+                    "list",
+                    "--branch",
+                    repo_status.branch,
+                    "--limit",
+                    "1",
+                    "--json",
+                    "status,conclusion,name,url",
+                ],
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                import json
 
-    if is_gh_available():
-        github_info["available"] = True
-        if is_gh_authenticated():
-            github_info["authenticated"] = True
-            # Get open PRs for current branch
-            if repo_status.branch:
-                prs = get_open_prs(branch=repo_status.branch)
-                github_info["open_prs"] = [
-                    {
-                        "number": pr.number,
-                        "title": pr.title,
-                        "url": pr.url,
-                        "state": pr.state,
-                    }
-                    for pr in prs
-                ]
+                runs = json.loads(result.stdout)
+                if runs:
+                    ci_run = runs[0]
+                    repo_info["ci_run"] = ci_run
+        except Exception:
+            pass
 
-    emit_output(
-        command="status",
-        scope="repo",
-        as_json=as_json,
-        repo=repo_info,
-        github=github_info,
+    # Compute next action
+    next_actions = _compute_next_actions(repo_status, context, open_prs, ci_run)
+
+    # Summary
+    parts = []
+    if repo_status.branch:
+        parts.append(f"on {repo_status.branch}")
+    if repo_status.dirty:
+        parts.append(f"{len(repo_status.dirty_files)} dirty files")
+    if repo_status.ahead > 0:
+        parts.append(f"{repo_status.ahead} ahead")
+    if open_prs:
+        parts.append(f"{len(open_prs)} open PRs")
+    summary = ", ".join(parts) if parts else "clean"
+
+    emit_response(
+        CommandResponse(
+            command="repo status",
+            scope="repo",
+            status="ok",
+            summary=summary,
+            next_actions=next_actions,
+            result={
+                "repo": repo_info,
+                "github": {
+                    "available": context.github.available,
+                    "authenticated": context.github.authenticated,
+                },
+            },
+        ),
+        **_get_output_opts(ctx),
     )
 
 
-@repo.command()
+def _compute_next_actions(repo_status, context, open_prs, ci_run) -> list[str]:
+    """Compute recommended next actions based on current state."""
+    actions = []
+    if repo_status.dirty:
+        actions.append("commit or stash changes")
+    if repo_status.ahead > 0 and not open_prs:
+        actions.append("push and open PR")
+    if repo_status.behind > 0:
+        actions.append("pull latest changes")
+    if open_prs and ci_run:
+        conclusion = ci_run.get("conclusion", "")
+        if conclusion == "failure":
+            actions.append("triage CI failures")
+        elif conclusion == "" or ci_run.get("status") == "in_progress":
+            actions.append("monitor CI")
+    if not repo_status.dirty and repo_status.ahead == 0 and not open_prs:
+        actions.append("pick an issue")
+    return actions
+
+
+# --- repo issues ---
+
+
+@repo.group()
+def issues():
+    """Issue management."""
+    pass
+
+
+@issues.command()
 @click.argument("query", required=False)
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON")
-def issues(query: str | None, as_json: bool) -> None:
-    """List issues for this repository."""
-    cwd = Path.cwd()
+@click.option("--limit", default=10, help="Number of candidates to return.")
+@click.pass_context
+def pick(ctx, query, limit):
+    """Deterministic issue recommendation, lookup, or search."""
+    _require_git(ctx, "repo issues pick")
+    context = detect()
 
-    # Check if in git repo
-    if not is_git_repo(cwd):
-        if as_json:
-            emit_json(create_error_response("issues", "repo", "Not in a git repository"))
-        else:
-            emit_error("Not in a git repository", exit_code=1)
-        return
+    if not context.github.authenticated:
+        emit_response(
+            CommandResponse.error("repo issues pick", "repo", "GitHub CLI not authenticated"),
+            **_get_output_opts(ctx),
+        )
+        sys.exit(1)
 
-    # Check GitHub CLI
-    if not is_gh_available():
-        if as_json:
-            emit_json(create_error_response("issues", "repo", "GitHub CLI (gh) not available"))
-        else:
-            emit_error("GitHub CLI (gh) not available. Install with: apt install gh", exit_code=1)
-        return
-
-    if not is_gh_authenticated():
-        if as_json:
-            emit_json(create_error_response("issues", "repo", "GitHub CLI not authenticated"))
-        else:
-            emit_error("Run 'gh auth login' to authenticate", exit_code=1)
-        return
-
-    # List issues
+    # For now: direct lookup if numeric, search if text, list if empty
     issue_list = list_issues(query=query)
-
     issues_data = [
-        {
-            "number": issue.number,
-            "title": issue.title,
-            "state": issue.state,
-            "labels": issue.labels,
-            "url": issue.url,
-        }
-        for issue in issue_list
+        {"number": i.number, "title": i.title, "state": i.state, "labels": i.labels, "url": i.url}
+        for i in issue_list[:limit]
     ]
 
-    emit_output(
-        command="issues",
-        scope="repo",
-        as_json=as_json,
-        query=query,
-        issues=issues_data,
-        count=len(issues_data),
+    emit_response(
+        CommandResponse.ok(
+            "repo issues pick",
+            "repo",
+            f"Found {len(issues_data)} issues",
+            result={"query": query, "issues": issues_data, "count": len(issues_data)},
+        ),
+        **_get_output_opts(ctx),
     )
 
 
-@repo.command()
-@click.argument("branch_name")
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON")
-def branch(branch_name: str, as_json: bool) -> None:
-    """Create or switch to branch."""
-    cwd = Path.cwd()
+@issues.command()
+@click.argument("number", type=int)
+@click.pass_context
+def view(ctx, number):
+    """View issue details."""
+    emit_stub("repo issues view", "repo", json_mode=_get_output_opts(ctx)["json_mode"])
 
-    # Check if in git repo
-    if not is_git_repo(cwd):
-        if as_json:
-            emit_json(create_error_response("branch", "repo", "Not in a git repository"))
-        else:
-            emit_error("Not in a git repository", exit_code=1)
-        return
 
-    # Check if branch exists
+# --- repo branch ---
+
+
+@repo.group()
+def branch():
+    """Branch management."""
+    pass
+
+
+@branch.command()
+@click.option("--issue", type=int, help="Issue number to derive branch name from.")
+@click.option("--description", help="Short description for branch name.")
+@click.option("--name", help="Exact branch name to use.")
+@click.pass_context
+def prepare(ctx, issue, description, name):
+    """Create or switch to the correct work branch from the correct base."""
+    cwd = _require_git(ctx, "repo branch prepare")
+    context = detect(cwd)
+    opts = _get_output_opts(ctx)
+
+    # Resolve branch name
+    if name:
+        branch_name = name
+    elif issue:
+        branch_name = f"feat/issue-{issue}"
+        if description:
+            slug = description.lower().replace(" ", "-")[:40]
+            branch_name = f"feat/issue-{issue}-{slug}"
+    elif description:
+        slug = description.lower().replace(" ", "-")[:50]
+        branch_name = f"feat/{slug}"
+    else:
+        emit_response(
+            CommandResponse.error(
+                "repo branch prepare", "repo", "Provide --issue, --description, or --name"
+            ),
+            **opts,
+        )
+        sys.exit(1)
+
+    base = context.target_pr_branch
+
+    # Check if branch already exists
     if branch_exists(cwd, branch_name):
-        # Switch to existing branch
         if switch_branch(cwd, branch_name):
-            emit_output(
-                command="branch",
-                scope="repo",
-                as_json=as_json,
-                branch=branch_name,
-                created=False,
+            emit_response(
+                CommandResponse.ok(
+                    "repo branch prepare",
+                    "repo",
+                    f"Switched to existing branch {branch_name}",
+                    result={"branch": branch_name, "base": base, "created": False},
+                ),
+                **opts,
             )
         else:
-            if as_json:
-                emit_json(
-                    create_error_response("branch", "repo", f"Failed to switch to {branch_name}")
-                )
-            else:
-                emit_error(f"Failed to switch to {branch_name}", exit_code=1)
+            emit_response(
+                CommandResponse.error(
+                    "repo branch prepare", "repo", f"Failed to switch to {branch_name}"
+                ),
+                **opts,
+            )
+            sys.exit(1)
         return
 
-    # Get base branch from config or detect
-    config = load_ai_shell_config(cwd / "ai-shell.toml")
-    if config:
-        base_branch = config.base_branch
-    else:
-        from augint_tools.git.repo import detect_base_branch
-
-        base_branch = detect_base_branch(cwd)
-        emit_warning(f"No ai-shell.toml found, using detected base branch: {base_branch}")
-
-    # Create new branch
-    if create_branch(cwd, branch_name, base_branch):
-        emit_output(
-            command="branch",
-            scope="repo",
-            as_json=as_json,
-            branch=branch_name,
-            base=base_branch,
-            created=True,
+    # Create new branch from base
+    if create_branch(cwd, branch_name, base):
+        # Push and set upstream
+        pushed = push_branch(cwd, branch_name, set_upstream=True)
+        emit_response(
+            CommandResponse.ok(
+                "repo branch prepare",
+                "repo",
+                f"Created branch {branch_name} from {base}",
+                result={"branch": branch_name, "base": base, "created": True, "pushed": pushed},
+                next_actions=["start development"],
+            ),
+            **opts,
         )
     else:
-        if as_json:
-            emit_json(
-                create_error_response("branch", "repo", f"Failed to create branch {branch_name}")
-            )
-        else:
-            emit_error(f"Failed to create branch {branch_name}", exit_code=1)
+        emit_response(
+            CommandResponse.error(
+                "repo branch prepare", "repo", f"Failed to create branch {branch_name}"
+            ),
+            **opts,
+        )
+        sys.exit(1)
+
+
+# --- repo check ---
+
+
+@repo.group()
+def check():
+    """Validation checks."""
+    pass
+
+
+@check.command("plan")
+@click.option("--preset", default="default", type=click.Choice(["quick", "default", "full", "ci"]))
+@click.option("--skip", help="Comma-separated phases to skip.")
+@click.pass_context
+def check_plan(ctx, preset, skip):
+    """Resolve the validation plan without running it."""
+    _require_git(ctx, "repo check plan")
+    context = detect()
+    skip_list = [s.strip() for s in skip.split(",")] if skip else None
+    plan = resolve_plan(context.command_plan, preset=preset, skip=skip_list)
+
+    emit_response(
+        CommandResponse.ok(
+            "repo check plan",
+            "repo",
+            f"{len(plan.phases)} phases in {preset} preset",
+            result=plan.to_dict(),
+        ),
+        **_get_output_opts(ctx),
+    )
+
+
+@check.command("run")
+@click.option("--preset", default="default", type=click.Choice(["quick", "default", "full", "ci"]))
+@click.option("--skip", help="Comma-separated phases to skip.")
+@click.option(
+    "--fix", "fix_mechanical", is_flag=True, default=False, help="Attempt mechanical fixes."
+)
+@click.pass_context
+def check_run(ctx, preset, skip, fix_mechanical):
+    """Execute the resolved validation plan."""
+    cwd = _require_git(ctx, "repo check run")
+    context = detect(cwd)
+    skip_list = [s.strip() for s in skip.split(",")] if skip else None
+    plan = resolve_plan(context.command_plan, preset=preset, skip=skip_list)
+    results = run_plan(plan, cwd, fix=fix_mechanical)
+
+    passed = sum(1 for r in results if r.status in ("passed", "fixed"))
+    failed = sum(1 for r in results if r.status == "failed")
+    status = "ok" if failed == 0 else "error"
+    summary = f"{passed} passed, {failed} failed"
+
+    emit_response(
+        CommandResponse(
+            command="repo check run",
+            scope="repo",
+            status=status,
+            summary=summary,
+            result={"preset": preset, "phases": [r.to_dict() for r in results]},
+            next_actions=["fix failures"] if failed > 0 else [],
+        ),
+        **_get_output_opts(ctx),
+    )
+    if failed > 0:
+        sys.exit(1)
+
+
+# --- repo submit ---
 
 
 @repo.command()
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON")
-def test(as_json: bool) -> None:
-    """Run tests for this repository."""
-    cwd = Path.cwd()
+@click.option("--preset", default="default", type=click.Choice(["quick", "default", "full", "ci"]))
+@click.option("--skip", help="Comma-separated check phases to skip.")
+@click.option("--draft", is_flag=True, default=False, help="Create PR as draft.")
+@click.option(
+    "--update-strategy", type=click.Choice(["rebase", "merge"]), help="Branch update strategy."
+)
+@click.pass_context
+def submit(ctx, preset, skip, draft, update_strategy):
+    """Push branch and create PR with checks."""
+    cwd = _require_git(ctx, "repo submit")
+    context = detect(cwd)
+    opts = _get_output_opts(ctx)
 
-    # Check if in git repo
-    if not is_git_repo(cwd):
-        if as_json:
-            emit_json(create_error_response("test", "repo", "Not in a git repository"))
-        else:
-            emit_error("Not in a git repository", exit_code=1)
-        return
-
-    # Discover test command
-    test_cmd = discover_test_command(cwd)
-    if not test_cmd:
-        if as_json:
-            emit_json(create_error_response("test", "repo", "No test command found"))
-        else:
-            emit_error(
-                "No test command found. Configure in ai-shell.toml or use standard conventions.",
-                exit_code=1,
-            )
-        return
-
-    # Run tests
-    if not as_json:
-        click.echo(f"Running: {test_cmd}")
-
-    result = run_command(test_cmd, cwd=cwd)
-
-    if as_json:
-        emit_output(
-            command="test",
-            scope="repo",
-            as_json=True,
-            status="ok" if result.success else "error",
-            test_command=test_cmd,
-            exit_code=result.exit_code,
-            success=result.success,
+    if not context.github.authenticated:
+        emit_response(
+            CommandResponse.error("repo submit", "repo", "GitHub CLI not authenticated"), **opts
         )
-    else:
-        # Show output
-        if result.stdout:
-            click.echo(result.stdout)
-        if result.stderr:
-            click.echo(result.stderr, err=True)
+        sys.exit(1)
 
-        if result.success:
-            emit_output("test", "repo", as_json=False)
-        else:
-            emit_error(
-                f"Tests failed with exit code {result.exit_code}", exit_code=result.exit_code
-            )
-
-
-@repo.command()
-@click.option("--fix", is_flag=True, default=False, help="Automatically fix issues")
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON")
-def lint(fix: bool, as_json: bool) -> None:
-    """Run lint and quality checks."""
-    cwd = Path.cwd()
-
-    # Check if in git repo
-    if not is_git_repo(cwd):
-        if as_json:
-            emit_json(create_error_response("lint", "repo", "Not in a git repository"))
-        else:
-            emit_error("Not in a git repository", exit_code=1)
-        return
-
-    # Discover lint command
-    lint_cmd = discover_lint_command(cwd)
-    if not lint_cmd:
-        if as_json:
-            emit_json(create_error_response("lint", "repo", "No lint command found"))
-        else:
-            emit_error(
-                "No lint command found. Configure in ai-shell.toml or use standard conventions.",
-                exit_code=1,
-            )
-        return
-
-    # Add --fix if supported and requested
-    if fix and "ruff" in lint_cmd:
-        lint_cmd = lint_cmd.replace("ruff check", "ruff check --fix")
-    elif fix and "pre-commit" in lint_cmd:
-        # pre-commit auto-fixes by default
-        pass
-
-    # Run lint
-    if not as_json:
-        click.echo(f"Running: {lint_cmd}")
-
-    result = run_command(lint_cmd, cwd=cwd)
-
-    if as_json:
-        emit_output(
-            command="lint",
-            scope="repo",
-            as_json=True,
-            status="ok" if result.success else "error",
-            lint_command=lint_cmd,
-            exit_code=result.exit_code,
-            success=result.success,
-            fix=fix,
+    current = get_current_branch(cwd)
+    if not current:
+        emit_response(
+            CommandResponse.error("repo submit", "repo", "Not on a branch (detached HEAD)"), **opts
         )
-    else:
-        # Show output
-        if result.stdout:
-            click.echo(result.stdout)
-        if result.stderr:
-            click.echo(result.stderr, err=True)
+        sys.exit(1)
 
-        if result.success:
-            emit_output("lint", "repo", as_json=False)
-        else:
-            emit_error(f"Lint failed with exit code {result.exit_code}", exit_code=result.exit_code)
+    target = context.target_pr_branch
+    if current in ["main", "master", "dev", "develop", target]:
+        emit_response(
+            CommandResponse.error(
+                "repo submit",
+                "repo",
+                f"Cannot submit from {current}. Create a feature branch first.",
+            ),
+            **opts,
+        )
+        sys.exit(1)
 
-
-@repo.command()
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON")
-def submit(as_json: bool) -> None:
-    """Push branch and create PR."""
-    cwd = Path.cwd()
-
-    # Check if in git repo
-    if not is_git_repo(cwd):
-        if as_json:
-            emit_json(create_error_response("submit", "repo", "Not in a git repository"))
-        else:
-            emit_error("Not in a git repository", exit_code=1)
-        return
-
-    # Check GitHub CLI
-    if not is_gh_available():
-        if as_json:
-            emit_json(create_error_response("submit", "repo", "GitHub CLI (gh) not available"))
-        else:
-            emit_error("GitHub CLI (gh) not available. Install with: apt install gh", exit_code=1)
-        return
-
-    if not is_gh_authenticated():
-        if as_json:
-            emit_json(create_error_response("submit", "repo", "GitHub CLI not authenticated"))
-        else:
-            emit_error("Run 'gh auth login' to authenticate", exit_code=1)
-        return
-
-    # Get current branch
-    current_branch = get_current_branch(cwd)
-    if not current_branch:
-        if as_json:
-            emit_json(create_error_response("submit", "repo", "Not on a branch (detached HEAD)"))
-        else:
-            emit_error("Not on a branch (detached HEAD)", exit_code=1)
-        return
-
-    # Get config for target branch
-    config = load_ai_shell_config(cwd / "ai-shell.toml")
-    if config:
-        target_branch = config.pr_target_branch
-    else:
-        from augint_tools.git.repo import detect_base_branch
-
-        target_branch = detect_base_branch(cwd)
-        emit_warning(f"No ai-shell.toml found, using detected target: {target_branch}")
-
-    # Check if already on main/dev
-    if current_branch in ["main", "master", "dev", "develop", target_branch]:
-        if as_json:
-            emit_json(
-                create_error_response("submit", "repo", f"Cannot submit from {current_branch}")
+    # Run checks
+    skip_list = [s.strip() for s in skip.split(",")] if skip else None
+    plan = resolve_plan(context.command_plan, preset=preset, skip=skip_list)
+    if plan.phases:
+        results = run_plan(plan, cwd)
+        failed = [r for r in results if r.status == "failed"]
+        if failed:
+            phase_names = ", ".join(r.phase for r in failed)
+            emit_response(
+                CommandResponse(
+                    command="repo submit",
+                    scope="repo",
+                    status="error",
+                    summary=f"Checks failed: {phase_names}",
+                    errors=[f"{r.phase} failed (exit {r.exit_code})" for r in failed],
+                    result={"phases": [r.to_dict() for r in results]},
+                    next_actions=["fix failures and retry"],
+                ),
+                **opts,
             )
-        else:
-            emit_error(
-                f"Cannot submit from {current_branch}. Create a feature branch first.", exit_code=1
-            )
-        return
+            sys.exit(1)
 
     # Push branch
-    if not as_json:
-        click.echo(f"Pushing {current_branch}...")
+    if not push_branch(cwd, current, set_upstream=True):
+        emit_response(CommandResponse.error("repo submit", "repo", "Failed to push branch"), **opts)
+        sys.exit(1)
 
-    if not push_branch(cwd, current_branch, set_upstream=True):
-        if as_json:
-            emit_json(create_error_response("submit", "repo", "Failed to push branch"))
-        else:
-            emit_error("Failed to push branch", exit_code=1)
-        return
-
-    # Check if PR already exists
-    existing_prs = get_open_prs(branch=current_branch)
+    # Check for existing PR
+    existing_prs = get_open_prs(branch=current)
     if existing_prs:
         pr = existing_prs[0]
-        emit_output(
-            command="submit",
-            scope="repo",
-            as_json=as_json,
-            branch=current_branch,
-            target=target_branch,
-            pr_url=pr.url,
-            pr_number=pr.number,
-            pr_exists=True,
+        emit_response(
+            CommandResponse.ok(
+                "repo submit",
+                "repo",
+                f"PR already exists: #{pr.number}",
+                result={
+                    "branch": current,
+                    "target": target,
+                    "pr_url": pr.url,
+                    "pr_number": pr.number,
+                    "pr_exists": True,
+                },
+                next_actions=["monitor ci"],
+            ),
+            **opts,
         )
-        if not as_json:
-            click.echo(f"PR already exists: {pr.url}")
         return
 
     # Create PR
-    pr_title = current_branch.replace("-", " ").replace("_", " ").title()
-    pr_body = f"Pull request for {current_branch}"
-
-    if not as_json:
-        click.echo(f"Creating PR: {pr_title}")
-
-    pr_url = create_pr(title=pr_title, base=target_branch, body=pr_body)
+    pr_title = current.replace("-", " ").replace("_", " ").title()
+    pr_body = f"Pull request for {current}"
+    pr_url = create_pr(title=pr_title, base=target, body=pr_body)
     if not pr_url:
-        if as_json:
-            emit_json(create_error_response("submit", "repo", "Failed to create PR"))
-        else:
-            emit_error("Failed to create PR", exit_code=1)
-        return
+        emit_response(CommandResponse.error("repo submit", "repo", "Failed to create PR"), **opts)
+        sys.exit(1)
 
-    # Extract PR number from URL
     pr_number = int(pr_url.split("/")[-1])
+    automerge = enable_automerge(pr_number) if not draft else False
 
-    # Enable automerge
-    automerge_enabled = enable_automerge(pr_number)
-
-    emit_output(
-        command="submit",
-        scope="repo",
-        as_json=as_json,
-        branch=current_branch,
-        target=target_branch,
-        pr_url=pr_url,
-        pr_number=pr_number,
-        automerge_enabled=automerge_enabled,
-        pr_exists=False,
+    emit_response(
+        CommandResponse.ok(
+            "repo submit",
+            "repo",
+            f"Created PR #{pr_number}" + (" with automerge" if automerge else ""),
+            result={
+                "branch": current,
+                "target": target,
+                "pr_url": pr_url,
+                "pr_number": pr_number,
+                "automerge_enabled": automerge,
+                "draft": draft,
+            },
+            next_actions=["monitor ci"],
+        ),
+        **opts,
     )
 
-    if not as_json:
-        click.echo(f"PR created: {pr_url}")
-        if automerge_enabled:
-            click.echo("Auto-merge enabled")
+
+# --- repo ci ---
+
+
+@repo.group()
+def ci():
+    """CI pipeline commands."""
+    pass
+
+
+@ci.command()
+@click.option("--run-id", help="Specific run ID to watch.")
+@click.pass_context
+def watch(ctx, run_id):
+    """Monitor CI run and return compact status."""
+    cwd = _require_git(ctx, "repo ci watch")
+    context = detect(cwd)
+    opts = _get_output_opts(ctx)
+
+    if not context.github.authenticated:
+        emit_response(
+            CommandResponse.error("repo ci watch", "repo", "GitHub CLI not authenticated"), **opts
+        )
+        sys.exit(1)
+
+    branch = context.current_branch
+    if not branch and not run_id:
+        emit_response(
+            CommandResponse.error(
+                "repo ci watch", "repo", "Not on a branch and no --run-id provided"
+            ),
+            **opts,
+        )
+        sys.exit(1)
+
+    # Get runs
+    args = [
+        "run",
+        "list",
+        "--limit",
+        "1",
+        "--json",
+        "databaseId,status,conclusion,name,url,headBranch,event,createdAt",
+    ]
+    if run_id:
+        args = [
+            "run",
+            "view",
+            run_id,
+            "--json",
+            "databaseId,status,conclusion,name,url,headBranch,event,createdAt,jobs",
+        ]
+    elif branch:
+        args += ["--branch", branch]
+
+    try:
+        result = run_gh(args, check=False)
+        if result.returncode != 0:
+            emit_response(
+                CommandResponse.error(
+                    "repo ci watch", "repo", f"gh command failed: {result.stderr.strip()}"
+                ),
+                **opts,
+            )
+            sys.exit(1)
+
+        import json as json_mod
+
+        data = json_mod.loads(result.stdout)
+
+        if isinstance(data, list):
+            if not data:
+                emit_response(
+                    CommandResponse.ok(
+                        "repo ci watch", "repo", "No CI runs found", result={"runs": []}
+                    ),
+                    **opts,
+                )
+                return
+            run_info = data[0]
         else:
-            emit_warning("Could not enable auto-merge")
+            run_info = data
+
+        run_status = run_info.get("status", "unknown")
+        conclusion = run_info.get("conclusion", "")
+        overall = conclusion if conclusion else run_status
+
+        next_actions = []
+        if overall == "failure":
+            next_actions.append("run repo ci triage")
+        elif overall in ("queued", "in_progress"):
+            next_actions.append("wait for completion")
+
+        emit_response(
+            CommandResponse(
+                command="repo ci watch",
+                scope="repo",
+                status="ok"
+                if overall == "success"
+                else "action-required"
+                if overall == "failure"
+                else "ok",
+                summary=f"CI {overall}"
+                + (f" on {run_info.get('headBranch', '')}" if run_info.get("headBranch") else ""),
+                result={"run": run_info},
+                next_actions=next_actions,
+            ),
+            **opts,
+        )
+    except Exception as e:
+        emit_response(CommandResponse.error("repo ci watch", "repo", str(e)), **opts)
+        sys.exit(1)
+
+
+@ci.command()
+@click.option(
+    "--fix", "fix_mechanical", is_flag=True, default=False, help="Attempt mechanical fixes."
+)
+@click.option("--run-id", help="Specific run ID to triage.")
+@click.pass_context
+def triage(ctx, fix_mechanical, run_id):
+    """Classify CI failures and optionally apply mechanical fixes."""
+    cwd = _require_git(ctx, "repo ci triage")
+    context = detect(cwd)
+    opts = _get_output_opts(ctx)
+
+    if not context.github.authenticated:
+        emit_response(
+            CommandResponse.error("repo ci triage", "repo", "GitHub CLI not authenticated"), **opts
+        )
+        sys.exit(1)
+
+    branch = context.current_branch
+    if not branch and not run_id:
+        emit_response(
+            CommandResponse.error(
+                "repo ci triage", "repo", "Not on a branch and no --run-id provided"
+            ),
+            **opts,
+        )
+        sys.exit(1)
+
+    # Get failed run
+    if run_id:
+        args = ["run", "view", run_id, "--json", "databaseId,status,conclusion,jobs"]
+    else:
+        args = [
+            "run",
+            "list",
+            "--branch",
+            branch,
+            "--limit",
+            "1",
+            "--status",
+            "failure",
+            "--json",
+            "databaseId,status,conclusion",
+        ]
+
+    try:
+        result = run_gh(args, check=False)
+        if result.returncode != 0:
+            emit_response(
+                CommandResponse.error(
+                    "repo ci triage", "repo", f"gh failed: {result.stderr.strip()}"
+                ),
+                **opts,
+            )
+            sys.exit(1)
+
+        import json as json_mod
+
+        data = json_mod.loads(result.stdout)
+
+        if isinstance(data, list):
+            if not data:
+                emit_response(
+                    CommandResponse.ok(
+                        "repo ci triage", "repo", "No failed runs found", result={"failures": []}
+                    ),
+                    **opts,
+                )
+                return
+            run_data = data[0]
+        else:
+            run_data = data
+
+        # Get failed job logs
+        rid = run_data.get("databaseId", run_id)
+        log_result = run_gh(["run", "view", str(rid), "--log-failed"], check=False)
+        log_lines = log_result.stdout.strip().split("\n") if log_result.returncode == 0 else []
+
+        # Classify failures
+        failures = _classify_failures(log_lines)
+
+        mechanical = [f for f in failures if f["fixability"] == "mechanical"]
+        manual = [f for f in failures if f["fixability"] == "manual"]
+        external = [f for f in failures if f["fixability"] == "external"]
+
+        summary = f"{len(mechanical)} mechanical, {len(manual)} manual, {len(external)} external"
+
+        next_actions = []
+        if mechanical and fix_mechanical:
+            next_actions.append("apply mechanical fixes")
+        elif mechanical:
+            next_actions.append("run with --fix to apply mechanical fixes")
+        if manual:
+            next_actions.append("fix manual issues")
+
+        emit_response(
+            CommandResponse(
+                command="repo ci triage",
+                scope="repo",
+                status="action-required" if failures else "ok",
+                summary=summary,
+                result={"failures": failures, "run_id": rid},
+                next_actions=next_actions,
+            ),
+            **opts,
+        )
+    except Exception as e:
+        emit_response(CommandResponse.error("repo ci triage", "repo", str(e)), **opts)
+        sys.exit(1)
+
+
+def _classify_failures(log_lines: list[str]) -> list[dict]:
+    """Classify CI log failures into mechanical, manual, or external."""
+    failures = []
+    current_job = "unknown"
+
+    for line in log_lines:
+        # Detect job names from log format "jobname\tstepname\tline"
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            current_job = parts[0]
+
+        lower = line.lower()
+        if any(kw in lower for kw in ["error", "failed", "failure", "exception"]):
+            fixability = "manual"
+            if any(
+                kw in lower for kw in ["format", "whitespace", "import sort", "trailing", "lint"]
+            ):
+                fixability = "mechanical"
+            elif any(kw in lower for kw in ["timeout", "rate limit", "network", "connection"]):
+                fixability = "external"
+
+            failures.append(
+                {
+                    "job": current_job,
+                    "line": line.strip()[:200],
+                    "fixability": fixability,
+                }
+            )
+
+    return failures[:30]  # cap
+
+
+# --- repo promote ---
+
+
+@repo.command()
+@click.pass_context
+def promote(ctx):
+    """Handle dev -> main promotion flow."""
+    emit_stub("repo promote", "repo", json_mode=_get_output_opts(ctx)["json_mode"])
+
+
+# --- repo rollback ---
+
+
+@repo.group()
+def rollback():
+    """Rollback commands."""
+    pass
+
+
+@rollback.command("plan")
+@click.pass_context
+def rollback_plan(ctx):
+    """Inspect rollback plan."""
+    emit_stub("repo rollback plan", "repo", json_mode=_get_output_opts(ctx)["json_mode"])
+
+
+@rollback.command("apply")
+@click.pass_context
+def rollback_apply(ctx):
+    """Execute rollback."""
+    emit_stub("repo rollback apply", "repo", json_mode=_get_output_opts(ctx)["json_mode"])
+
+
+# --- repo health ---
+
+
+@repo.command()
+@click.pass_context
+def health(ctx):
+    """Structured repo hygiene audit."""
+    emit_stub("repo health", "repo", json_mode=_get_output_opts(ctx)["json_mode"])

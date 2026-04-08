@@ -1,12 +1,13 @@
 """Top-level project commands."""
 
+import sys
 from pathlib import Path
 
 import click
 
 from augint_tools.config import create_ai_shell_config, load_ai_shell_config
 from augint_tools.git import detect_base_branch, is_git_repo
-from augint_tools.output import emit_error, emit_output
+from augint_tools.output import CommandResponse, emit_response
 
 
 @click.command()
@@ -17,16 +18,24 @@ from augint_tools.output import emit_error, emit_output
 @click.option(
     "--workspace", "repo_type", flag_value="workspace", help="Initialize as workspace repo"
 )
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON")
-def init(repo_type: str | None, as_json: bool) -> None:
+@click.pass_context
+def init(ctx, repo_type: str | None) -> None:
     """Initialize repo or workspace workflow metadata."""
     cwd = Path.cwd()
     config_path = cwd / "ai-shell.toml"
+    obj = ctx.obj or {}
+    opts = {
+        "json_mode": obj.get("json_mode", False),
+        "actionable": obj.get("actionable", False),
+        "summary_only": obj.get("summary_only", False),
+    }
 
-    # Check if we're in a git repo
     if not is_git_repo(cwd):
-        emit_error("Not in a git repository. Run 'git init' first.", exit_code=1)
-        return
+        emit_response(
+            CommandResponse.error("init", "repo", "Not in a git repository. Run 'git init' first."),
+            **opts,
+        )
+        sys.exit(1)
 
     # Load existing config if present
     existing_config = load_ai_shell_config(config_path)
@@ -36,7 +45,6 @@ def init(repo_type: str | None, as_json: bool) -> None:
         if existing_config:
             repo_type = existing_config.repo_type
         else:
-            # Interactive prompt
             repo_type = click.prompt(
                 "Repository type",
                 type=click.Choice(["library", "service", "workspace"]),
@@ -47,11 +55,9 @@ def init(repo_type: str | None, as_json: bool) -> None:
     if repo_type == "library":
         branch_strategy = "main"
     else:
-        # For service/workspace, detect or use existing
         if existing_config and existing_config.branch_strategy:
             branch_strategy = existing_config.branch_strategy
         else:
-            # Auto-detect from repository
             base_branch = detect_base_branch(cwd)
             if base_branch in ["dev", "develop"]:
                 branch_strategy = "dev"
@@ -66,19 +72,22 @@ def init(repo_type: str | None, as_json: bool) -> None:
             branch_strategy=branch_strategy,
         )
     except Exception as e:
-        emit_error(f"Failed to create config: {e}", exit_code=1)
-        return
+        emit_response(
+            CommandResponse.error("init", "repo", f"Failed to create config: {e}"),
+            **opts,
+        )
+        sys.exit(1)
 
-    # Output result
-    emit_output(
-        command="init",
-        scope="repo",
-        as_json=as_json,
-        status="ok",
-        repo_type=repo_type,
-        branch_strategy=branch_strategy,
-        config_file=str(config_path),
+    emit_response(
+        CommandResponse.ok(
+            "init",
+            "repo",
+            f"Initialized {repo_type} repo with {branch_strategy} strategy",
+            result={
+                "repo_type": repo_type,
+                "branch_strategy": branch_strategy,
+                "config_file": str(config_path),
+            },
+        ),
+        **opts,
     )
-
-    if not as_json:
-        click.echo(f"Created {config_path}")

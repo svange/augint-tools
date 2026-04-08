@@ -8,6 +8,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Key principle**: This tool is designed for both human operators and AI agents. Every command must provide stable `--json` output for machine parsing.
 
+## Critical Rules
+
+- **No rebase on main**: NEVER use `git pull --rebase` or `git rebase` on the default branch. Use merge commits only.
+- **No manual versioning**: NEVER manually edit version numbers. Semantic Release manages versions via conventional commits.
+- **No lock file edits**: NEVER directly write text into lock files (uv.lock, package-lock.json). Always use package manager commands (`uv lock`, `uv add`) to regenerate them. Always stage and include lock file changes in the same commit.
+- **No .env commits**: NEVER commit .env files. Use .env.example for templates.
+- **No force push to main**: NEVER use `git push --force` on main or the default branch.
+- **No manual release tags**: NEVER create release tags by hand. Semantic Release creates them from conventional commits.
+
 ## Development Commands
 
 ```bash
@@ -15,10 +24,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv sync --all-extras
 
 # Testing
-uv run pytest                           # Run all tests
-uv run pytest tests/unit/test_cli.py   # Run specific test file
-uv run pytest -k test_name             # Run tests matching pattern
-uv run pytest --cov                    # Run with coverage
+uv run pytest                                # Run all tests
+uv run pytest tests/unit/test_cli.py        # Run specific test file
+uv run pytest -k test_name                  # Run tests matching pattern
+uv run pytest --cov=src --cov-fail-under=80 # Tests with coverage threshold
 
 # Code quality
 uv run ruff check src/ tests/          # Lint
@@ -31,21 +40,107 @@ uv run python -m augint_tools.cli --help
 uv run ai-tools --help                  # Entry point script
 ```
 
+## Conventions
+
+- **Commits**: Conventional commits required. `fix:` = patch, `feat:` = minor, `feat!:` / `BREAKING CHANGE` = major. Choose prefixes intentionally -- they trigger releases.
+- **Branches**: `{type}/issue-N-description` where type is one of: feat, fix, docs, refactor, test, chore, ci, build, style, revert, perf.
+- **PRs**: Target the default development branch. Enable automerge.
+- **Pre-commit**: Run `uv run pre-commit run --all-files` explicitly before committing (no automatic git hooks -- they break across Windows/WSL). If checks fail, fix the issue and create a NEW commit (do not amend).
+- **Tests**: Write tests for all new functionality. Bug fixes require regression tests.
+
+## Development Workflow
+
+**IMPORTANT**: Always follow this sequence. Do NOT skip to step 3 without completing step 2 first.
+
+1. **Pick an issue**: `/ai-pick-issue` -- find or get assigned work
+2. **Prepare branch**: `/ai-prepare-branch` -- REQUIRED before any code changes. Creates a fresh branch from the latest base (main or dev), syncs upstream, sets up remote tracking. Never start coding on an existing branch from a previous task.
+3. **Develop**: Write code with tests, following project conventions
+4. **Submit**: `/ai-submit-work` -- runs all checks locally, commits, pushes, creates automerge PR
+5. **Monitor**: `/ai-monitor-pipeline` -- watches CI, diagnoses failures, auto-fixes and re-pushes
+
 ## Architecture
 
 ### CLI Structure
 
-Commands are organized in `src/augint_tools/cli/commands/`:
-- `project.py` - Repo/workspace lifecycle: init, status, sync, issues, branch, submit, update
-- `run.py` - Command execution: foreach, test, lint
+Three workflow families, all under `ai-tools`:
 
-All commands are currently scaffolded stubs that emit JSON with `implemented: false`. See `augint-tools.md` for full implementation requirements.
+```bash
+ai-tools repo ...         # Single repository workflow
+ai-tools mono ...         # Workspace/monorepo orchestration
+ai-tools standardize ...  # Repo standardization audit/fix
+```
+
+Global output flags: `--json`, `--actionable`, `--summary`
+
+> This repo is a **library**. Use `repo` and `standardize` commands. Do not use `mono` commands -- those are for workspace repos only.
+
+### Command Surface
+
+**Repo commands** (`src/augint_tools/cli/commands/repo.py`):
+- `repo inspect` -- one-call repo snapshot (kind, branch, toolchain, command plan)
+- `repo status` -- git state + upstream + open PR + CI + next action
+- `repo issues pick` -- issue recommendation/search
+- `repo issues view` -- issue detail (stub)
+- `repo branch prepare` -- create work branch from correct base
+- `repo check plan` -- resolve validation plan without running
+- `repo check run` -- execute validation plan
+- `repo submit` -- stage, check, push, create PR, automerge
+- `repo ci watch` -- monitor CI run
+- `repo ci triage` -- classify CI failures
+- `repo promote` -- dev->main promotion (stub)
+- `repo rollback plan/apply` -- rollback workflow (stub)
+- `repo health` -- hygiene audit (stub)
+
+**Mono commands** (`src/augint_tools/cli/commands/mono.py`):
+- `mono inspect` -- workspace snapshot
+- `mono sync` -- clone/pull child repos
+- `mono status` -- workspace health (--actionable, --blocked-only, --dirty-only)
+- `mono issues` -- aggregate issues across repos
+- `mono graph` -- dependency order (stub)
+- `mono branch` -- coordinated branch prep (--issue, --description, --name)
+- `mono check` -- grouped validation across repos (--phase, --repos, --preset)
+- `mono test` -- alias for check --phase tests
+- `mono lint` -- alias for check --phase quality
+- `mono submit` -- open PRs for changed repos
+- `mono update` -- downstream propagation (stub)
+- `mono foreach` -- arbitrary command across repos
+
+**Standardize commands** (`src/augint_tools/cli/commands/standardize.py`):
+- `standardize detect` -- resolve standardization profile
+- `standardize audit` -- normalized finding model across sections
+- `standardize fix` -- template-backed fixes (--dry-run, --write)
+- `standardize verify` -- re-audit after fixes
+
+### Core Infrastructure
+
+- **Detection engine** (`src/augint_tools/detection/`): Shared `detect() -> RepoContext` used by all commands. Resolves repo kind, language, framework, branches, toolchain, command plan, GitHub state.
+- **Check system** (`src/augint_tools/checks/`): Phase enum, presets (quick/default/full/ci), plan resolution, execution runner.
+- **Standardize engine** (`src/augint_tools/standardize/`): Finding model, section checkers (github, pipeline, quality, dotfiles, renovate, release), fix engine.
+- **Output model** (`src/augint_tools/output/response.py`): `CommandResponse` dataclass, `ExitCode` enum. All commands return structured responses via `emit_response()`.
+
+### Output Contract
+
+Every command returns a `CommandResponse` with this JSON shape:
+```json
+{
+  "command": "repo submit",
+  "scope": "repo",
+  "status": "ok",
+  "summary": "Created PR #123 after 4 checks passed",
+  "next_actions": ["monitor ci"],
+  "warnings": [],
+  "errors": [],
+  "result": {}
+}
+```
+
+Exit codes: 0=success, 1=failure, 2=action-required, 3=blocked, 4=partial
 
 ### Repo Classification System
 
 Three repo types with different branching strategies:
-- **library** - PyPI/npm packages, feature branches → main directly
-- **service** - Services/IaC, feature branches → dev → main
+- **library** - PyPI/npm packages, feature branches -> main directly
+- **service** - Services/IaC, feature branches -> dev -> main
 - **workspace** - Coordination repo that orchestrates multiple child repos
 
 Classification stored in `ai-shell.toml`:
@@ -54,61 +149,34 @@ Classification stored in `ai-shell.toml`:
 repo_type = "library"
 branch_strategy = "main"  # or "dev"
 dev_branch = "dev"        # only when branch_strategy = "dev"
-```
 
-### Workspace Manifest (planned)
+[ai_tools.repo]
+update_work_branch_strategy = "rebase"
+default_submit_preset = "full"
 
-Workspace repos will define child repo orchestration in `workspace.toml`:
-```toml
-[[repo]]
-name = "example-lib"
-path = "repos/example-lib"
-url = "https://github.com/org/example-lib.git"
-repo_type = "library"
-base_branch = "main"
-pr_target_branch = "main"
-install = "uv sync --all-extras"
-test = "uv run pytest -m \"unit\" -v"
-lint = "uv run pre-commit run --all-files"
-depends_on = []  # dependency order for workspace operations
-```
-
-### JSON Output Contract
-
-Every workflow command must support `--json` with stable schema:
-```json
-{
-  "command": "status",
-  "status": "ok",
-  "scope": "workspace",
-  "repos": [
-    {
-      "name": "repo-name",
-      "present": true,
-      "branch": "feat/example",
-      "dirty": false,
-      "ahead": 1,
-      "behind": 0
-    }
-  ]
-}
+[ai_tools.commands]
+quality = "uv run pre-commit run --all-files"
+tests = "uv run pytest --cov=src --cov-fail-under=80 -v"
+security = "uv run pip-audit"
+licenses = "uv run pip-licenses --from=mixed --summary"
+build = "uv build"
 ```
 
 ## Implementation Principles
 
-1. **Stub pattern**: Unimplemented commands call `_emit_stub()` which outputs JSON with `implemented: false` and a yellow warning. This preserves the command surface while development is in progress.
+1. **Safe defaults**: No destructive git operations. No silent resets. No force pushes. No rebase on default branches.
 
-2. **Safe defaults**: No destructive git operations. No silent resets. No force pushes. No rebase on default branches.
+2. **AI-first design**: Commands are called by ai-shell skills, not just humans. Error messages must be specific and parseable.
 
-3. **AI-first design**: Commands are called by ai-shell skills, not just humans. Error messages must be specific and parseable.
+3. **Stub pattern**: Unimplemented commands call `emit_stub()` which outputs a structured error with `implemented: false`. This preserves the command surface while development is in progress.
 
-4. **Workspace as a repo kind**: Workspaces are not a special architecture—they're just repos that coordinate other repos. Use the same workflow commands.
+4. **Detection once**: Commands call `detect()` once at the top and pass the `RepoContext` down. No scattered detection logic.
 
 ## Key Files
 
 - `augint-tools.md` - Product spec and design doc (implementation reference)
-- `ai-shell.toml` - Repo classification (consumed by ai-shell and augint-tools)
-- `workspace.toml` - Workspace manifest (planned, not yet implemented)
+- `ai-shell.toml` - Repo classification and tool config
+- `workspace.toml` - Workspace manifest for mono repos
 - `pyproject.toml` - Python packaging, dependencies, tool config
 
 ## Testing Strategy

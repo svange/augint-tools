@@ -1,3 +1,5 @@
+"""Tests for CLI module."""
+
 import json
 
 from click.testing import CliRunner
@@ -13,48 +15,124 @@ class TestCli:
         assert "CLI for AI-assisted repository and workspace workflows." in result.output
         assert "init" in result.output
         assert "repo" in result.output
+        assert "mono" in result.output
         assert "monorepo" in result.output
+        assert "standardize" in result.output
+
+    def test_global_flags_in_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--help"])
+        assert "--json" in result.output
+        assert "--actionable" in result.output
+        assert "--summary" in result.output
+
+    def test_repo_subgroups(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["repo", "--help"])
+        assert result.exit_code == 0
+        assert "inspect" in result.output
+        assert "status" in result.output
+        assert "issues" in result.output
+        assert "branch" in result.output
+        assert "check" in result.output
+        assert "submit" in result.output
+        assert "ci" in result.output
+        assert "promote" in result.output
+        assert "rollback" in result.output
+        assert "health" in result.output
+
+    def test_repo_inspect(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["repo", "inspect"])
+        assert result.exit_code == 0
+        assert "python" in result.output.lower()
+
+    def test_repo_inspect_json(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--json", "repo", "inspect"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["command"] == "repo inspect"
+        assert data["scope"] == "repo"
+        assert data["status"] == "ok"
+        assert "result" in data
+        assert data["result"]["language"] == "python"
 
     def test_repo_status(self):
-        """Test repo status in a real git repo."""
         runner = CliRunner()
         result = runner.invoke(cli, ["repo", "status"])
-        # Should succeed (we're in a git repo)
         assert result.exit_code == 0
         assert "status" in result.output.lower()
-        assert "branch" in result.output.lower()
 
     def test_repo_status_json(self):
-        """Test repo status with JSON output."""
         runner = CliRunner()
-        result = runner.invoke(cli, ["repo", "status", "--json"])
+        result = runner.invoke(cli, ["--json", "repo", "status"])
         assert result.exit_code == 0
-
-        # Parse JSON
         data = json.loads(result.output)
-        assert data["command"] == "status"
+        assert data["command"] == "repo status"
         assert data["scope"] == "repo"
-        assert "repo" in data
-        assert "branch" in data["repo"]
+        assert "result" in data
+        assert "repo" in data["result"]
 
-    def test_monorepo_status_no_workspace(self):
-        """Test monorepo status without workspace.toml."""
+    def test_repo_check_plan(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["monorepo", "status"])
-        # Should fail (no workspace.toml)
-        assert result.exit_code == 1
-        assert "workspace.toml" in result.output.lower()
+        result = runner.invoke(cli, ["repo", "check", "plan"])
+        assert result.exit_code == 0
+        assert "phases" in result.output.lower() or "preset" in result.output.lower()
 
-    def test_monorepo_status_json_no_workspace(self):
-        """Test monorepo status JSON without workspace.toml."""
+    def test_repo_check_plan_json(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["monorepo", "status", "--json"])
-        # Should fail (no workspace.toml)
-        assert result.exit_code == 0  # JSON mode doesn't exit with error
-
-        # Parse JSON
+        result = runner.invoke(cli, ["--json", "repo", "check", "plan", "--preset", "full"])
+        assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["command"] == "status"
-        assert data["scope"] == "monorepo"
+        assert data["result"]["preset"] == "full"
+        assert len(data["result"]["phases"]) > 0
+
+    def test_mono_alias(self):
+        """Test that 'monorepo' alias works."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["monorepo", "--help"])
+        assert result.exit_code == 0
+        assert "inspect" in result.output
+
+    def test_mono_status_no_workspace(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["mono", "status"])
+        assert result.exit_code == 1
+
+    def test_mono_status_json_no_workspace(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--json", "mono", "status"])
+        assert result.exit_code == 1
+        data = json.loads(result.output)
         assert data["status"] == "error"
-        assert "workspace.toml" in data["error"].lower()
+
+    def test_standardize_detect(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["standardize", "detect"])
+        assert result.exit_code == 0
+        assert "python" in result.output.lower()
+
+    def test_standardize_audit_json(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--json", "standardize", "audit"])
+        # exit code 0 or 2 (action-required)
+        assert result.exit_code in (0, 2)
+        data = json.loads(result.output)
+        assert data["command"] == "standardize audit"
+        assert "findings" in data["result"]
+
+    def test_stub_commands(self):
+        """Test that P1/P2 stubs emit the right output."""
+        runner = CliRunner()
+        stubs = [
+            ["repo", "promote"],
+            ["repo", "rollback", "plan"],
+            ["repo", "rollback", "apply"],
+            ["repo", "health"],
+            ["mono", "graph"],
+            ["mono", "update"],
+        ]
+        for args in stubs:
+            result = runner.invoke(cli, args)
+            assert "not yet implemented" in result.output.lower(), f"Stub failed for {args}"

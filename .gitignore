@@ -28,3 +28,5 @@ Thumbs.db
 .cache/
 tmp/
 temp/
+.ai-shell.toml
+ai-shell.toml

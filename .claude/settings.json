@@ -166,7 +166,8 @@
       "Bash(prettier:*)",
       "Bash(tsc:*)",
       "Bash(jest:*)",
-      "Bash(vitest:*)"
+      "Bash(vitest:*)",
+      "Bash(ai-tools:*)"
     ],
     "deny": [
       "Write(poetry.lock)",

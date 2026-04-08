@@ -1,503 +1,838 @@
-# augint-tools
+# ai-tools Specification
 
-## Purpose
+## Naming
 
-`augint-tools` is a new CLI project for AI-centered developer workflows.
+- `augint-tools` is the project/repository name.
+- `ai-tools` is the CLI command that humans and agents should invoke.
+- This file is the command and workflow specification for `ai-tools`.
+- `augint-tools.md` can remain as product-direction background, but this file is the execution spec.
 
-It replaces `augint-mono`.
+## Audit Summary
 
-The goal is broader than multi-repo orchestration. `augint-tools` should become
-the home for repeatable developer workflows that are:
+The current workflows are not perfect.
 
-- AI-assisted
-- repo-aware
-- GitHub-aware
-- safe by default
-- scriptable by humans
-- parseable by AI agents
+### Repo workflow
 
-This is not a repo-bundling tool. It is a workflow tool.
+The normal single-repo flow is conceptually right:
 
-## Problem Statement
+- pick issue
+- prepare branch
+- develop
+- submit
+- monitor
 
-We currently have workflow logic split across:
+But the implementation boundary is wrong. Too much logic still lives in skills:
 
-- `ai-shell` skills
-- repo-local helper scripts
-- ad hoc shell commands
-- `augint-mono`
+- repo type and branch-target detection
+- issue scoring and branch naming
+- pre-submit check planning
+- staging heuristics
+- commit message generation
+- PR creation and automerge setup
+- CI failure triage
+- promotion and rollback logic
 
-That creates several problems:
+That makes the flow less deterministic, harder to maintain, and expensive for an LLM to execute because the agent has to re-run the same shell logic from prose every time.
 
-- workflow knowledge is duplicated between docs, skills, and CLIs
-- multi-repo workflows are treated as a special case instead of one workflow category
-- AI agents must parse human-oriented command output
-- user setup is inconsistent across library, service, and workspace repos
-- repo coordination commands are coupled to the old `mono` naming
+### Mono workflow
 
-## Product Direction
+The mono workflow is closer to the right shape because the skills are already thin wrappers. The gaps are different:
 
-`augint-tools` should be the canonical CLI for workflow automation used by:
+- naming drift between `augint-tools` and `ai-tools mono`
+- commands are still a little too coarse
+- output filtering is not tight enough for AI use
+- repo selection and dependency-aware execution can be stronger
+- there is no shared compact snapshot contract for repeated status / triage / submit flows
 
-- `ai-shell` skills
-- humans at the terminal
-- Codex / Claude / other AI agents
+### Standardize workflow
 
-`ai-shell` should focus on:
+This is the farthest from ideal. The current standardize skills are still mostly prose plus shell snippets. The drift rules live in multiple files, detection is duplicated, and fixes are not normalized.
 
-- environment setup
-- tool config scaffolding
-- prompt/skill deployment
-- launching AI tools in containers
+The standardize flow needs the same treatment as mono:
 
-`augint-tools` should focus on:
+- one deterministic detection engine
+- one normalized audit model
+- one fix engine
+- one verification pass
+
+## Core Decisions
+
+### 1. Keep three explicit workflow families
+
+Use explicit subcommands for all AI-facing calls:
+
+```bash
+ai-tools repo ...
+ai-tools mono ...
+ai-tools standardize ...
+```
+
+Humans may still get root aliases, but skills should not rely on them.
+
+### 2. Keep `mono` as the canonical monorepo/workspace subcommand
+
+The existing notes, tests, and workflow language already use `ai-tools mono`. Keep that stable.
+
+### 3. Move decision logic into the tool
+
+Skills should orchestrate, not decide. The tool should own:
+
+- repo detection
+- branch policy
+- command planning
+- GitHub query batching
+- CI log triage
+- standard drift rules
+- fixability classification
+- stable machine-readable output
+
+### 4. `ai-shell` scaffolds, `ai-tools` executes
+
+`ai-shell` should keep owning:
+
+- repo bootstrap
+- skill installation
+- context file scaffolding
+- container/tool setup
+
+`ai-tools` should own:
 
 - workflow execution
-- repository orchestration
-- Git and GitHub actions
-- machine-readable outputs
+- Git/GitHub orchestration
+- repo-aware validation
+- mono coordination
+- standardization audit and fix
 
-## Design Principles
+## Shared Contracts
 
-1. Human and AI first
-Every command must work well for both interactive humans and AI agents.
+### Configuration Inputs
 
-2. JSON always available
-Every orchestration command should support stable `--json`.
+`ai-tools` should resolve behavior from:
 
-3. Safe defaults
-No destructive git behavior. No silent resets. No force pushes. No rebase on protected/default flows.
+1. `ai-shell.toml`
+2. `workspace.toml` for mono repos
+3. repo-local conventions detected from the filesystem
+4. optional `ai-tools` override sections in `ai-shell.toml`
 
-4. Repo-type aware
-Libraries, services, and workspace repos have different defaults.
-
-5. Workspace is a repo kind, not a special architecture religion
-A workspace is just a coordination repo that points at child repos.
-
-6. Skills call tools, not re-implement tools
-`ai-shell` skills should orchestrate `augint-tools`, not replace it with hand-written shell logic.
-
-## Primary Use Cases
-
-### 1. Standard repo workflow
-
-Examples:
-
-- pick an issue
-- prepare a branch
-- run checks
-- submit PR
-- monitor CI
-
-### 2. Workspace workflow
-
-Examples:
-
-- ensure child repos are cloned
-- inspect cross-repo state
-- create coordinated branches
-- validate changes across selected repos
-- submit related PRs
-- propagate dependency updates downstream
-
-### 3. Repo initialization workflow
-
-Examples:
-
-- initialize a new library repo
-- initialize a new service repo
-- initialize a new workspace repo
-- standardize local metadata and default workflow config
-
-## Repo Kinds
-
-The CLI should understand these repo kinds:
-
-- `library`
-- `service`
-- `workspace`
-
-Backward compatibility can map old values:
-
-- `iac` -> `service`
-
-User-facing docs and commands should use only:
-
-- `library`
-- `service`
-- `workspace`
-
-## Configuration Model
-
-### 1. Local repo config
-
-`ai-shell.toml` remains the local repo classification file used by `ai-shell`.
-
-Expected project section:
+Suggested `ai-shell.toml` expansion:
 
 ```toml
 [project]
-repo_type = "library" # or "service" or "workspace"
-branch_strategy = "main" # or "dev"
+repo_type = "library" # library | service | workspace
+branch_strategy = "main" # main | dev
 dev_branch = "dev"
+
+[ai_tools.repo]
+update_work_branch_strategy = "rebase" # or merge
+default_submit_preset = "full"
+
+[ai_tools.commands]
+quality = "uv run pre-commit run --all-files"
+tests = "uv run pytest --cov=src --cov-fail-under=80 -v"
+security = "uv run pip-audit"
+licenses = "uv run pip-licenses --from=mixed --summary"
+build = "uv build"
 ```
 
-### 2. Workspace manifest
+The command overrides are optional. If absent, `ai-tools` should use deterministic built-in profiles based on ecosystem and framework.
 
-Workspace repos should also define a manifest for child repo orchestration.
+### Detection Engine
 
-Suggested filename:
+Implement one shared detection engine used by `repo`, `mono`, and `standardize`.
 
-`workspace.toml`
+It should resolve at least:
 
-Suggested shape:
-
-```toml
-[workspace]
-name = "landline-scrubber"
-repos_dir = "repos"
-
-[[repo]]
-name = "ai-lls-lib"
-path = "repos/ai-lls-lib"
-url = "https://github.com/org/ai-lls-lib.git"
-repo_type = "library"
-base_branch = "main"
-pr_target_branch = "main"
-install = "uv sync --all-extras"
-test = "uv run pytest -m \"unit\" -v"
-lint = "uv run pre-commit run --all-files"
-
-[[repo]]
-name = "ai-lls-api"
-path = "repos/ai-lls-api"
-url = "https://github.com/org/ai-lls-api.git"
-repo_type = "service"
-base_branch = "dev"
-pr_target_branch = "dev"
-install = "uv sync --all-extras"
-test = "uv run pytest -m \"unit\" -v"
-lint = "uv run pre-commit run --all-files"
-depends_on = ["ai-lls-lib"]
-```
-
-## Command Model
-
-The CLI should be organized by workflow domains, not by legacy mono naming.
-
-Top-level shape:
-
-```bash
-augint-tools init ...
-augint-tools repo ...
-augint-tools workspace ...
-augint-tools github ...
-augint-tools check ...
-augint-tools submit ...
-```
-
-However, flat commands are also acceptable if they remain coherent:
-
-```bash
-augint-tools init
-augint-tools status
-augint-tools issues
-augint-tools branch
-augint-tools test
-augint-tools lint
-augint-tools submit
-augint-tools update
-```
-
-I recommend a hybrid model:
-
-- flat aliases for common workflows
-- grouped subcommands for discoverability
-
-Example:
-
-```bash
-augint-tools status           # alias to workspace status when in workspace repo
-augint-tools workspace status # explicit form
-```
-
-## Required Commands
-
-### `augint-tools init`
-
-Purpose:
-
-- initialize workflow metadata for a repo
-- classify repo kind
-- create or update config
-
-Behavior:
-
-- detect whether current repo is library/service/workspace
-- if unclear, ask once
-- write/update `ai-shell.toml`
-- optionally verify that `ai-shell init` was run with matching kind
-
-### `augint-tools status`
-
-Purpose:
-
-- summarize repo or workspace state
-
-Repo behavior:
-
+- repo kind: `library`, `service`, `workspace`
+- language: `python`, `typescript`, `mixed`, `unknown`
+- framework: `plain`, `sam`, `cdk`, `terraform`, `vite`, `nextjs`, or detected equivalent
+- default branch
+- dev branch if any
 - current branch
-- clean/dirty
-- ahead/behind
-- open PR
-- latest CI status
+- target PR branch
+- available local toolchain
+- configured command plan
+- GitHub availability/auth state
 
-Workspace behavior:
+Expose it via:
 
-- all child repos
-- missing/present
-- branch per repo
-- dirty state
-- open PRs
-- CI state
-- dependency alignment summary
+```bash
+ai-tools repo inspect
+ai-tools mono inspect
+ai-tools standardize detect
+```
 
-### `augint-tools issues`
+### Output Model
 
-Purpose:
+Every AI-facing command must support:
 
-- aggregate issues for the current repo or workspace
-
-Capabilities:
-
-- filter by label
-- filter by assignee
-- filter by state
-- search text
-- output grouped by repo
-
-### `augint-tools branch`
-
-Purpose:
-
-- create or switch branches using repo-type defaults
-
-Repo behavior:
-
-- branch from configured base branch
-
-Workspace behavior:
-
-- create matching branches across selected child repos
-- use per-repo `base_branch`
-- never discard dirty work
-
-### `augint-tools test`
-
-Purpose:
-
-- run test commands from repo config or workspace manifest
-
-Capabilities:
-
-- repo-aware command execution
-- workspace dependency-order execution
-- aggregate result summary
-
-### `augint-tools lint`
-
-Purpose:
-
-- run quality checks from repo config or workspace manifest
-
-Capabilities:
-
-- optional `--fix`
-- aggregate result summary
-
-### `augint-tools submit`
-
-Purpose:
-
-- push branches and open PRs
-
-Repo behavior:
-
-- push current branch
-- create PR against correct target
-
-Workspace behavior:
-
-- submit selected child repos independently
-- use `pr_target_branch` per repo
-- report URLs and failures
-
-### `augint-tools update`
-
-Purpose:
-
-- propagate downstream dependency/version/API updates after upstream changes
-
-Examples:
-
-- library release requires API dependency bump
-- API change requires frontend generated client update
-
-## Output Contract
-
-Every workflow command should support:
-
-- normal human-readable output
+- human-readable compact output by default
 - `--json`
+- `--actionable` to suppress passing/no-op items
+- `--summary` to emit only the top-level rollup and next actions
 
-JSON requirements:
+JSON contract rules:
 
-- stable schema
-- top-level `status`
-- top-level `command`
-- per-repo result objects
-- partial failure representation without losing successes
+- stable top-level keys
+- `status` always present
+- `command` always present
+- `scope` always present
+- `summary` always present
+- `next_actions` always present, even if empty
+- partial failures represented explicitly instead of flattening to one error string
 
-Example:
+Suggested top-level shape:
 
 ```json
 {
-  "command": "status",
+  "command": "repo submit",
+  "scope": "repo",
   "status": "ok",
-  "scope": "workspace",
-  "workspace": "landline-scrubber",
-  "repos": [
-    {
-      "name": "ai-lls-lib",
-      "present": true,
-      "branch": "feat/issue-42-export",
-      "dirty": false,
-      "ahead": 1,
-      "behind": 0,
-      "open_prs": []
-    }
-  ]
+  "summary": "Created PR #123 after 4 checks passed",
+  "next_actions": ["monitor ci"],
+  "warnings": [],
+  "errors": [],
+  "result": {}
 }
 ```
 
-## AI Integration Contract
+### Exit Codes
 
-`augint-tools` is designed to be called by AI skills directly.
+Use consistent exit codes:
+
+- `0`: success, no blockers
+- `1`: operational failure
+- `2`: completed with action required or drift found
+- `3`: blocked by safety policy or user decision needed
+- `4`: partial success
+
+### Output Filtering
+
+To reduce context load, commands should return only actionable detail by default.
+
+Examples:
+
+- `status` should not print full clean repo listings unless requested
+- `check` should print failing phases first and omit passing command chatter
+- `submit` should return the commit, push, PR, and unresolved blockers, not raw command output
+- `standardize audit` should return findings, not raw grep output
+- `mono` commands should collapse all passing repos into one rollup line unless `--verbose` is requested
+
+## Repo Workflow
+
+The repo workflow should become explicit, deterministic, and nearly skill-agnostic.
+
+### Command Surface
+
+```bash
+ai-tools repo inspect
+ai-tools repo status
+ai-tools repo issues pick
+ai-tools repo issues view
+ai-tools repo branch prepare
+ai-tools repo check plan
+ai-tools repo check run
+ai-tools repo submit
+ai-tools repo ci watch
+ai-tools repo ci triage
+ai-tools repo promote
+ai-tools repo rollback plan
+ai-tools repo rollback apply
+ai-tools repo health
+```
+
+### `ai-tools repo inspect`
+
+Purpose:
+
+- one-call snapshot for repo kind, branch policy, toolchain, and command plan
+
+This replaces repeated detection logic in:
+
+- `ai-status`
+- `ai-prepare-branch`
+- `ai-submit-work`
+- `ai-promote`
+- `ai-rollback`
+- `ai-standardize-repo`
+
+### `ai-tools repo status`
+
+Purpose:
+
+- summarize local git state, upstream relation, open PR, latest CI run, and next recommended action
+
+Required behavior:
+
+- batch all git and GitHub reads in one call
+- compute one recommended next action
+- support `--actionable`
+- support `--json`
+
+This should fully replace the raw shell dashboard inside `ai-status`.
+
+### `ai-tools repo issues pick`
+
+Purpose:
+
+- deterministic issue recommendation, lookup, and search
+
+Required behavior:
+
+- numeric input: direct lookup
+- text input: search
+- empty input: recommendation mode
+- include recommendation score and short reasons
+- include suggested branch prefix and branch name seed
+- hide closed issues from recommendation mode
+- optionally include the top `N` candidates with `--limit`
+
+This should replace the current skill-side issue scoring logic.
+
+### `ai-tools repo branch prepare`
+
+Purpose:
+
+- create or switch to the correct work branch from the correct base
+
+Required behavior:
+
+- resolve base branch and PR target deterministically
+- detect stale merged work branches
+- safely handle dirty worktrees
+- optionally sync dev with main when policy requires it
+- generate branch name from issue metadata or description
+- support exact branch names
+- push the branch and set upstream
+
+This should replace almost all of `ai-prepare-branch`.
+
+### `ai-tools repo check plan`
+
+Purpose:
+
+- resolve the validation plan without running it
+
+The plan should expand to named phases:
+
+- `quality`
+- `security`
+- `licenses`
+- `tests`
+- `build`
+
+Support presets:
+
+- `quick`: quality only
+- `default`: quality + tests
+- `full`: quality + security + licenses + tests + build
+- `ci`: mirror the configured CI policy exactly
+
+This reduces context because the skill can inspect the resolved plan once instead of reconstructing it every turn.
+
+### `ai-tools repo check run`
+
+Purpose:
+
+- execute the resolved plan with deterministic grouping and output filtering
+
+Required behavior:
+
+- support `--preset`
+- support `--skip phase1,phase2`
+- support `--fix mechanical`
+- return per-phase command, duration, status, and actionable failures
+- suppress raw passing tool output by default
+- surface changed files when mechanical fixes were applied
+
+Mechanical fixes allowed here:
+
+- formatter changes
+- whitespace fixes
+- import sorting
+- lockfile regeneration when policy explicitly allows it
+
+Do not auto-fix business-logic test failures here.
+
+This command is the core missing primitive for the repo flow.
+
+### `ai-tools repo submit`
+
+Purpose:
+
+- turn local work into a pushed PR with the right checks, commit, and metadata
+
+Required behavior:
+
+- resolve submit preset
+- stage tracked changes
+- auto-stage known safe paths
+- explicitly report unknown untracked files
+- optionally fail instead of prompting on unknown files for AI mode
+- run `repo check run`
+- generate conventional commit message
+- update work branch from target using configured strategy
+- push safely
+- create or update PR
+- set automerge when policy says so
+- optionally start CI monitoring
+
+Suggested flags:
+
+- `--preset quick|default|full|ci`
+- `--skip phase1,phase2`
+- `--unknown-files fail|prompt|ignore`
+- `--update-strategy rebase|merge`
+- `--monitor`
+- `--draft`
+
+This should replace the skill-side logic in `ai-submit-work`.
+
+### `ai-tools repo ci watch`
+
+Purpose:
+
+- monitor a run or current-branch CI and return compact status
+
+Required behavior:
+
+- accept branch or run id
+- wait or poll until completion
+- on failure, return failed jobs first
+- include log snippets, not whole logs
+- include recommended next action
+
+### `ai-tools repo ci triage`
+
+Purpose:
+
+- classify CI failures and optionally apply mechanical fixes
+
+Required behavior:
+
+- classify fixability as `mechanical`, `manual`, or `external`
+- support `--fix mechanical`
+- commit and push only deterministic fixes
+- stop after a small configurable number of attempts
+- emit structured fix attempts and remaining blockers
+
+This should replace the heuristic-heavy logic in `ai-monitor-pipeline`.
+
+### `ai-tools repo promote`
+
+Purpose:
+
+- handle the service-repo `dev -> main` promotion flow
+
+Required behavior:
+
+- verify the latest successful CI is for current dev HEAD
+- ensure there is actually something to promote
+- warn on un-PR'd commits
+- create the promotion PR with merge strategy metadata
+- enable automerge when allowed
+
+This should replace the shell-heavy logic in `ai-promote`.
+
+### `ai-tools repo rollback plan` and `apply`
+
+Purpose:
+
+- make rollback a planned, inspectable action instead of a manual git exercise
+
+Required behavior:
+
+- resolve PR or commit target
+- detect migration/infrastructure risk
+- emit a dry-run plan by default
+- require explicit `apply` to execute
+- optionally chain into CI monitoring
+
+This should replace the manual flow in `ai-rollback`.
+
+### `ai-tools repo health`
+
+Purpose:
+
+- structured repo hygiene audit and cleanup plan
+
+This is lower priority than `check`, `submit`, and `ci`, but it should eventually absorb the procedural logic from `ai-repo-health`.
+
+## Mono Workflow
+
+The mono workflow already has the right direction. The goal is to make it more purposeful, tighter, and cheaper for AI use.
+
+### Canonical Surface
+
+```bash
+ai-tools mono inspect
+ai-tools mono sync
+ai-tools mono status
+ai-tools mono issues
+ai-tools mono graph
+ai-tools mono branch
+ai-tools mono check
+ai-tools mono test      # alias to mono check --phase tests
+ai-tools mono lint      # alias to mono check --phase quality
+ai-tools mono submit
+ai-tools mono update
+ai-tools mono foreach
+```
+
+### Required Improvements
+
+#### 1. Use `ai-tools mono` consistently
+
+Current workspace skills point at `augint-tools ...` while notes and tests point at `ai-tools mono ...`.
+
+Standardize on:
+
+```bash
+ai-tools mono ...
+```
+
+`augint-tools` remains the project name, not the skill-facing command text.
+
+#### 2. Add `mono inspect`
+
+Purpose:
+
+- one-call workspace snapshot
+
+It should return:
+
+- workspace manifest info
+- repo presence
+- default branch targets
+- dependency graph
+- blocked repos
+- available selectors
+
+#### 3. Add `mono graph`
+
+Purpose:
+
+- emit dependency order and affected downstream closures
+
+This helps:
+
+- issue planning
+- check ordering
+- submit planning
+- downstream update planning
+
+#### 4. Add `mono check`
+
+Purpose:
+
+- group common validation commands across repos
+
+Required behavior:
+
+- execute phases in dependency-aware order
+- allow `--phase quality,tests,build`
+- allow `--repos`, `--changed`, `--deps-of`, `--dependents-of`
+- parallelize where safe
+- collapse passing repos into a compact summary
+- emit failing repos first
+
+`mono test` and `mono lint` should remain as thin aliases.
+
+#### 5. Improve `mono status`
+
+Purpose:
+
+- compact actionable workspace health
+
+Required behavior:
+
+- batch git and GitHub queries
+- support `--actionable`
+- support `--blocked-only`
+- support `--dirty-only`
+- support `--json`
+- collapse clean repos by default
+
+#### 6. Improve `mono branch`
+
+Purpose:
+
+- coordinated branch prep with deterministic repo selection
+
+Required behavior:
+
+- accept `--issue`, `--description`, or exact branch name
+- use per-repo base branch from manifest
+- skip repos that are not selected or not affected
+- report blocked repos without flooding output
+
+#### 7. Improve `mono submit`
+
+Purpose:
+
+- open the right PRs with minimal context load
+
+Required behavior:
+
+- submit only changed or selected repos
+- optionally require checks to pass first
+- output one structured row per repo with branch, target, PR link, and blocker
+- optionally `--monitor`
+
+#### 8. Improve `mono update`
+
+Purpose:
+
+- deterministic downstream propagation after upstream changes
+
+Required behavior:
+
+- compute dependency closure from `workspace.toml`
+- support `--from repo`
+- support `--plan` without writing
+- support manifest-defined update commands
+- emit changed repos and follow-up validation steps only
+
+#### 9. Improve `mono foreach`
+
+Purpose:
+
+- keep it as the escape hatch, but make it selector-aware and compact
+
+Required behavior:
+
+- support selectors and dependency groups
+- return per-repo status without dumping full stdout unless requested
+
+## Standardize Workflow
+
+This should become a real tool workflow, not a loose cluster of skills.
+
+### Canonical Surface
+
+```bash
+ai-tools standardize detect
+ai-tools standardize audit
+ai-tools standardize fix
+ai-tools standardize verify
+```
+
+Optional aliases are fine, but the core model should stay centered on `detect -> audit -> fix -> verify`.
+
+### Sections
+
+Support these sections:
+
+- `github`
+- `pipeline`
+- `quality`
+- `dotfiles`
+- `renovate`
+- `release`
+
+Also support:
+
+- `all`
+
+### `ai-tools standardize detect`
+
+Purpose:
+
+- resolve the standardization profile once
+
+Return:
+
+- repo type
+- language
+- framework
+- delivery model
+- branch strategy
+- expected standard profile identifier
+
+Example profile ids:
+
+- `python-library`
+- `python-service-sam`
+- `typescript-service-nextjs`
+- `mixed-service`
+
+### `ai-tools standardize audit`
+
+Purpose:
+
+- run all section checks through one normalized finding model
+
+Required behavior:
+
+- support `--section`
+- support `--actionable`
+- support `--json`
+- never return raw grep blobs
+
+Finding schema should include:
+
+- `id`
+- `section`
+- `severity`
+- `subject`
+- `actual`
+- `expected`
+- `can_fix`
+- `fix_kind`
+- `source`
+
+Suggested finding shape:
+
+```json
+{
+  "id": "pipeline.job_name.code_quality",
+  "section": "pipeline",
+  "severity": "error",
+  "subject": ".github/workflows/pipeline.yaml",
+  "actual": "Pre-commit checks",
+  "expected": "Code quality",
+  "can_fix": true,
+  "fix_kind": "patch",
+  "source": "pipeline template v2"
+}
+```
+
+This is the key improvement. The standard becomes data, not prose.
+
+### `ai-tools standardize fix`
+
+Purpose:
+
+- apply template-backed or rule-backed fixes from the audit model
+
+Required behavior:
+
+- support `--section`
+- support `--dry-run`
+- support `--write`
+- emit a change plan before writing
+- distinguish local file fixes from GitHub-side fixes
+- normalize GitHub-side actions even if they shell out to `ai-gh`
+
+Fix kinds should be explicit:
+
+- `generate`
+- `patch`
+- `replace`
+- `external`
+- `manual`
+
+### `ai-tools standardize verify`
+
+Purpose:
+
+- rerun the audit after fixes and confirm the repo is aligned
+
+This should be a first-class command so skills do not need to manually recompose the audit sequence.
+
+### Template Ownership
+
+`ai-tools` should own the standard templates or template references used by the fix engine.
 
 That means:
 
-- command names must be stable
-- machine-readable output must be reliable
-- error messages must be specific
-- commands must avoid hidden side effects
+- pipeline rules stop living only in skill prose
+- renovate conventions stop living only in skill prose
+- release conventions stop living only in skill prose
+- dotfile and quality hook expectations stop living only in skill prose
 
-Skills should become thin orchestration layers:
+### GitHub Provider Strategy
 
-- `/ai-init`
-- `/ai-pick-issue`
-- `/ai-prepare-branch`
-- `/ai-submit-work`
-- `/ai-monitor-pipeline`
-- `/ai-workspace-status`
-- `/ai-workspace-pick`
-- `/ai-workspace-branch`
-- `/ai-workspace-test`
-- `/ai-workspace-lint`
-- `/ai-workspace-submit`
-- `/ai-workspace-update`
+For the `github` section:
 
-These skills should call `augint-tools`, not reimplement workflow logic with raw shell loops.
+- prefer direct implementation when practical
+- if `ai-gh` is used as a backend initially, wrap it behind normalized `ai-tools standardize` output
+- do not expose raw `ai-gh` output as the primary AI contract
 
-## Relationship To ai-shell
+## ai-shell Skill Changes
 
-`ai-shell` responsibilities:
+After `ai-tools` grows this surface, the skills should be simplified aggressively.
 
-- scaffold configs and skills
-- persist repo kind
-- launch Claude/Codex/opencode
-- provide containerized environment
+### Repo skill mapping
 
-`augint-tools` responsibilities:
+- `ai-status` -> `ai-tools repo status --json`
+- `ai-pick-issue` -> `ai-tools repo issues pick --json`
+- `ai-prepare-branch` -> `ai-tools repo branch prepare --json`
+- `ai-submit-work` -> `ai-tools repo submit --json`
+- `ai-monitor-pipeline` -> `ai-tools repo ci watch --json` or `ci triage --json`
+- `ai-promote` -> `ai-tools repo promote --json`
+- `ai-rollback` -> `ai-tools repo rollback plan/apply --json`
+- `ai-repo-health` -> `ai-tools repo health --json`
 
-- execute repo and workspace workflows
-- inspect GitHub state
-- run repo-aware checks
-- coordinate child repos
-- submit PRs
+### Mono skill mapping
 
-## Migration Plan
+- `ai-workspace-init` -> `ai-tools mono sync` plus `mono inspect`
+- `ai-workspace-sync` -> `ai-tools mono sync --json`
+- `ai-workspace-status` -> `ai-tools mono status --json`
+- `ai-workspace-pick` -> `ai-tools mono issues --json`
+- `ai-workspace-branch` -> `ai-tools mono branch --json`
+- `ai-workspace-test` -> `ai-tools mono check --phase tests --json`
+- `ai-workspace-lint` -> `ai-tools mono check --phase quality --json`
+- `ai-workspace-submit` -> `ai-tools mono submit --json`
+- `ai-workspace-update` -> `ai-tools mono update --json`
+- `ai-workspace-health` -> `ai-tools mono status --actionable --json`
+- `ai-workspace-foreach` -> `ai-tools mono foreach --json`
 
-### Phase 1
+The mono skills are already close. The main change is command normalization and better filtering.
 
-- deprecate `augint-mono`
-- stop adding new features there
-- update workspace docs to say `workspace`, not `workspace`
-- introduce `augint-tools` spec and repo
+### Standardize skill mapping
 
-### Phase 2
+- `ai-standardize-repo` -> `ai-tools standardize audit/fix/verify`
+- `ai-standardize-dotfiles` -> `ai-tools standardize audit --section dotfiles`
+- `ai-standardize-precommit` -> `ai-tools standardize audit --section quality`
+- `ai-standardize-pipeline` -> `ai-tools standardize audit --section pipeline`
+- `ai-standardize-renovate` -> `ai-tools standardize audit --section renovate`
+- `ai-standardize-release` -> `ai-tools standardize audit --section release`
 
-- implement workspace manifest parsing
-- implement `status`, `issues`, `branch`, `test`, `lint`, `submit`, `update`
-- preserve `--json` from the start
+Once the tool exists, these skills should become small entrypoints and reporting shells, not repositories of rules.
 
-### Phase 3
+## Implementation Priority
 
-- update `ai-shell` templates and skills to call `augint-tools`
-- introduce workspace-named skills instead of legacy mono names
+### P0
 
-### Phase 4
+- normalize naming to `ai-tools repo`, `ai-tools mono`, `ai-tools standardize`
+- implement shared detection engine
+- implement `repo status`
+- implement `repo branch prepare`
+- implement `repo check plan` and `repo check run`
+- implement `repo submit`
+- implement `repo ci watch` and `repo ci triage`
+- implement `standardize detect`, `audit`, `fix`, `verify`
+- implement `mono inspect`
+- implement `mono check`
+- tighten `mono status` output filtering
 
-- formally deprecate old skill names and old repo-type aliases
+### P1
 
-## Non-Goals
+- implement `repo issues pick`
+- implement `repo promote`
+- implement `repo rollback`
+- implement `mono graph`
+- improve `mono update` closure planning
+- improve `mono submit --monitor`
 
-- not a general-purpose build tool
-- not a package manager
-- not a replacement for git
-- not a replacement for GitHub CLI
-- not tied only to workspace repos
+### P2
 
-## Initial MVP
+- implement `repo health`
+- add more advanced provider backends for GitHub standardization
+- add cached snapshots if needed for very large workspaces
 
-The first release should include:
+## Bottom Line
 
-- `init`
-- `status`
-- `issues`
-- `branch`
-- `test`
-- `lint`
-- `submit`
-- workspace manifest parsing
-- stable `--json`
+The mono workflow is directionally right but needs tighter filtering, better selectors, and a grouped validation primitive.
 
-That is enough to replace the practical use of `augint-mono`.
+The repo workflow is not yet tool-first enough and should get the same treatment as mono.
 
-## Naming Guidance
+The standardize workflow needs the strongest rewrite: one detection engine, one audit model, one fix engine, one verify pass.
 
-Use:
+If we implement the surface in this file, the gains should be exactly the ones we want:
 
-- `workspace`
-- `child repo`
-- `repo kind`
-- `workflow`
-
-Avoid:
-
-- `workspace`
-- `repo` as the default mental model
-- `pointer sync`
-
-## Summary
-
-`augint-tools` should be the CLI home for AI-oriented engineering workflows.
-
-It should unify:
-
-- normal repo workflows
-- workspace workflows
-- GitHub-aware orchestration
-- machine-readable outputs for AI skills
-
-It replaces `augint-mono` not by rebranding it, but by broadening and clarifying
-its purpose: a workflow CLI for AI-assisted engineering.
+- more determinism
+- less skill-side logic
+- fewer shell calls
+- smaller LLM context windows
+- more repeatable repo, mono, and standardize behavior

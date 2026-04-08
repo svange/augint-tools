@@ -1,0 +1,14 @@
+[project]
+repo_type = "library"
+branch_strategy = "main"
+
+[ai_tools.repo]
+update_work_branch_strategy = "rebase"
+default_submit_preset = "full"
+
+[ai_tools.commands]
+quality = "uv run pre-commit run --all-files"
+tests = "uv run pytest --cov=src --cov-fail-under=80 -v"
+security = "uv run pip-audit"
+licenses = "uv run pip-licenses --from=mixed --summary"
+build = "uv build"

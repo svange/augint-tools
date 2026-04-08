@@ -7,81 +7,105 @@ from typing import Any
 
 import click
 
+from augint_tools.output.response import CommandResponse
 
-def emit_json(data: dict[str, Any]) -> None:
-    """Emit JSON output to stdout."""
-    # Add timestamp if not present
+
+def emit_response(
+    response: CommandResponse,
+    *,
+    json_mode: bool = False,
+    actionable: bool = False,
+    summary_only: bool = False,
+) -> None:
+    """Emit a CommandResponse in JSON or human-readable format.
+
+    Args:
+        response: The response to emit.
+        json_mode: Output as JSON.
+        actionable: Suppress passing/no-op items.
+        summary_only: Emit only status, summary, and next_actions.
+    """
+    if actionable and response.status == "ok" and not response.warnings:
+        return
+
+    data = response.to_dict()
+
+    if json_mode:
+        if summary_only:
+            data = {
+                "command": data["command"],
+                "scope": data["scope"],
+                "status": data["status"],
+                "summary": data["summary"],
+                "next_actions": data["next_actions"],
+            }
+        _emit_json(data)
+    else:
+        if summary_only:
+            _emit_summary(response)
+        else:
+            _emit_human(response)
+
+
+def _emit_json(data: dict[str, Any]) -> None:
+    """Emit JSON output to stdout with timestamp."""
     if "timestamp" not in data:
         data["timestamp"] = datetime.now(UTC).isoformat()
-
     click.echo(json.dumps(data, indent=2))
 
 
-def emit_output(
-    command: str,
-    scope: str,
-    as_json: bool = False,
-    status: str = "ok",
-    **data: Any,
-) -> None:
-    """
-    Emit command output in JSON or human-readable format.
+def _emit_summary(response: CommandResponse) -> None:
+    """Emit only the summary line and next actions."""
+    status_str = _status_icon(response.status)
+    click.echo(f"{status_str} {response.summary}")
+    if response.next_actions:
+        click.echo(f"  Next: {', '.join(response.next_actions)}")
 
-    Args:
-        command: Command name (e.g., "status", "branch")
-        scope: Command scope ("repo" or "monorepo")
-        as_json: Whether to output JSON format
-        status: Command status ("ok" or "error")
-        **data: Additional data to include in response
-    """
-    response = {
-        "command": command,
-        "status": status,
-        "scope": scope,
-        **data,
-    }
 
-    if as_json:
-        emit_json(response)
+def _emit_human(response: CommandResponse) -> None:
+    """Emit human-readable output using registry-based formatters."""
+    status_str = _status_icon(response.status)
+    click.echo(f"{status_str} {response.command}: {response.summary}")
+
+    # Show warnings
+    for warning in response.warnings:
+        emit_warning(warning)
+
+    # Show errors
+    for error in response.errors:
+        click.echo(click.style(f"  {error}", fg="red"), err=True)
+
+    # Delegate to registered formatter if available
+    key = response.command
+    if key in _HUMAN_FORMATTERS:
+        _HUMAN_FORMATTERS[key](response.result)
+
+    # Show next actions
+    if response.next_actions:
+        click.echo(f"  Next: {', '.join(response.next_actions)}")
+
+
+def _status_icon(status: str) -> str:
+    if status == "ok":
+        return click.style("[ok]", fg="green")
+    elif status == "error":
+        return click.style("[error]", fg="red")
+    elif status == "action-required":
+        return click.style("[action]", fg="yellow")
+    elif status == "blocked":
+        return click.style("[blocked]", fg="red")
+    elif status == "partial":
+        return click.style("[partial]", fg="yellow")
     else:
-        _emit_human(response)
+        return click.style(f"[{status}]", fg="yellow")
 
 
-def _emit_human(data: dict[str, Any]) -> None:
-    """Emit human-readable output."""
-    command = data.get("command", "unknown")
-    status_val = data.get("status", "ok")
-
-    # Show status with color
-    if status_val == "ok":
-        status_str = click.style("✓", fg="green")
-    elif status_val == "error":
-        status_str = click.style("✗", fg="red")
-    else:
-        status_str = click.style("•", fg="yellow")
-
-    click.echo(f"{status_str} {command}")
-
-    # Show error if present
-    if "error" in data:
-        emit_error(data["error"])
-
-    # Command-specific formatting
-    if command == "status" and "repo" in data:
-        _format_repo_status(data["repo"])
-    elif command == "status" and "repos" in data:
-        _format_workspace_status(data)
-    elif command == "issues" and "issues" in data:
-        _format_issues(data["issues"])
-    elif command == "branch" and status_val == "ok":
-        if "branch" in data:
-            click.echo(f"  Branch: {click.style(data['branch'], fg='cyan')}")
-    elif command == "foreach" and "results" in data:
-        _format_foreach_results(data["results"])
+# --- Registry-based human formatters ---
+# Each formatter receives response.result and prints command-specific detail.
 
 
-def _format_repo_status(repo: dict[str, Any]) -> None:
-    """Format single repo status."""
+def _format_repo_status(result: dict[str, Any]) -> None:
+    repo = result.get("repo", {})
     click.echo(f"  Branch: {click.style(repo.get('branch', 'unknown'), fg='cyan')}")
 
     if repo.get("dirty"):
@@ -95,19 +119,15 @@ def _format_repo_status(repo: dict[str, Any]) -> None:
     if ahead > 0 or behind > 0:
         click.echo(f"  Remote: ahead {ahead}, behind {behind}")
 
-    # GitHub info
     if "open_prs" in repo and repo["open_prs"]:
         click.echo(f"  Open PRs: {len(repo['open_prs'])}")
         for pr in repo["open_prs"]:
-            pr_num = pr.get("number", "?")
-            pr_title = pr.get("title", "")
-            click.echo(f"    #{pr_num}: {pr_title}")
+            click.echo(f"    #{pr.get('number', '?')}: {pr.get('title', '')}")
 
 
-def _format_workspace_status(data: dict[str, Any]) -> None:
-    """Format workspace status."""
-    workspace = data.get("workspace", {})
-    repos = data.get("repos", [])
+def _format_mono_status(result: dict[str, Any]) -> None:
+    workspace = result.get("workspace", {})
+    repos = result.get("repos", [])
 
     click.echo(f"  Workspace: {workspace.get('name', 'unknown')}")
     click.echo(f"  Repositories: {len(repos)}")
@@ -119,53 +139,121 @@ def _format_workspace_status(data: dict[str, Any]) -> None:
             continue
 
         branch = repo.get("branch", "?")
-        status_icon = "•" if repo.get("dirty") else "✓"
-        status_color = "yellow" if repo.get("dirty") else "green"
-
-        click.echo(f"    {click.style(status_icon, fg=status_color)} {name} ({branch})")
+        icon = click.style("*", fg="yellow") if repo.get("dirty") else click.style("ok", fg="green")
+        click.echo(f"    [{icon}] {name} ({branch})")
 
 
-def _format_issues(issues: list[dict[str, Any]]) -> None:
-    """Format issues list."""
+def _format_issues(result: dict[str, Any]) -> None:
+    issues = result.get("issues", [])
     if not issues:
         click.echo("  No issues found")
         return
-
     click.echo(f"  Found {len(issues)} issues:")
     for issue in issues:
-        number = issue.get("number", "?")
-        title = issue.get("title", "")
         labels = issue.get("labels", [])
         label_str = f" [{', '.join(labels)}]" if labels else ""
-        click.echo(f"    #{number}: {title}{label_str}")
+        click.echo(f"    #{issue.get('number', '?')}: {issue.get('title', '')}{label_str}")
 
 
-def _format_foreach_results(results: list[dict[str, Any]]) -> None:
-    """Format foreach command results."""
-    for result in results:
-        repo = result.get("repo", "unknown")
-        success = result.get("success", False)
-        exit_code = result.get("exit_code", 0)
+def _format_branch(result: dict[str, Any]) -> None:
+    if "branch" in result:
+        click.echo(f"  Branch: {click.style(result['branch'], fg='cyan')}")
 
+
+def _format_foreach(result: dict[str, Any]) -> None:
+    results = result.get("results", [])
+    for r in results:
+        repo = r.get("repo", r.get("name", "unknown"))
+        success = r.get("success", False)
         if success:
-            click.echo(f"  {click.style('✓', fg='green')} {repo}")
+            click.echo(f"  {click.style('[ok]', fg='green')} {repo}")
         else:
-            click.echo(f"  {click.style('✗', fg='red')} {repo} (exit {exit_code})")
-
-        if output := result.get("output"):
+            click.echo(
+                f"  {click.style('[error]', fg='red')} {repo} (exit {r.get('exit_code', 0)})"
+            )
+        if output := r.get("output"):
             for line in output.split("\n"):
                 if line.strip():
                     click.echo(f"      {line}")
 
 
-def emit_error(message: str, exit_code: int | None = None) -> None:
-    """
-    Emit error message to stderr.
+def _format_check_plan(result: dict[str, Any]) -> None:
+    phases = result.get("phases", [])
+    if not phases:
+        click.echo("  No phases in plan")
+        return
+    click.echo(f"  Preset: {result.get('preset', 'unknown')}")
+    for phase in phases:
+        click.echo(f"    {phase['name']}: {phase['command']}")
 
-    Args:
-        message: Error message
-        exit_code: Optional exit code (exits if provided)
-    """
+
+def _format_check_run(result: dict[str, Any]) -> None:
+    phases = result.get("phases", [])
+    for phase in phases:
+        status = phase.get("status", "unknown")
+        icon = (
+            click.style("[ok]", fg="green")
+            if status == "passed"
+            else click.style(f"[{status}]", fg="red")
+        )
+        duration = phase.get("duration_seconds", 0)
+        click.echo(f"    {icon} {phase['phase']} ({duration:.1f}s)")
+        for failure in phase.get("failures", []):
+            click.echo(f"      {failure}")
+
+
+def _format_inspect(result: dict[str, Any]) -> None:
+    for key in [
+        "repo_kind",
+        "language",
+        "framework",
+        "default_branch",
+        "current_branch",
+        "target_pr_branch",
+    ]:
+        if key in result:
+            click.echo(f"  {key}: {result[key]}")
+
+
+def _format_audit(result: dict[str, Any]) -> None:
+    findings = result.get("findings", [])
+    if not findings:
+        click.echo("  No findings")
+        return
+    for f in findings:
+        severity = f.get("severity", "info")
+        color = "red" if severity == "error" else "yellow" if severity == "warning" else "white"
+        click.echo(f"  {click.style(f'[{severity}]', fg=color)} {f['id']}: {f.get('subject', '')}")
+        click.echo(f"    expected: {f.get('expected', '')}")
+        click.echo(f"    actual: {f.get('actual', '')}")
+
+
+# Command -> formatter registry
+_HUMAN_FORMATTERS: dict[str, Any] = {
+    "repo status": _format_repo_status,
+    "repo inspect": _format_inspect,
+    "repo issues pick": _format_issues,
+    "repo issues view": _format_issues,
+    "repo branch prepare": _format_branch,
+    "repo check plan": _format_check_plan,
+    "repo check run": _format_check_run,
+    "repo submit": _format_branch,
+    "mono status": _format_mono_status,
+    "mono inspect": _format_inspect,
+    "mono issues": _format_issues,
+    "mono branch": _format_branch,
+    "mono check": _format_check_run,
+    "mono foreach": _format_foreach,
+    "standardize detect": _format_inspect,
+    "standardize audit": _format_audit,
+}
+
+
+# --- Convenience helpers ---
+
+
+def emit_error(message: str, exit_code: int | None = None) -> None:
+    """Emit error message to stderr."""
     click.echo(click.style(f"Error: {message}", fg="red"), err=True)
     if exit_code is not None:
         sys.exit(exit_code)
@@ -176,17 +264,16 @@ def emit_warning(message: str) -> None:
     click.echo(click.style(f"Warning: {message}", fg="yellow"), err=True)
 
 
-def create_error_response(
-    command: str,
-    scope: str,
-    error: str,
-    **extra: Any,
-) -> dict[str, Any]:
-    """Create error response dict."""
-    return {
-        "command": command,
-        "status": "error",
-        "scope": scope,
-        "error": error,
-        **extra,
-    }
+def emit_stub(command: str, scope: str, *, json_mode: bool = False) -> None:
+    """Emit a stub response for unimplemented commands."""
+    response = CommandResponse(
+        command=command,
+        scope=scope,
+        status="error",
+        summary=f"{command} is not yet implemented",
+        errors=["Not yet implemented"],
+        result={"implemented": False},
+    )
+    if not json_mode:
+        emit_warning(f"{command} is not yet implemented")
+    emit_response(response, json_mode=json_mode)

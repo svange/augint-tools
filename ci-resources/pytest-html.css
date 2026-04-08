@@ -1,0 +1,149 @@
+/* pytest-html dark mode overrides */
+
+body {
+  background-color: #121212 !important;
+  color: #e0e0e0 !important;
+  font-family: Helvetica, Arial, sans-serif;
+}
+
+/* Headings and text */
+h1#title, h1, h2, #environment-header h2 {
+  color: #ffffff !important;
+}
+p, .run-count, .filter {
+  color: #cccccc !important;
+}
+a {
+  color: #80cbc4 !important;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* Tables and cells */
+table, #results-table, #environment, th, td {
+  border: 1px solid #333333 !important;
+  background-color: #1e1e1e !important;
+  color: #e0e0e0 !important;
+}
+#environment tr:nth-child(odd) {
+  background-color: #1c1c1c !important;
+}
+#environment tr:nth-child(even) {
+  background-color: #141414 !important;
+}
+#results-table th {
+  background-color: #1a1a1a !important;
+}
+#results-table tr:nth-child(odd) td {
+  background-color: #1c1c1c !important;
+}
+#results-table tr:nth-child(even) td {
+  background-color: #141414 !important;
+}
+
+/* Summary section */
+.summary {
+  background-color: #1e1e1e !important;
+  color: #e0e0e0 !important;
+}
+.summary__data h2 {
+  color: #ffffff !important;
+}
+.summary__reload__button {
+  background-color: #33691e !important;
+  color: #ffffff !important;
+}
+.summary__reload__button:hover {
+  background-color: #558b2f !important;
+}
+
+/* Filters and collapse controls */
+.filters button,
+.collapse button {
+  color: #80cbc4 !important;
+  border: none;
+  background: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.filters button:hover,
+.collapse button:hover {
+  color: #ffffff !important;
+}
+
+/* Test result colors */
+span.passed,
+.passed .col-result {
+  color: #4caf50 !important;
+}
+span.skipped,
+.skipped .col-result {
+  color: #ffd54f !important;
+}
+span.error,
+span.failed,
+.error .col-result,
+.failed .col-result {
+  color: #f44336 !important;
+}
+span.xfailed,
+.xfailed .col-result {
+  color: #64b5f6 !important;
+}
+span.xpassed,
+.xpassed .col-result {
+  color: #ce93d8 !important;
+}
+span.rerun,
+.rerun .col-result {
+  color: #ffb74d !important;
+}
+
+/* Log output area */
+.logwrapper {
+  background-color: #1e1e1e !important;
+  border: 1px solid #333333 !important;
+  color: #e0e0e0 !important;
+}
+.logwrapper .log {
+  background-color: #000000 !important;
+  color: #e0e0e0 !important;
+  border: 1px solid #444444 !important;
+}
+.logwrapper .logexpander {
+  background-color: #333333 !important;
+  border: 1px solid #555555 !important;
+  color: #e0e0e0 !important;
+}
+
+/* Media container */
+div.media {
+  background-color: #1e1e1e !important;
+  border: 1px solid #333333 !important;
+}
+
+/* Sortable headers */
+.sortable {
+  color: #e0e0e0 !important;
+}
+.sortable.asc:after {
+  border-color: #4caf50 transparent transparent transparent !important;
+}
+.sortable.desc:after {
+  border-color: transparent transparent #4caf50 transparent !important;
+}
+
+/* Hide default bright scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #333333;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background-color: #1e1e1e;
+}

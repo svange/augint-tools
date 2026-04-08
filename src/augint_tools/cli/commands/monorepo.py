@@ -89,11 +89,19 @@ def status(as_json: bool) -> None:
             )
 
     # Summary
+    present_repos = [r for r in repos_status if r.get("present")]
+    dirty_count = sum(1 for r in present_repos if r.get("dirty"))
+    ahead_count = 0
+    for r in present_repos:
+        ahead_val = r.get("ahead")
+        if isinstance(ahead_val, int) and ahead_val > 0:
+            ahead_count += 1
+
     summary = {
         "total": len(repos_status),
-        "present": sum(1 for r in repos_status if r["present"]),
-        "dirty": sum(1 for r in repos_status if r.get("dirty", False)),
-        "ahead": sum(1 for r in repos_status if r.get("ahead", 0) > 0),
+        "present": len(present_repos),
+        "dirty": dirty_count,
+        "ahead": ahead_count,
     }
 
     emit_output(

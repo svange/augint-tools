@@ -20,6 +20,7 @@ def cli(ctx, verbose):
     ctx.ensure_object(dict)
     if verbose:
         logging.basicConfig(level=logging.DEBUG, format="%(name)s: %(message)s")
+        logging.debug(f"augint-tools v{__version__} initialized")
 
 
 # Top-level commands

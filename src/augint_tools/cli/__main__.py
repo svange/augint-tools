@@ -6,10 +6,10 @@ import sys
 import click
 
 from augint_tools import __version__
-from augint_tools.cli.commands.mono import mono
 from augint_tools.cli.commands.project import init
 from augint_tools.cli.commands.repo import repo
 from augint_tools.cli.commands.standardize import standardize
+from augint_tools.cli.commands.workspace import workspace
 
 
 @click.group()
@@ -41,11 +41,8 @@ cli.add_command(init)
 
 # Command groups
 cli.add_command(repo)
-cli.add_command(mono)
+cli.add_command(workspace)
 cli.add_command(standardize)
-
-# Backward-compat alias
-cli.add_command(mono, name="monorepo")
 
 
 def main():

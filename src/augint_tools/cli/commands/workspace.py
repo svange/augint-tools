@@ -1,4 +1,4 @@
-"""Workspace and monorepo orchestration commands."""
+"""Workspace orchestration commands."""
 
 import sys
 from pathlib import Path
@@ -41,10 +41,10 @@ def _get_output_opts(ctx: click.Context) -> dict:
 def _require_workspace(ctx: click.Context, command: str):
     """Load workspace config, emit error if missing. Returns (cwd, config) or exits."""
     cwd = Path.cwd()
-    config = load_workspace_config(cwd / "workspace.toml")
+    config = load_workspace_config(cwd / "workspace.yaml")
     if not config:
         emit_response(
-            CommandResponse.error(command, "mono", "No workspace.toml found"),
+            CommandResponse.error(command, "workspace", "No workspace.yaml found"),
             **_get_output_opts(ctx),
         )
         sys.exit(1)
@@ -56,19 +56,19 @@ def _require_workspace(ctx: click.Context, command: str):
 
 @click.group()
 @click.pass_context
-def mono(ctx):
-    """Workspace and monorepo orchestration commands."""
+def workspace(ctx):
+    """Workspace orchestration commands."""
     ctx.ensure_object(dict)
 
 
-# --- mono inspect ---
+# --- workspace inspect ---
 
 
-@mono.command()
+@workspace.command()
 @click.pass_context
 def inspect(ctx):
     """One-call workspace snapshot."""
-    cwd, config = _require_workspace(ctx, "mono inspect")
+    cwd, config = _require_workspace(ctx, "workspace inspect")
     opts = _get_output_opts(ctx)
 
     repos_info = []
@@ -92,8 +92,8 @@ def inspect(ctx):
 
     emit_response(
         CommandResponse.ok(
-            "mono inspect",
-            "mono",
+            "workspace inspect",
+            "workspace",
             f"Workspace {config.name}: {len(repos_info)} repos",
             result={
                 "workspace": {"name": config.name, "repos_dir": config.repos_dir},
@@ -104,14 +104,14 @@ def inspect(ctx):
     )
 
 
-# --- mono sync ---
+# --- workspace sync ---
 
 
-@mono.command()
+@workspace.command()
 @click.pass_context
 def sync(ctx):
     """Clone missing repos and update existing repos."""
-    cwd, config = _require_workspace(ctx, "mono sync")
+    cwd, config = _require_workspace(ctx, "workspace sync")
     opts = _get_output_opts(ctx)
 
     results = []
@@ -152,8 +152,8 @@ def sync(ctx):
 
     emit_response(
         CommandResponse(
-            command="mono sync",
-            scope="mono",
+            command="workspace sync",
+            scope="workspace",
             status=status,
             summary=f"{ok_count} synced, {fail_count} failed",
             result={"results": results},
@@ -162,16 +162,16 @@ def sync(ctx):
     )
 
 
-# --- mono status ---
+# --- workspace status ---
 
 
-@mono.command()
+@workspace.command()
 @click.option("--blocked-only", is_flag=True, default=False, help="Show only blocked repos.")
 @click.option("--dirty-only", is_flag=True, default=False, help="Show only dirty repos.")
 @click.pass_context
 def status(ctx, blocked_only, dirty_only):
     """Compact actionable workspace health."""
-    cwd, config = _require_workspace(ctx, "mono status")
+    cwd, config = _require_workspace(ctx, "workspace status")
     opts = _get_output_opts(ctx)
 
     repos_status = []
@@ -224,8 +224,8 @@ def status(ctx, blocked_only, dirty_only):
 
     emit_response(
         CommandResponse.ok(
-            "mono status",
-            "mono",
+            "workspace status",
+            "workspace",
             ", ".join(summary_parts),
             result={
                 "workspace": {"name": config.name, "path": str(cwd), "repos_dir": config.repos_dir},
@@ -242,21 +242,21 @@ def status(ctx, blocked_only, dirty_only):
     )
 
 
-# --- mono issues ---
+# --- workspace issues ---
 
 
-@mono.command()
+@workspace.command()
 @click.argument("query", required=False)
 @click.pass_context
 def issues(ctx, query):
     """Aggregate issues across all child repositories."""
-    cwd, config = _require_workspace(ctx, "mono issues")
+    cwd, config = _require_workspace(ctx, "workspace issues")
     opts = _get_output_opts(ctx)
 
     if not is_gh_available() or not is_gh_authenticated():
         emit_response(
             CommandResponse.error(
-                "mono issues", "mono", "GitHub CLI not available or not authenticated"
+                "workspace issues", "workspace", "GitHub CLI not available or not authenticated"
             ),
             **opts,
         )
@@ -281,8 +281,8 @@ def issues(ctx, query):
 
     emit_response(
         CommandResponse.ok(
-            "mono issues",
-            "mono",
+            "workspace issues",
+            "workspace",
             f"Found {len(all_issues)} issues across workspace",
             result={"query": query, "issues": all_issues, "count": len(all_issues)},
         ),
@@ -290,27 +290,27 @@ def issues(ctx, query):
     )
 
 
-# --- mono graph ---
+# --- workspace graph ---
 
 
-@mono.command()
+@workspace.command()
 @click.pass_context
 def graph(ctx):
     """Emit dependency order and affected downstream closures."""
-    emit_stub("mono graph", "mono", json_mode=_get_output_opts(ctx)["json_mode"])
+    emit_stub("workspace graph", "workspace", json_mode=_get_output_opts(ctx)["json_mode"])
 
 
-# --- mono branch ---
+# --- workspace branch ---
 
 
-@mono.command()
+@workspace.command()
 @click.option("--issue", type=int, help="Issue number to derive branch name from.")
 @click.option("--description", help="Short description for branch name.")
 @click.option("--name", "branch_name", help="Exact branch name.")
 @click.pass_context
 def branch(ctx, issue, description, branch_name):
     """Create coordinated branches across child repositories."""
-    cwd, config = _require_workspace(ctx, "mono branch")
+    cwd, config = _require_workspace(ctx, "workspace branch")
     opts = _get_output_opts(ctx)
 
     # Resolve branch name
@@ -327,7 +327,7 @@ def branch(ctx, issue, description, branch_name):
     else:
         emit_response(
             CommandResponse.error(
-                "mono branch", "mono", "Provide --issue, --description, or --name"
+                "workspace branch", "workspace", "Provide --issue, --description, or --name"
             ),
             **opts,
         )
@@ -359,8 +359,8 @@ def branch(ctx, issue, description, branch_name):
     ok_count = sum(1 for r in results if r["success"])
     emit_response(
         CommandResponse(
-            command="mono branch",
-            scope="mono",
+            command="workspace branch",
+            scope="workspace",
             status="ok" if ok_count == len(results) else "partial",
             summary=f"Created {name} in {ok_count}/{len(results)} repos",
             result={"branch": name, "results": results},
@@ -369,10 +369,10 @@ def branch(ctx, issue, description, branch_name):
     )
 
 
-# --- mono check ---
+# --- workspace check ---
 
 
-@mono.command("check")
+@workspace.command("check")
 @click.option("--phase", help="Comma-separated phases to run (e.g., quality,tests).")
 @click.option("--preset", default="default", type=click.Choice(["quick", "default", "full", "ci"]))
 @click.option("--repos", help="Comma-separated repo names to include.")
@@ -380,9 +380,9 @@ def branch(ctx, issue, description, branch_name):
     "--fix", "fix_mechanical", is_flag=True, default=False, help="Attempt mechanical fixes."
 )
 @click.pass_context
-def mono_check(ctx, phase, preset, repos, fix_mechanical):
+def workspace_check(ctx, phase, preset, repos, fix_mechanical):
     """Run grouped validation across repos in dependency order."""
-    cwd, config = _require_workspace(ctx, "mono check")
+    cwd, config = _require_workspace(ctx, "workspace check")
     opts = _get_output_opts(ctx)
 
     # Filter repos
@@ -391,7 +391,7 @@ def mono_check(ctx, phase, preset, repos, fix_mechanical):
     try:
         sorted_repos = topological_sort(config.repos)
     except ValueError as e:
-        emit_response(CommandResponse.error("mono check", "mono", str(e)), **opts)
+        emit_response(CommandResponse.error("workspace check", "workspace", str(e)), **opts)
         sys.exit(1)
 
     # Build skip list from --phase (only run specified phases, skip the rest)
@@ -442,8 +442,8 @@ def mono_check(ctx, phase, preset, repos, fix_mechanical):
     status = "ok" if total_failed == 0 else "error"
     emit_response(
         CommandResponse(
-            command="mono check",
-            scope="mono",
+            command="workspace check",
+            scope="workspace",
             status=status,
             summary=f"{total_passed} passed, {total_failed} failed across {len(all_results)} repos",
             result={"repos": all_results},
@@ -455,48 +455,52 @@ def mono_check(ctx, phase, preset, repos, fix_mechanical):
         sys.exit(1)
 
 
-# --- mono test (alias) ---
+# --- workspace test (alias) ---
 
 
-@mono.command("test")
+@workspace.command("test")
 @click.option("--repos", help="Comma-separated repo names.")
 @click.pass_context
-def mono_test(ctx, repos):
-    """Run tests across repos (alias for mono check --phase tests)."""
-    ctx.invoke(mono_check, phase="tests", preset="default", repos=repos, fix_mechanical=False)
+def workspace_test(ctx, repos):
+    """Run tests across repos (alias for workspace check --phase tests)."""
+    ctx.invoke(workspace_check, phase="tests", preset="default", repos=repos, fix_mechanical=False)
 
 
-# --- mono lint (alias) ---
+# --- workspace lint (alias) ---
 
 
-@mono.command("lint")
+@workspace.command("lint")
 @click.option("--repos", help="Comma-separated repo names.")
 @click.option(
     "--fix", "fix_mechanical", is_flag=True, default=False, help="Attempt mechanical fixes."
 )
 @click.pass_context
-def mono_lint(ctx, repos, fix_mechanical):
-    """Run quality checks across repos (alias for mono check --phase quality)."""
+def workspace_lint(ctx, repos, fix_mechanical):
+    """Run quality checks across repos (alias for workspace check --phase quality)."""
     ctx.invoke(
-        mono_check, phase="quality", preset="default", repos=repos, fix_mechanical=fix_mechanical
+        workspace_check,
+        phase="quality",
+        preset="default",
+        repos=repos,
+        fix_mechanical=fix_mechanical,
     )
 
 
-# --- mono submit ---
+# --- workspace submit ---
 
 
-@mono.command()
+@workspace.command()
 @click.option("--monitor", is_flag=True, default=False, help="Start CI monitoring after submit.")
 @click.pass_context
 def submit(ctx, monitor):
     """Open PRs for changed or selected repos."""
-    cwd, config = _require_workspace(ctx, "mono submit")
+    cwd, config = _require_workspace(ctx, "workspace submit")
     opts = _get_output_opts(ctx)
 
     if not is_gh_available() or not is_gh_authenticated():
         emit_response(
             CommandResponse.error(
-                "mono submit", "mono", "GitHub CLI not available or not authenticated"
+                "workspace submit", "workspace", "GitHub CLI not available or not authenticated"
             ),
             **opts,
         )
@@ -584,8 +588,8 @@ def submit(ctx, monitor):
     ok_count = sum(1 for r in results if r.get("success"))
     emit_response(
         CommandResponse(
-            command="mono submit",
-            scope="mono",
+            command="workspace submit",
+            scope="workspace",
             status="ok" if ok_count == len(results) else "partial" if ok_count > 0 else "error",
             summary=f"{ok_count}/{len(results)} repos submitted",
             result={"results": results},
@@ -595,25 +599,25 @@ def submit(ctx, monitor):
     )
 
 
-# --- mono update ---
+# --- workspace update ---
 
 
-@mono.command()
+@workspace.command()
 @click.pass_context
 def update(ctx):
     """Update downstream repos after upstream changes."""
-    emit_stub("mono update", "mono", json_mode=_get_output_opts(ctx)["json_mode"])
+    emit_stub("workspace update", "workspace", json_mode=_get_output_opts(ctx)["json_mode"])
 
 
-# --- mono foreach ---
+# --- workspace foreach ---
 
 
-@mono.command(context_settings={"ignore_unknown_options": True})
+@workspace.command(context_settings={"ignore_unknown_options": True})
 @click.argument("command", nargs=-1, type=click.UNPROCESSED, required=True)
 @click.pass_context
 def foreach(ctx, command):
     """Run a command across all child repositories."""
-    cwd, config = _require_workspace(ctx, "mono foreach")
+    cwd, config = _require_workspace(ctx, "workspace foreach")
     opts = _get_output_opts(ctx)
 
     cmd_str = " ".join(command)
@@ -640,8 +644,8 @@ def foreach(ctx, command):
     ok_count = sum(1 for r in results if r.get("success"))
     emit_response(
         CommandResponse(
-            command="mono foreach",
-            scope="mono",
+            command="workspace foreach",
+            scope="workspace",
             status="ok" if ok_count == len(results) else "partial" if ok_count > 0 else "error",
             summary=f"{ok_count}/{len(results)} repos succeeded",
             result={"command_run": cmd_str, "results": results},

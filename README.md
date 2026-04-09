@@ -10,7 +10,7 @@ CLI orchestration layer for AI-assisted repository and workspace workflows.
 
 ## Features
 
-- **Dual-mode operation**: Commands for both single repos (`ai-tools repo`) and monorepos/workspaces (`ai-tools monorepo`)
+- **Dual-mode operation**: Commands for both single repos (`ai-tools repo`) and workspaces (`ai-tools workspace`)
 - **AI-first design**: Every command supports `--json` output for agent parsing
 - **Repo-type aware**: Understands library, service, and workspace repository patterns
 - **Safe defaults**: No destructive git operations without explicit commands
@@ -53,29 +53,29 @@ ai-tools repo lint --fix
 ai-tools repo submit
 ```
 
-### Monorepo/Workspace Workflows
+### Workspace Workflows
 
 ```bash
 # Initialize workspace
 ai-tools init --workspace
 
 # Sync all child repositories
-ai-tools monorepo sync --json
+ai-tools workspace sync --json
 
 # Check status across all repos
-ai-tools monorepo status
+ai-tools workspace status
 
 # Create coordinated branches
-ai-tools monorepo branch feat/multi-repo-change
+ai-tools workspace branch feat/multi-repo-change
 
 # Run tests across all repos
-ai-tools monorepo test
+ai-tools workspace test
 
 # Run command in all repos
-ai-tools monorepo foreach -- git status
+ai-tools workspace foreach -- git status
 
 # Submit PRs for all modified repos
-ai-tools monorepo submit
+ai-tools workspace submit
 ```
 
 ## Command Reference
@@ -93,7 +93,7 @@ ai-tools monorepo submit
 - `lint [--fix]` - Run quality checks
 - `submit` - Push branch and create PR
 
-### Monorepo Commands (`ai-tools monorepo`)
+### Workspace Commands (`ai-tools workspace`)
 
 - `status` - Status across all child repositories
 - `sync` - Clone missing repos and update existing
@@ -120,24 +120,24 @@ dev_branch = "dev"           # when branch_strategy = "dev"
 
 ### Workspace Manifest
 
-`workspace.toml` (for workspace repos):
+`workspace.yaml` (for workspace repos):
 
-```toml
-[workspace]
-name = "my-workspace"
-repos_dir = "repos"
+```yaml
+workspace:
+  name: my-workspace
+  repos_dir: repos
 
-[[repo]]
-name = "my-lib"
-path = "repos/my-lib"
-url = "https://github.com/org/my-lib.git"
-repo_type = "library"
-base_branch = "main"
-pr_target_branch = "main"
-install = "uv sync --all-extras"
-test = "uv run pytest -v"
-lint = "uv run pre-commit run --all-files"
-depends_on = []
+repos:
+  - name: my-lib
+    path: repos/my-lib
+    url: https://github.com/org/my-lib.git
+    repo_type: library
+    base_branch: main
+    pr_target_branch: main
+    install: uv sync --all-extras
+    test: uv run pytest -v
+    lint: uv run pre-commit run --all-files
+    depends_on: []
 ```
 
 ## Development

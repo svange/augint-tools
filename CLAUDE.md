@@ -66,13 +66,13 @@ Three workflow families, all under `ai-tools`:
 
 ```bash
 ai-tools repo ...         # Single repository workflow
-ai-tools mono ...         # Workspace/monorepo orchestration
+ai-tools workspace ...    # Workspace orchestration
 ai-tools standardize ...  # Repo standardization audit/fix
 ```
 
 Global output flags: `--json`, `--actionable`, `--summary`
 
-> This repo is a **library**. Use `repo` and `standardize` commands. Do not use `mono` commands -- those are for workspace repos only.
+> This repo is a **library**. Use `repo` and `standardize` commands. Do not use `workspace` commands -- those are for workspace repos only.
 
 ### Command Surface
 
@@ -91,19 +91,19 @@ Global output flags: `--json`, `--actionable`, `--summary`
 - `repo rollback plan/apply` -- rollback workflow (stub)
 - `repo health` -- hygiene audit (stub)
 
-**Mono commands** (`src/augint_tools/cli/commands/mono.py`):
-- `mono inspect` -- workspace snapshot
-- `mono sync` -- clone/pull child repos
-- `mono status` -- workspace health (--actionable, --blocked-only, --dirty-only)
-- `mono issues` -- aggregate issues across repos
-- `mono graph` -- dependency order (stub)
-- `mono branch` -- coordinated branch prep (--issue, --description, --name)
-- `mono check` -- grouped validation across repos (--phase, --repos, --preset)
-- `mono test` -- alias for check --phase tests
-- `mono lint` -- alias for check --phase quality
-- `mono submit` -- open PRs for changed repos
-- `mono update` -- downstream propagation (stub)
-- `mono foreach` -- arbitrary command across repos
+**Workspace commands** (`src/augint_tools/cli/commands/workspace.py`):
+- `workspace inspect` -- workspace snapshot
+- `workspace sync` -- clone/pull child repos
+- `workspace status` -- workspace health (--actionable, --blocked-only, --dirty-only)
+- `workspace issues` -- aggregate issues across repos
+- `workspace graph` -- dependency order (stub)
+- `workspace branch` -- coordinated branch prep (--issue, --description, --name)
+- `workspace check` -- grouped validation across repos (--phase, --repos, --preset)
+- `workspace test` -- alias for check --phase tests
+- `workspace lint` -- alias for check --phase quality
+- `workspace submit` -- open PRs for changed repos
+- `workspace update` -- downstream propagation (stub)
+- `workspace foreach` -- arbitrary command across repos
 
 **Standardize commands** (`src/augint_tools/cli/commands/standardize.py`):
 - `standardize detect` -- resolve standardization profile
@@ -176,7 +176,7 @@ build = "uv build"
 
 - `augint-tools.md` - Product spec and design doc (implementation reference)
 - `ai-shell.toml` - Repo classification and tool config
-- `workspace.toml` - Workspace manifest for mono repos
+- `workspace.yaml` - Workspace manifest for workspace repos
 - `pyproject.toml` - Python packaging, dependencies, tool config
 
 ## Testing Strategy

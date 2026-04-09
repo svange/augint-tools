@@ -34,11 +34,11 @@ But the implementation boundary is wrong. Too much logic still lives in skills:
 
 That makes the flow less deterministic, harder to maintain, and expensive for an LLM to execute because the agent has to re-run the same shell logic from prose every time.
 
-### Mono workflow
+### Workspace workflow
 
-The mono workflow is closer to the right shape because the skills are already thin wrappers. The gaps are different:
+The workspace workflow is closer to the right shape because the skills are already thin wrappers. The gaps are different:
 
-- naming drift between `augint-tools` and `ai-tools mono`
+- naming drift between `augint-tools` and `ai-tools workspace`
 - commands are still a little too coarse
 - output filtering is not tight enough for AI use
 - repo selection and dependency-aware execution can be stronger
@@ -48,7 +48,7 @@ The mono workflow is closer to the right shape because the skills are already th
 
 This is the farthest from ideal. The current standardize skills are still mostly prose plus shell snippets. The drift rules live in multiple files, detection is duplicated, and fixes are not normalized.
 
-The standardize flow needs the same treatment as mono:
+The standardize flow needs the same treatment as workspace:
 
 - one deterministic detection engine
 - one normalized audit model
@@ -63,15 +63,15 @@ Use explicit subcommands for all AI-facing calls:
 
 ```bash
 ai-tools repo ...
-ai-tools mono ...
+ai-tools workspace ...
 ai-tools standardize ...
 ```
 
 Humans may still get root aliases, but skills should not rely on them.
 
-### 2. Keep `mono` as the canonical monorepo/workspace subcommand
+### 2. Keep `workspace` as the canonical workspace subcommand
 
-The existing notes, tests, and workflow language already use `ai-tools mono`. Keep that stable.
+The existing notes, tests, and workflow language already use `ai-tools workspace`. Keep that stable.
 
 ### 3. Move decision logic into the tool
 
@@ -100,7 +100,7 @@ Skills should orchestrate, not decide. The tool should own:
 - workflow execution
 - Git/GitHub orchestration
 - repo-aware validation
-- mono coordination
+- workspace coordination
 - standardization audit and fix
 
 ## Shared Contracts
@@ -110,7 +110,7 @@ Skills should orchestrate, not decide. The tool should own:
 `ai-tools` should resolve behavior from:
 
 1. `ai-shell.toml`
-2. `workspace.toml` for mono repos
+2. `workspace.yaml` for workspace repos
 3. repo-local conventions detected from the filesystem
 4. optional `ai-tools` override sections in `ai-shell.toml`
 
@@ -138,7 +138,7 @@ The command overrides are optional. If absent, `ai-tools` should use determinist
 
 ### Detection Engine
 
-Implement one shared detection engine used by `repo`, `mono`, and `standardize`.
+Implement one shared detection engine used by `repo`, `workspace`, and `standardize`.
 
 It should resolve at least:
 
@@ -157,7 +157,7 @@ Expose it via:
 
 ```bash
 ai-tools repo inspect
-ai-tools mono inspect
+ai-tools workspace inspect
 ai-tools standardize detect
 ```
 
@@ -215,7 +215,7 @@ Examples:
 - `check` should print failing phases first and omit passing command chatter
 - `submit` should return the commit, push, PR, and unresolved blockers, not raw command output
 - `standardize audit` should return findings, not raw grep output
-- `mono` commands should collapse all passing repos into one rollup line unless `--verbose` is requested
+- `workspace` commands should collapse all passing repos into one rollup line unless `--verbose` is requested
 
 ## Repo Workflow
 
@@ -457,42 +457,42 @@ Purpose:
 
 This is lower priority than `check`, `submit`, and `ci`, but it should eventually absorb the procedural logic from `ai-repo-health`.
 
-## Mono Workflow
+## Workspace Workflow
 
-The mono workflow already has the right direction. The goal is to make it more purposeful, tighter, and cheaper for AI use.
+The workspace workflow already has the right direction. The goal is to make it more purposeful, tighter, and cheaper for AI use.
 
 ### Canonical Surface
 
 ```bash
-ai-tools mono inspect
-ai-tools mono sync
-ai-tools mono status
-ai-tools mono issues
-ai-tools mono graph
-ai-tools mono branch
-ai-tools mono check
-ai-tools mono test      # alias to mono check --phase tests
-ai-tools mono lint      # alias to mono check --phase quality
-ai-tools mono submit
-ai-tools mono update
-ai-tools mono foreach
+ai-tools workspace inspect
+ai-tools workspace sync
+ai-tools workspace status
+ai-tools workspace issues
+ai-tools workspace graph
+ai-tools workspace branch
+ai-tools workspace check
+ai-tools workspace test      # alias to workspace check --phase tests
+ai-tools workspace lint      # alias to workspace check --phase quality
+ai-tools workspace submit
+ai-tools workspace update
+ai-tools workspace foreach
 ```
 
 ### Required Improvements
 
-#### 1. Use `ai-tools mono` consistently
+#### 1. Use `ai-tools workspace` consistently
 
-Current workspace skills point at `augint-tools ...` while notes and tests point at `ai-tools mono ...`.
+Current workspace skills point at `augint-tools ...` while notes and tests point at `ai-tools workspace ...`.
 
 Standardize on:
 
 ```bash
-ai-tools mono ...
+ai-tools workspace ...
 ```
 
 `augint-tools` remains the project name, not the skill-facing command text.
 
-#### 2. Add `mono inspect`
+#### 2. Add `workspace inspect`
 
 Purpose:
 
@@ -507,7 +507,7 @@ It should return:
 - blocked repos
 - available selectors
 
-#### 3. Add `mono graph`
+#### 3. Add `workspace graph`
 
 Purpose:
 
@@ -520,7 +520,7 @@ This helps:
 - submit planning
 - downstream update planning
 
-#### 4. Add `mono check`
+#### 4. Add `workspace check`
 
 Purpose:
 
@@ -535,9 +535,9 @@ Required behavior:
 - collapse passing repos into a compact summary
 - emit failing repos first
 
-`mono test` and `mono lint` should remain as thin aliases.
+`workspace test` and `workspace lint` should remain as thin aliases.
 
-#### 5. Improve `mono status`
+#### 5. Improve `workspace status`
 
 Purpose:
 
@@ -552,7 +552,7 @@ Required behavior:
 - support `--json`
 - collapse clean repos by default
 
-#### 6. Improve `mono branch`
+#### 6. Improve `workspace branch`
 
 Purpose:
 
@@ -565,7 +565,7 @@ Required behavior:
 - skip repos that are not selected or not affected
 - report blocked repos without flooding output
 
-#### 7. Improve `mono submit`
+#### 7. Improve `workspace submit`
 
 Purpose:
 
@@ -578,7 +578,7 @@ Required behavior:
 - output one structured row per repo with branch, target, PR link, and blocker
 - optionally `--monitor`
 
-#### 8. Improve `mono update`
+#### 8. Improve `workspace update`
 
 Purpose:
 
@@ -586,13 +586,13 @@ Purpose:
 
 Required behavior:
 
-- compute dependency closure from `workspace.toml`
+- compute dependency closure from `workspace.yaml`
 - support `--from repo`
 - support `--plan` without writing
 - support manifest-defined update commands
 - emit changed repos and follow-up validation steps only
 
-#### 9. Improve `mono foreach`
+#### 9. Improve `workspace foreach`
 
 Purpose:
 
@@ -763,21 +763,21 @@ After `ai-tools` grows this surface, the skills should be simplified aggressivel
 - `ai-rollback` -> `ai-tools repo rollback plan/apply --json`
 - `ai-repo-health` -> `ai-tools repo health --json`
 
-### Mono skill mapping
+### Workspace skill mapping
 
-- `ai-workspace-init` -> `ai-tools mono sync` plus `mono inspect`
-- `ai-workspace-sync` -> `ai-tools mono sync --json`
-- `ai-workspace-status` -> `ai-tools mono status --json`
-- `ai-workspace-pick` -> `ai-tools mono issues --json`
-- `ai-workspace-branch` -> `ai-tools mono branch --json`
-- `ai-workspace-test` -> `ai-tools mono check --phase tests --json`
-- `ai-workspace-lint` -> `ai-tools mono check --phase quality --json`
-- `ai-workspace-submit` -> `ai-tools mono submit --json`
-- `ai-workspace-update` -> `ai-tools mono update --json`
-- `ai-workspace-health` -> `ai-tools mono status --actionable --json`
-- `ai-workspace-foreach` -> `ai-tools mono foreach --json`
+- `ai-workspace-init` -> `ai-tools workspace sync` plus `workspace inspect`
+- `ai-workspace-sync` -> `ai-tools workspace sync --json`
+- `ai-workspace-status` -> `ai-tools workspace status --json`
+- `ai-workspace-pick` -> `ai-tools workspace issues --json`
+- `ai-workspace-branch` -> `ai-tools workspace branch --json`
+- `ai-workspace-test` -> `ai-tools workspace check --phase tests --json`
+- `ai-workspace-lint` -> `ai-tools workspace check --phase quality --json`
+- `ai-workspace-submit` -> `ai-tools workspace submit --json`
+- `ai-workspace-update` -> `ai-tools workspace update --json`
+- `ai-workspace-health` -> `ai-tools workspace status --actionable --json`
+- `ai-workspace-foreach` -> `ai-tools workspace foreach --json`
 
-The mono skills are already close. The main change is command normalization and better filtering.
+The workspace skills are already close. The main change is command normalization and better filtering.
 
 ### Standardize skill mapping
 
@@ -794,7 +794,7 @@ Once the tool exists, these skills should become small entrypoints and reporting
 
 ### P0
 
-- normalize naming to `ai-tools repo`, `ai-tools mono`, `ai-tools standardize`
+- normalize naming to `ai-tools repo`, `ai-tools workspace`, `ai-tools standardize`
 - implement shared detection engine
 - implement `repo status`
 - implement `repo branch prepare`
@@ -802,18 +802,18 @@ Once the tool exists, these skills should become small entrypoints and reporting
 - implement `repo submit`
 - implement `repo ci watch` and `repo ci triage`
 - implement `standardize detect`, `audit`, `fix`, `verify`
-- implement `mono inspect`
-- implement `mono check`
-- tighten `mono status` output filtering
+- implement `workspace inspect`
+- implement `workspace check`
+- tighten `workspace status` output filtering
 
 ### P1
 
 - implement `repo issues pick`
 - implement `repo promote`
 - implement `repo rollback`
-- implement `mono graph`
-- improve `mono update` closure planning
-- improve `mono submit --monitor`
+- implement `workspace graph`
+- improve `workspace update` closure planning
+- improve `workspace submit --monitor`
 
 ### P2
 
@@ -823,9 +823,9 @@ Once the tool exists, these skills should become small entrypoints and reporting
 
 ## Bottom Line
 
-The mono workflow is directionally right but needs tighter filtering, better selectors, and a grouped validation primitive.
+The workspace workflow is directionally right but needs tighter filtering, better selectors, and a grouped validation primitive.
 
-The repo workflow is not yet tool-first enough and should get the same treatment as mono.
+The repo workflow is not yet tool-first enough and should get the same treatment as workspace.
 
 The standardize workflow needs the strongest rewrite: one detection engine, one audit model, one fix engine, one verify pass.
 
@@ -835,4 +835,4 @@ If we implement the surface in this file, the gains should be exactly the ones w
 - less skill-side logic
 - fewer shell calls
 - smaller LLM context windows
-- more repeatable repo, mono, and standardize behavior
+- more repeatable repo, workspace, and standardize behavior

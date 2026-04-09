@@ -60,8 +60,8 @@ For normal repos, confirm:
 - `ai-tools repo submit --json` is the submit entrypoint
 
 For workspace repos, confirm:
-- `ai-tools mono status --json` works
-- workspace skills map to `ai-tools mono ...`
+- `ai-tools workspace status --json` works
+- workspace skills map to `ai-tools workspace ...`
 
 ## 7. Initial Commit and Push
 

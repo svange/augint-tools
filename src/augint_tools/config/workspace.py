@@ -1,8 +1,9 @@
-"""workspace.toml configuration parsing."""
+"""workspace.yaml configuration parsing."""
 
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import yaml
 
 
 @dataclass
@@ -23,7 +24,7 @@ class RepoConfig:
 
 @dataclass
 class WorkspaceConfig:
-    """Configuration from workspace.toml."""
+    """Configuration from workspace.yaml."""
 
     name: str
     repos_dir: str
@@ -32,26 +33,26 @@ class WorkspaceConfig:
 
 def load_workspace_config(path: Path | None = None) -> WorkspaceConfig | None:
     """
-    Load workspace.toml configuration.
+    Load workspace.yaml configuration.
 
     Args:
-        path: Path to workspace.toml (defaults to current directory)
+        path: Path to workspace.yaml (defaults to current directory)
 
     Returns:
         WorkspaceConfig if file exists and valid, None otherwise
     """
     if path is None:
-        path = Path("workspace.toml")
+        path = Path("workspace.yaml")
 
     if not path.exists():
         return None
 
     try:
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
+        with open(path) as f:
+            data = yaml.safe_load(f)
 
         workspace = data.get("workspace", {})
-        repos_data = data.get("repo", [])
+        repos_data = data.get("repos", [])
 
         repos = []
         for repo_data in repos_data:
@@ -81,5 +82,4 @@ def load_workspace_config(path: Path | None = None) -> WorkspaceConfig | None:
             repos=repos,
         )
     except Exception:
-        # Return None for any parsing errors
         return None

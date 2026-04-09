@@ -51,7 +51,7 @@ class TestAiShellConfig:
 
 class TestWorkspaceConfig:
     def test_load_workspace_config(self):
-        config = load_workspace_config(Path("tests/fixtures/workspace-example.toml"))
+        config = load_workspace_config(Path("tests/fixtures/workspace-example.yaml"))
         assert config is not None
         assert config.name == "test-workspace"
         assert config.repos_dir == "repos"

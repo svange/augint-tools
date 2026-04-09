@@ -125,7 +125,7 @@ def _format_repo_status(result: dict[str, Any]) -> None:
             click.echo(f"    #{pr.get('number', '?')}: {pr.get('title', '')}")
 
 
-def _format_mono_status(result: dict[str, Any]) -> None:
+def _format_workspace_status(result: dict[str, Any]) -> None:
     workspace = result.get("workspace", {})
     repos = result.get("repos", [])
 
@@ -238,12 +238,12 @@ _HUMAN_FORMATTERS: dict[str, Any] = {
     "repo check plan": _format_check_plan,
     "repo check run": _format_check_run,
     "repo submit": _format_branch,
-    "mono status": _format_mono_status,
-    "mono inspect": _format_inspect,
-    "mono issues": _format_issues,
-    "mono branch": _format_branch,
-    "mono check": _format_check_run,
-    "mono foreach": _format_foreach,
+    "workspace status": _format_workspace_status,
+    "workspace inspect": _format_inspect,
+    "workspace issues": _format_issues,
+    "workspace branch": _format_branch,
+    "workspace check": _format_check_run,
+    "workspace foreach": _format_foreach,
     "standardize detect": _format_inspect,
     "standardize audit": _format_audit,
 }

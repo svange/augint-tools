@@ -15,8 +15,7 @@ class TestCli:
         assert "CLI for AI-assisted repository and workspace workflows." in result.output
         assert "init" in result.output
         assert "repo" in result.output
-        assert "mono" in result.output
-        assert "monorepo" in result.output
+        assert "workspace" in result.output
         assert "standardize" in result.output
 
     def test_global_flags_in_help(self):
@@ -88,21 +87,21 @@ class TestCli:
         assert data["result"]["preset"] == "full"
         assert len(data["result"]["phases"]) > 0
 
-    def test_mono_alias(self):
-        """Test that 'monorepo' alias works."""
+    def test_workspace_subgroups(self):
+        """Test that workspace subcommands are available."""
         runner = CliRunner()
-        result = runner.invoke(cli, ["monorepo", "--help"])
+        result = runner.invoke(cli, ["workspace", "--help"])
         assert result.exit_code == 0
         assert "inspect" in result.output
 
-    def test_mono_status_no_workspace(self):
+    def test_workspace_status_no_config(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["mono", "status"])
+        result = runner.invoke(cli, ["workspace", "status"])
         assert result.exit_code == 1
 
-    def test_mono_status_json_no_workspace(self):
+    def test_workspace_status_json_no_config(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "mono", "status"])
+        result = runner.invoke(cli, ["--json", "workspace", "status"])
         assert result.exit_code == 1
         data = json.loads(result.output)
         assert data["status"] == "error"
@@ -130,8 +129,8 @@ class TestCli:
             ["repo", "rollback", "plan"],
             ["repo", "rollback", "apply"],
             ["repo", "health"],
-            ["mono", "graph"],
-            ["mono", "update"],
+            ["workspace", "graph"],
+            ["workspace", "update"],
         ]
         for args in stubs:
             result = runner.invoke(cli, args)

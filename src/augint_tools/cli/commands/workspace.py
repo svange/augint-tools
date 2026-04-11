@@ -27,6 +27,7 @@ from augint_tools.github import (
     list_issues,
 )
 from augint_tools.output import CommandResponse, emit_response, emit_stub
+from augint_tools.workspace_standardize import verify_workspace
 
 
 def _get_output_opts(ctx: click.Context) -> dict:
@@ -607,6 +608,80 @@ def submit(ctx, monitor):
 def update(ctx):
     """Update downstream repos after upstream changes."""
     emit_stub("workspace update", "workspace", json_mode=_get_output_opts(ctx)["json_mode"])
+
+
+# --- workspace standardize ---
+
+
+@workspace.command("standardize")
+@click.option(
+    "--verify",
+    "verify",
+    is_flag=True,
+    default=False,
+    help="Aggregate drift across all children. Requires augint-shell>=0.44.0 on PATH.",
+)
+@click.option(
+    "--only",
+    default=None,
+    help="Comma-separated repo names to restrict the run to.",
+)
+@click.pass_context
+def workspace_standardize(ctx, verify, only):
+    """Workspace-level standardization.
+
+    Currently ships only ``--verify`` mode: shells out to ``ai-shell
+    standardize repo --verify <path>`` for each child in dependency order,
+    aggregates per-section drift into one structured report. Future modes
+    (``--plan``, ``--apply``) are deferred.
+    """
+    opts = _get_output_opts(ctx)
+
+    if not verify:
+        emit_response(
+            CommandResponse.error(
+                "workspace standardize",
+                "workspace",
+                "Must specify a mode. Currently only --verify is supported.",
+            ),
+            **opts,
+        )
+        sys.exit(1)
+
+    cwd, config = _require_workspace(ctx, "workspace standardize --verify")
+
+    only_list = [name.strip() for name in only.split(",")] if only else None
+
+    result = verify_workspace(cwd, config, only=only_list)
+
+    agg = result.aggregate
+    summary = (
+        f"Workspace {result.workspace_name}: "
+        f"{agg['repos_checked']} repos, "
+        f"{agg['total_sections_drift']} DRIFT, "
+        f"{agg['total_sections_fail']} FAIL, "
+        f"{agg['repos_error']} ERROR"
+    )
+
+    next_actions: list[str] = []
+    if result.status == "drift":
+        next_actions.append("run /ai-workspace-standardize to fix drift")
+    elif result.status == "error":
+        next_actions.append("inspect errors[] and rerun after fixing the broken child")
+
+    emit_response(
+        CommandResponse(
+            command="workspace standardize --verify",
+            scope="workspace",
+            status=result.status,
+            summary=summary,
+            result=result.to_dict(),
+            next_actions=next_actions,
+            errors=result.errors,
+        ),
+        **opts,
+    )
+    sys.exit(result.exit_code)
 
 
 # --- workspace foreach ---

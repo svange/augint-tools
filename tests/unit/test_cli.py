@@ -1,6 +1,7 @@
 """Tests for CLI module."""
 
 import json
+from unittest.mock import patch
 
 from click.testing import CliRunner
 
@@ -104,6 +105,134 @@ class TestCli:
         assert result.exit_code == 1
         data = json.loads(result.output)
         assert data["status"] == "error"
+
+    def test_workspace_standardize_requires_verify(self, tmp_path, monkeypatch):
+        """Invoking without --verify must error explicitly; no other mode is implemented yet."""
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--json", "workspace", "standardize"])
+        assert result.exit_code == 1
+        data = json.loads(result.output)
+        assert data["status"] == "error"
+        assert "--verify" in data["summary"]
+
+    def test_workspace_standardize_missing_config(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--json", "workspace", "standardize", "--verify"])
+        assert result.exit_code == 1
+        data = json.loads(result.output)
+        assert data["status"] == "error"
+        assert "workspace" in data["summary"].lower()
+
+    def test_workspace_standardize_verify_clean(self, tmp_path, monkeypatch):
+        """Clean run across two children exits 0 with status=ok."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "lib-a").mkdir()
+        (tmp_path / "lib-b").mkdir()
+        (tmp_path / "workspace.yaml").write_text(
+            "workspace:\n"
+            "  name: test-ws\n"
+            "  repos_dir: .\n"
+            "repos:\n"
+            "  - name: lib-a\n"
+            "    path: lib-a\n"
+            "    url: https://example.invalid/lib-a.git\n"
+            "    repo_type: library\n"
+            "    base_branch: main\n"
+            "    pr_target_branch: main\n"
+            "  - name: lib-b\n"
+            "    path: lib-b\n"
+            "    url: https://example.invalid/lib-b.git\n"
+            "    repo_type: library\n"
+            "    base_branch: main\n"
+            "    pr_target_branch: main\n"
+            "    depends_on: [lib-a]\n"
+        )
+
+        clean_payload = {
+            "result": {
+                "sections": {
+                    name: {"status": "pass", "detail": f"{name} ok"}
+                    for name in (
+                        "detect",
+                        "pipeline",
+                        "precommit",
+                        "renovate",
+                        "release",
+                        "dotfiles",
+                        "repo_settings",
+                        "rulesets",
+                        "oidc",
+                    )
+                }
+            }
+        }
+        clean_stdout = json.dumps(clean_payload)
+
+        runner = CliRunner()
+        with patch(
+            "augint_tools.workspace_standardize._run_ai_shell_verify",
+            return_value=(0, clean_stdout, ""),
+        ):
+            result = runner.invoke(cli, ["--json", "workspace", "standardize", "--verify"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["command"] == "workspace standardize --verify"
+        assert data["scope"] == "workspace"
+        assert data["status"] == "ok"
+        assert data["result"]["order"] == ["lib-a", "lib-b"]
+        assert data["result"]["order_source"] == "depends_on"
+        assert data["result"]["aggregate"]["repos_clean"] == 2
+        assert data["result"]["aggregate"]["repos_drift"] == 0
+
+    def test_workspace_standardize_verify_drift(self, tmp_path, monkeypatch):
+        """Drift across children exits 1 with status=drift and the right next_action."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "lib-a").mkdir()
+        (tmp_path / "workspace.yaml").write_text(
+            "workspace:\n"
+            "  name: test-ws\n"
+            "  repos_dir: .\n"
+            "repos:\n"
+            "  - name: lib-a\n"
+            "    path: lib-a\n"
+            "    url: https://example.invalid/lib-a.git\n"
+            "    repo_type: library\n"
+            "    base_branch: main\n"
+            "    pr_target_branch: main\n"
+        )
+
+        drift_payload = {
+            "result": {
+                "sections": {
+                    "detect": {"status": "pass", "detail": "python/library"},
+                    "pipeline": {"status": "drift", "detail": "missing: Code quality"},
+                    "precommit": {"status": "pass", "detail": ""},
+                    "renovate": {"status": "drift", "detail": "renovate.json5 differs"},
+                    "release": {"status": "pass", "detail": ""},
+                    "dotfiles": {"status": "pass", "detail": ""},
+                    "repo_settings": {"status": "pass", "detail": ""},
+                    "rulesets": {"status": "pass", "detail": ""},
+                    "oidc": {"status": "pass", "detail": ""},
+                }
+            }
+        }
+        drift_stdout = json.dumps(drift_payload)
+
+        runner = CliRunner()
+        with patch(
+            "augint_tools.workspace_standardize._run_ai_shell_verify",
+            return_value=(0, drift_stdout, ""),
+        ):
+            result = runner.invoke(cli, ["--json", "workspace", "standardize", "--verify"])
+
+        assert result.exit_code == 1, result.output
+        data = json.loads(result.output)
+        assert data["status"] == "drift"
+        assert data["result"]["aggregate"]["total_sections_drift"] == 2
+        assert any("ai-workspace-standardize" in a for a in data["next_actions"])
 
     def test_stub_commands(self):
         """Test that P1/P2 stubs emit the right output."""

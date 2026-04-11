@@ -215,56 +215,35 @@ def _format_inspect(result: dict[str, Any]) -> None:
             click.echo(f"  {key}: {result[key]}")
 
 
-def _format_workspace_standardize(result: dict[str, Any]) -> None:
-    workspace = result.get("workspace", {})
-    order = result.get("order", [])
-    order_source = result.get("order_source", "declaration")
-    repos = result.get("repos", [])
-    agg = result.get("aggregate", {})
+def _format_standardize_verify(result: dict[str, Any]) -> None:
+    """Human-readable renderer for `ai-tools standardize --verify` JSON.
 
-    click.echo(
-        f"  Workspace {workspace.get('name', 'unknown')}: {agg.get('repos_checked', 0)} repos"
-    )
-    if order:
-        click.echo(f"  Order: {' -> '.join(order)} (source: {order_source})")
-    click.echo("")
+    Matches the shape returned by ``ai-shell standardize repo --verify --json``:
+    ``{"path": ..., "overall": ..., "findings": [{"section", "status", "message", "diff"}]}``.
+    """
+    path = result.get("path", "")
+    overall = result.get("overall", "")
+    findings = result.get("findings", [])
 
-    section_icons = {
-        "pass": click.style("[PASS] ", fg="green"),
-        "drift": click.style("[DRIFT]", fg="yellow"),
-        "fail": click.style("[FAIL] ", fg="red"),
+    if path:
+        click.echo(f"  Path: {path}")
+    if overall:
+        click.echo(f"  Overall: {overall}")
+
+    icons = {
+        "PASS": click.style("[PASS] ", fg="green"),
+        "DRIFT": click.style("[DRIFT]", fg="yellow"),
+        "FAIL": click.style("[FAIL] ", fg="red"),
     }
-
-    for repo in repos:
-        name = repo.get("name", "unknown")
-        if not repo.get("present", True):
-            click.echo(f"    {click.style(name, fg='red')} (missing path)")
-            continue
-
-        overall = repo.get("overall", "error")
-        if overall == "error":
-            error = repo.get("error", "unknown error")
-            click.echo(f"    {click.style(name, fg='red')} [ERROR] {error}")
-            continue
-
-        click.echo(f"    {name}")
-        sections = repo.get("sections", {})
-        for section_name, section in sections.items():
-            status = section.get("status", "fail")
-            icon = section_icons.get(status, click.style(f"[{status}]", fg="yellow"))
-            detail = section.get("detail", "")
-            line = f"      {icon} {section_name}"
-            if detail:
-                line = f"{line}: {detail}"
-            click.echo(line)
-
-    click.echo("")
-    click.echo(
-        f"  Aggregate: {agg.get('repos_checked', 0)} repos, "
-        f"{agg.get('total_sections_drift', 0)} DRIFT, "
-        f"{agg.get('total_sections_fail', 0)} FAIL, "
-        f"{agg.get('repos_error', 0)} ERROR"
-    )
+    for finding in findings:
+        status = finding.get("status", "")
+        icon = icons.get(status, click.style(f"[{status}]", fg="yellow"))
+        section = finding.get("section", "")
+        message = finding.get("message", "")
+        line = f"    {icon} {section}"
+        if message:
+            line = f"{line}: {message}"
+        click.echo(line)
 
 
 # Command -> formatter registry
@@ -283,7 +262,7 @@ _HUMAN_FORMATTERS: dict[str, Any] = {
     "workspace branch": _format_branch,
     "workspace check": _format_check_run,
     "workspace foreach": _format_foreach,
-    "workspace standardize --verify": _format_workspace_standardize,
+    "standardize --verify": _format_standardize_verify,
 }
 
 

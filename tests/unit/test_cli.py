@@ -1,7 +1,6 @@
 """Tests for CLI module."""
 
 import json
-from unittest.mock import patch
 
 from click.testing import CliRunner
 
@@ -17,6 +16,7 @@ class TestCli:
         assert "init" in result.output
         assert "repo" in result.output
         assert "workspace" in result.output
+        assert "standardize" in result.output
 
     def test_global_flags_in_help(self):
         runner = CliRunner()
@@ -106,120 +106,42 @@ class TestCli:
         data = json.loads(result.output)
         assert data["status"] == "error"
 
-    def test_workspace_standardize_requires_verify(self, tmp_path, monkeypatch):
-        """Invoking without --verify must error explicitly; no other mode is implemented yet."""
+    def test_standardize_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["standardize", "--help"])
+        assert result.exit_code == 0
+        assert "--verify" in result.output
+        assert "--area" in result.output
+        assert "--all" in result.output
+        assert "--dry-run" in result.output
+
+    def test_standardize_requires_mode(self, tmp_path, monkeypatch):
+        """No flag given -> error asking for --verify/--area/--all."""
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "workspace", "standardize"])
+        result = runner.invoke(cli, ["--json", "standardize"])
         assert result.exit_code == 1
         data = json.loads(result.output)
         assert data["status"] == "error"
         assert "--verify" in data["summary"]
 
-    def test_workspace_standardize_missing_config(self, tmp_path, monkeypatch):
+    def test_standardize_mutual_exclusion(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "workspace", "standardize", "--verify"])
+        result = runner.invoke(cli, ["--json", "standardize", "--verify", "--all"])
         assert result.exit_code == 1
         data = json.loads(result.output)
         assert data["status"] == "error"
-        assert "workspace" in data["summary"].lower()
+        assert "mutually exclusive" in data["summary"].lower()
 
-    def test_workspace_standardize_verify_clean(self, tmp_path, monkeypatch):
-        """Clean run across two children exits 0 with status=ok."""
+    def test_standardize_missing_path(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "lib-a").mkdir()
-        (tmp_path / "lib-b").mkdir()
-        (tmp_path / "workspace.yaml").write_text(
-            "workspace:\n"
-            "  name: test-ws\n"
-            "  repos_dir: .\n"
-            "repos:\n"
-            "  - name: lib-a\n"
-            "    path: lib-a\n"
-            "    url: https://example.invalid/lib-a.git\n"
-            "    repo_type: library\n"
-            "    base_branch: main\n"
-            "    pr_target_branch: main\n"
-            "  - name: lib-b\n"
-            "    path: lib-b\n"
-            "    url: https://example.invalid/lib-b.git\n"
-            "    repo_type: library\n"
-            "    base_branch: main\n"
-            "    pr_target_branch: main\n"
-            "    depends_on: [lib-a]\n"
-        )
-
-        clean_stdout = (
-            "[PASS] detect: python/library\n"
-            "[PASS] pipeline: all jobs present\n"
-            "[PASS] precommit: matches template\n"
-            "[PASS] renovate: matches template\n"
-            "[PASS] release: matches canon\n"
-            "[PASS] dotfiles: match canon\n"
-            "[PASS] repo_settings: all settings match\n"
-            "[PASS] rulesets: library\n"
-            "[PASS] oidc: matches canon\n"
-        )
-
         runner = CliRunner()
-        with patch(
-            "augint_tools.workspace_standardize._run_ai_shell_verify",
-            return_value=(0, clean_stdout, ""),
-        ):
-            result = runner.invoke(cli, ["--json", "workspace", "standardize", "--verify"])
-
-        assert result.exit_code == 0, result.output
+        result = runner.invoke(cli, ["--json", "standardize", str(tmp_path / "nope"), "--verify"])
+        assert result.exit_code == 2
         data = json.loads(result.output)
-        assert data["command"] == "workspace standardize --verify"
-        assert data["scope"] == "workspace"
-        assert data["status"] == "ok"
-        assert data["result"]["order"] == ["lib-a", "lib-b"]
-        assert data["result"]["order_source"] == "depends_on"
-        assert data["result"]["aggregate"]["repos_clean"] == 2
-        assert data["result"]["aggregate"]["repos_drift"] == 0
-
-    def test_workspace_standardize_verify_drift(self, tmp_path, monkeypatch):
-        """Drift across children exits 1 with status=drift and the right next_action."""
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "lib-a").mkdir()
-        (tmp_path / "workspace.yaml").write_text(
-            "workspace:\n"
-            "  name: test-ws\n"
-            "  repos_dir: .\n"
-            "repos:\n"
-            "  - name: lib-a\n"
-            "    path: lib-a\n"
-            "    url: https://example.invalid/lib-a.git\n"
-            "    repo_type: library\n"
-            "    base_branch: main\n"
-            "    pr_target_branch: main\n"
-        )
-
-        drift_stdout = (
-            "[PASS] detect: python/library\n"
-            "[DRIFT] pipeline: missing: Code quality\n"
-            "[PASS] precommit: matches template\n"
-            "[DRIFT] renovate: renovate.json5 differs\n"
-            "[PASS] release: matches canon\n"
-            "[PASS] dotfiles: match canon\n"
-            "[PASS] repo_settings: all settings match\n"
-            "[PASS] rulesets: library\n"
-            "[PASS] oidc: matches canon\n"
-        )
-
-        runner = CliRunner()
-        with patch(
-            "augint_tools.workspace_standardize._run_ai_shell_verify",
-            return_value=(0, drift_stdout, ""),
-        ):
-            result = runner.invoke(cli, ["--json", "workspace", "standardize", "--verify"])
-
-        assert result.exit_code == 1, result.output
-        data = json.loads(result.output)
-        assert data["status"] == "drift"
-        assert data["result"]["aggregate"]["total_sections_drift"] == 2
-        assert any("ai-workspace-standardize" in a for a in data["next_actions"])
+        assert data["status"] == "error"
+        assert "does not exist" in data["summary"].lower()
 
     def test_stub_commands(self):
         """Test that P1/P2 stubs emit the right output."""

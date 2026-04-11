@@ -62,18 +62,25 @@ uv run ai-tools --help                  # Entry point script
 
 ### CLI Structure
 
-Two workflow families, all under `ai-tools`:
+Two workflow families plus a top-level standardize wrapper, all under `ai-tools`:
 
 ```bash
-ai-tools repo ...         # Single repository workflow
-ai-tools workspace ...    # Workspace orchestration
+ai-tools repo ...                    # Single repository workflow
+ai-tools workspace ...               # Workspace orchestration
+ai-tools standardize [PATH] ...      # Thin wrapper over ai-shell standardize
 ```
 
 Global output flags: `--json`, `--actionable`, `--summary`
 
-> This repo is a **library**. Use `repo` commands. Do not use `workspace` commands -- those are for workspace repos only. Standardization is owned by augint-shell Claude skills (`/ai-standardize-repo`, `/ai-standardize-dotfiles`, etc.); `ai-tools` no longer ships a `standardize` sub-command.
+> This repo is a **library**. Use `repo` commands. Do not use `workspace` commands -- those are for workspace repos only. Standardization itself is owned by augint-shell Claude skills (`/ai-standardize-repo`, `/ai-standardize-dotfiles`, etc.); `ai-tools standardize` is a thin subprocess wrapper that skills and humans call to invoke `ai-shell standardize` on a specific path without shell-env gymnastics.
 
 ### Command Surface
+
+**Top-level standardize command** (`src/augint_tools/cli/commands/standardize.py`):
+- `standardize [PATH] --verify` -- delegate to `ai-shell standardize repo --verify --json`
+- `standardize [PATH] --area <area>` -- run one step: `pipeline|precommit|renovate|release|dotfiles`
+- `standardize [PATH] --all [--dry-run]` -- delegate to `ai-shell standardize repo --all`
+- PATH defaults to cwd. Passes path as an argument — never `cd`s (avoids the uv shared-venv downgrade trap).
 
 **Repo commands** (`src/augint_tools/cli/commands/repo.py`):
 - `repo inspect` -- one-call repo snapshot (kind, branch, toolchain, command plan)

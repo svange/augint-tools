@@ -138,8 +138,15 @@ def standardize(
         )
         sys.exit(_EXIT_ERROR)
 
-    modes_selected = sum([verify, area is not None, run_all])
-    if modes_selected == 0:
+    has_area = area is not None
+
+    # Mode validation. Valid combinations:
+    #   --verify                       -> full-repo read-only verify
+    #   --verify --area pipeline       -> T10-2: pipeline --validate (already read-only)
+    #   --area <name>                  -> single-step, may write
+    #   --area dotfiles [--dry-run]    -> dotfiles supports dry-run upstream
+    #   --all [--dry-run]              -> full sequence
+    if not verify and not has_area and not run_all:
         emit_response(
             CommandResponse.error(
                 "standardize",
@@ -149,31 +156,47 @@ def standardize(
             **opts,
         )
         sys.exit(_EXIT_DRIFT)
-    if modes_selected > 1:
+
+    if run_all and (verify or has_area):
         emit_response(
             CommandResponse.error(
                 "standardize",
                 "repo",
-                "--verify, --area, and --all are mutually exclusive.",
+                "--all is mutually exclusive with --verify and --area.",
             ),
             **opts,
         )
         sys.exit(_EXIT_DRIFT)
 
-    if verify:
-        if dry_run:
-            emit_response(
-                CommandResponse.error(
-                    "standardize --verify",
-                    "repo",
-                    "--dry-run cannot be combined with --verify (verify is already read-only).",
-                ),
-                **opts,
-            )
-            sys.exit(_EXIT_DRIFT)
-        _run_verify(target, opts)
-    elif area is not None:
+    if verify and has_area and area != "pipeline":
+        emit_response(
+            CommandResponse.error(
+                "standardize",
+                "repo",
+                f"--verify can only be combined with --area pipeline "
+                f"(which is already read-only). --area {area} has no verify mode.",
+            ),
+            **opts,
+        )
+        sys.exit(_EXIT_DRIFT)
+
+    if verify and dry_run:
+        emit_response(
+            CommandResponse.error(
+                "standardize",
+                "repo",
+                "--dry-run cannot be combined with --verify (verify is already read-only).",
+            ),
+            **opts,
+        )
+        sys.exit(_EXIT_DRIFT)
+
+    # Dispatch. `--area` takes precedence when set; a bare `--verify`
+    # runs the full-repo verifier.
+    if area is not None:
         _run_area(target, area, dry_run, opts)
+    elif verify:
+        _run_verify(target, opts)
     else:
         _run_all(target, dry_run, opts)
 
@@ -241,24 +264,35 @@ def _run_verify(path: Path, opts: dict[str, Any]) -> None:
     pass_count = sum(1 for f in findings if f.get("status") == "PASS")
     drift_count = sum(1 for f in findings if f.get("status") == "DRIFT")
     fail_count = sum(1 for f in findings if f.get("status") == "FAIL")
-    overall_raw = parsed.get("overall", "")
 
-    # ai-shell conflates drift/fail into "drift" overall. Trust its exit
-    # code: 0 = clean, non-zero = drift (unless the earlier -1 guard tripped).
-    if rc == 0 and overall_raw == "pass":
+    # T10-1: status MUST derive from the finding counts, not from the
+    # `overall` string or ai-shell's exit code. Historically we checked
+    # `overall == "pass"` but ai-shell emits `"clean"` (and `rc` can be
+    # non-zero even for clean repos when a venv downgrade warning leaks).
+    # The counts are the single source of truth.
+    if fail_count > 0 or drift_count > 0:
+        status = "drift"
+        exit_code = _EXIT_DRIFT
+    elif pass_count > 0:
         status = "ok"
         exit_code = _EXIT_OK
-    elif rc == 0 or overall_raw in ("drift", "fail"):
-        # rc==0 with overall!=pass is defensive; ai-shell shouldn't do that
-        # but we still report it as drift rather than error.
-        status = "drift"
-        exit_code = _EXIT_DRIFT
     else:
-        # Non-zero exit with a parseable JSON envelope — ai-shell is
-        # reporting drift via exit code but we haven't seen a clean pass
-        # flag. Treat as drift, not error, since the findings parsed.
-        status = "drift"
-        exit_code = _EXIT_DRIFT
+        # Parseable JSON with zero findings — ai-shell didn't tell us
+        # anything useful. Treat it as an error rather than silently
+        # claiming the repo is clean.
+        detail = "ai-shell returned zero findings"
+        emit_response(
+            CommandResponse(
+                command="standardize --verify",
+                scope="repo",
+                status="error",
+                summary=detail,
+                errors=[detail],
+                result=parsed,
+            ),
+            **opts,
+        )
+        sys.exit(_EXIT_ERROR)
 
     summary = f"{path.name}: {pass_count} pass, {drift_count} drift, {fail_count} fail"
     next_actions: list[str] = []

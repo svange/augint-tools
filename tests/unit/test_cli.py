@@ -150,25 +150,17 @@ class TestCli:
             "    depends_on: [lib-a]\n"
         )
 
-        clean_payload = {
-            "result": {
-                "sections": {
-                    name: {"status": "pass", "detail": f"{name} ok"}
-                    for name in (
-                        "detect",
-                        "pipeline",
-                        "precommit",
-                        "renovate",
-                        "release",
-                        "dotfiles",
-                        "repo_settings",
-                        "rulesets",
-                        "oidc",
-                    )
-                }
-            }
-        }
-        clean_stdout = json.dumps(clean_payload)
+        clean_stdout = (
+            "[PASS] detect: python/library\n"
+            "[PASS] pipeline: all jobs present\n"
+            "[PASS] precommit: matches template\n"
+            "[PASS] renovate: matches template\n"
+            "[PASS] release: matches canon\n"
+            "[PASS] dotfiles: match canon\n"
+            "[PASS] repo_settings: all settings match\n"
+            "[PASS] rulesets: library\n"
+            "[PASS] oidc: matches canon\n"
+        )
 
         runner = CliRunner()
         with patch(
@@ -204,22 +196,17 @@ class TestCli:
             "    pr_target_branch: main\n"
         )
 
-        drift_payload = {
-            "result": {
-                "sections": {
-                    "detect": {"status": "pass", "detail": "python/library"},
-                    "pipeline": {"status": "drift", "detail": "missing: Code quality"},
-                    "precommit": {"status": "pass", "detail": ""},
-                    "renovate": {"status": "drift", "detail": "renovate.json5 differs"},
-                    "release": {"status": "pass", "detail": ""},
-                    "dotfiles": {"status": "pass", "detail": ""},
-                    "repo_settings": {"status": "pass", "detail": ""},
-                    "rulesets": {"status": "pass", "detail": ""},
-                    "oidc": {"status": "pass", "detail": ""},
-                }
-            }
-        }
-        drift_stdout = json.dumps(drift_payload)
+        drift_stdout = (
+            "[PASS] detect: python/library\n"
+            "[DRIFT] pipeline: missing: Code quality\n"
+            "[PASS] precommit: matches template\n"
+            "[DRIFT] renovate: renovate.json5 differs\n"
+            "[PASS] release: matches canon\n"
+            "[PASS] dotfiles: match canon\n"
+            "[PASS] repo_settings: all settings match\n"
+            "[PASS] rulesets: library\n"
+            "[PASS] oidc: matches canon\n"
+        )
 
         runner = CliRunner()
         with patch(

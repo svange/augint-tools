@@ -678,6 +678,7 @@ def workspace_standardize(ctx, verify, only):
             result=result.to_dict(),
             next_actions=next_actions,
             errors=result.errors,
+            warnings=result.warnings,
         ),
         **opts,
     )

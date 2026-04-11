@@ -4,11 +4,22 @@ Shells out to ``ai-shell standardize repo --verify <path>`` for each child
 repository in dependency order, parses each output into a normalized
 per-section status, and aggregates the results into a single workspace-level
 drift report. Used by the ``ai-tools workspace standardize --verify`` CLI.
+
+Parsing contract (T6-3): ai-shell emits stable text output. Each section
+lives on its own line in the form::
+
+    [PASS|DRIFT|FAIL] <section>: <detail>
+
+Long details may wrap onto continuation lines that begin with leading
+whitespace; those are appended to the previous section's detail. ai-shell
+exits 0 on drift (drift is not a failure). Non-zero exit means ai-shell
+itself broke (bad path, missing config, etc.) and the child is recorded as
+``overall=error``.
 """
 
 from __future__ import annotations
 
-import json
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,8 +28,10 @@ from typing import Any
 from augint_tools.config import RepoConfig, WorkspaceConfig
 from augint_tools.execution.workspace import get_repo_path, topological_sort
 
-# Section names emitted by ``ai-shell standardize repo --verify``. Ordering
-# here drives the display order in the human-readable formatter.
+# Canonical section names emitted by ``ai-shell standardize repo --verify``.
+# Used only for reference — the parser accepts any section name ai-shell
+# produces, but the human formatter walks this ordering when it knows the
+# sections.
 SECTION_NAMES: tuple[str, ...] = (
     "detect",
     "pipeline",
@@ -30,6 +43,17 @@ SECTION_NAMES: tuple[str, ...] = (
     "rulesets",
     "oidc",
 )
+
+# One line per section in ai-shell's verify output:
+#   [PASS] detect: python/library
+#   [DRIFT] pipeline: missing: Code quality, Security, ...
+_LINE_RE = re.compile(r"^\[(PASS|DRIFT|FAIL)\]\s+(\w+):\s*(.*?)\s*$")
+
+_STATUS_MAP: dict[str, str] = {
+    "PASS": "pass",
+    "DRIFT": "drift",
+    "FAIL": "fail",
+}
 
 # Subprocess timeout per child (seconds). Verify is supposed to be fast; if a
 # single child takes longer than this something is wrong.
@@ -57,6 +81,7 @@ class RepoVerifyResult:
     overall: str  # "pass" | "drift" | "fail" | "error"
     sections: dict[str, SectionResult] = field(default_factory=dict)
     error: str | None = None
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -68,6 +93,8 @@ class RepoVerifyResult:
         }
         if self.error is not None:
             data["error"] = self.error
+        if self.warnings:
+            data["warnings"] = list(self.warnings)
         return data
 
 
@@ -81,6 +108,7 @@ class WorkspaceVerifyResult:
     order_source: str  # "depends_on" | "declaration"
     repos: list[RepoVerifyResult] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def aggregate(self) -> dict[str, int]:
@@ -108,10 +136,10 @@ class WorkspaceVerifyResult:
     def status(self) -> str:
         """Workspace-level status: ok | drift | error.
 
-        - "error" wins over "drift" wins over "ok". A single child failing to
-          run (couldn't spawn ai-shell, invalid JSON, missing path, etc.)
-          flips the whole workspace into "error" so CI treats it as a hard
-          failure — drift is recoverable, a broken verify tool is not.
+        "error" wins over "drift" wins over "ok". A single child failing to
+        run (couldn't spawn ai-shell, unparseable output, missing path, etc.)
+        flips the whole workspace into "error" so CI treats it as a hard
+        failure — drift is recoverable, a broken verify tool is not.
         """
         agg = self.aggregate
         if agg["repos_error"] > 0:
@@ -167,16 +195,18 @@ def _filter_and_order(
 
 
 def _run_ai_shell_verify(repo_path: Path) -> tuple[int, str, str]:
-    """Invoke ``ai-shell --json standardize repo --verify <path>``.
+    """Invoke ``ai-shell standardize repo --verify <path>``.
 
     Returns (exit_code, stdout, stderr). Does NOT cd into the child — we pass
     the path as an argument so the parent's resolved ``augint-shell`` version
     stays in effect (see ticket T6-1 note on the uv shared-venv downgrade
     trap).
+
+    Note (T6-3): ai-shell does **not** accept ``--json`` on this subcommand.
+    The return is always text; parse it with :func:`_parse_verify_text`.
     """
     cmd = [
         "ai-shell",
-        "--json",
         "standardize",
         "repo",
         "--verify",
@@ -197,81 +227,85 @@ def _run_ai_shell_verify(repo_path: Path) -> tuple[int, str, str]:
         return -1, "", f"ai-shell verify timed out after {_VERIFY_TIMEOUT_SECS}s"
 
 
-def _locate_sections(payload: Any) -> dict[str, Any] | None:
-    """Find the sections dict inside an ai-shell JSON payload.
+def _parse_verify_text(
+    stdout: str,
+) -> tuple[dict[str, SectionResult], list[str], str | None]:
+    """Parse ai-shell's ``--verify`` text output into per-section results.
 
-    We don't hardcode ai-shell's envelope shape because we can't guarantee it
-    stays stable across releases. Instead, probe the usual spots in order of
-    preference and pick the first one that looks like a sections dict.
+    Returns ``(sections, warnings, error)``:
+
+    - ``sections`` — dict keyed by section name (whatever ai-shell emitted)
+    - ``warnings`` — non-fatal parsing issues (unparseable lines, duplicate
+      sections). The caller surfaces these to the user but does NOT fail the
+      child.
+    - ``error`` — a fatal parse error (empty output, no recognizable
+      sections). The caller marks the child ``overall=error`` when this is
+      non-None.
+
+    Handles continuation lines that begin with whitespace by appending them
+    to the previous section's detail. This is defensive — real ai-shell
+    output tends to fit on one line, but nothing in the contract forbids
+    wrapping.
     """
-    candidates: list[Any] = []
-    if isinstance(payload, dict):
-        result = payload.get("result")
-        if isinstance(result, dict):
-            candidates.append(result.get("sections"))
-            # Some envelopes put sections directly under result.
-            candidates.append(result)
-        candidates.append(payload.get("sections"))
+    if not stdout.strip():
+        return {}, [], "ai-shell produced no output"
 
-    for cand in candidates:
-        if isinstance(cand, dict) and any(
-            key in cand and isinstance(cand[key], dict) for key in SECTION_NAMES
-        ):
-            return cand
-    return None
+    sections: dict[str, SectionResult] = {}
+    warnings: list[str] = []
+    current: str | None = None
 
-
-def _parse_verify_output(stdout: str) -> tuple[dict[str, SectionResult], str | None]:
-    """Parse ai-shell verify stdout into per-section results.
-
-    Returns (sections, error_message). A non-None error means the output
-    couldn't be parsed — the caller should mark the repo as ``error``.
-    """
-    stdout = stdout.strip()
-    if not stdout:
-        return {}, "ai-shell produced no output"
-
-    try:
-        payload = json.loads(stdout)
-    except json.JSONDecodeError as exc:
-        return {}, f"ai-shell output is not valid JSON: {exc}"
-
-    sections_raw = _locate_sections(payload)
-    if sections_raw is None:
-        return {}, "could not locate section results in ai-shell output"
-
-    parsed: dict[str, SectionResult] = {}
-    for name in SECTION_NAMES:
-        entry = sections_raw.get(name)
-        if not isinstance(entry, dict):
+    for raw_line in stdout.splitlines():
+        # Blank lines are never meaningful.
+        if not raw_line.strip():
             continue
-        raw_status = str(entry.get("status", "")).strip().lower()
-        # Normalize ai-shell's statuses to our three canonical values. Unknown
-        # statuses are promoted to "fail" so drift isn't silently dropped.
-        if raw_status in ("pass", "ok"):
-            status = "pass"
-        elif raw_status == "drift":
-            status = "drift"
-        elif raw_status in ("fail", "error"):
-            status = "fail"
-        else:
-            status = "fail"
-        detail = str(entry.get("detail", "")).strip()
-        parsed[name] = SectionResult(status=status, detail=detail)
 
-    if not parsed:
-        return {}, "no recognizable sections in ai-shell output"
+        match = _LINE_RE.match(raw_line)
+        if match:
+            status_raw, section_name, detail = match.groups()
+            status = _STATUS_MAP[status_raw]
+            if section_name in sections:
+                warnings.append(
+                    f"section {section_name!r} appeared multiple times in ai-shell output; "
+                    "last occurrence wins"
+                )
+            sections[section_name] = SectionResult(status=status, detail=detail.strip())
+            current = section_name
+            continue
 
-    return parsed, None
+        # Continuation line: starts with whitespace and belongs to the most
+        # recently parsed section. Concatenate onto its detail.
+        if current is not None and raw_line[:1] in (" ", "\t"):
+            previous = sections[current]
+            extra = raw_line.strip()
+            merged = f"{previous.detail} {extra}".strip() if previous.detail else extra
+            sections[current] = SectionResult(status=previous.status, detail=merged)
+            continue
+
+        # Anything else is noise — truncate for the warning so we don't dump
+        # a huge stray stderr blob into the response.
+        snippet = raw_line.strip()
+        if len(snippet) > 120:
+            snippet = snippet[:117] + "..."
+        warnings.append(f"unparseable line in ai-shell output: {snippet}")
+
+    if not sections:
+        return {}, warnings, "no recognizable sections in ai-shell output"
+
+    return sections, warnings, None
 
 
 def _overall_from_sections(sections: dict[str, SectionResult]) -> str:
     """Derive a single-repo overall status from its section results."""
-    if any(s.status == "fail" for s in sections.values()):
+    statuses = {s.status for s in sections.values()}
+    if "fail" in statuses:
         return "fail"
-    if any(s.status == "drift" for s in sections.values()):
+    if "drift" in statuses:
         return "drift"
-    return "pass"
+    if statuses == {"pass"}:
+        return "pass"
+    # Defensive: empty sections or unrecognized statuses. Shouldn't happen
+    # because the caller already errored out if parsing produced nothing.
+    return "error"
 
 
 def _verify_one_repo(workspace_root: Path, repo_config: RepoConfig) -> RepoVerifyResult:
@@ -289,8 +323,9 @@ def _verify_one_repo(workspace_root: Path, repo_config: RepoConfig) -> RepoVerif
         )
 
     exit_code, stdout, stderr = _run_ai_shell_verify(repo_path)
+
     if exit_code == -1:
-        # Subprocess spawn/timeout failure — stderr carries the explanation.
+        # Subprocess spawn / timeout failure — stderr carries the explanation.
         return RepoVerifyResult(
             name=repo_config.name,
             path=rel_path,
@@ -299,19 +334,27 @@ def _verify_one_repo(workspace_root: Path, repo_config: RepoConfig) -> RepoVerif
             error=stderr.strip() or "ai-shell failed to launch",
         )
 
-    sections, parse_error = _parse_verify_output(stdout)
-    if parse_error is not None:
-        # If ai-shell exited non-zero on top of a parse failure, fold the
-        # stderr in so the user sees both signals in one place.
-        detail = parse_error
-        if exit_code != 0 and stderr.strip():
-            detail = f"{parse_error}; stderr: {stderr.strip()}"
+    if exit_code != 0:
+        # ai-shell itself errored (bad path, missing config, etc.). Prefer
+        # stderr, fall back to stdout, fall back to the exit code number.
+        detail = stderr.strip() or stdout.strip() or f"ai-shell exited {exit_code}"
         return RepoVerifyResult(
             name=repo_config.name,
             path=rel_path,
             present=True,
             overall="error",
             error=detail,
+        )
+
+    sections, parse_warnings, parse_error = _parse_verify_text(stdout)
+    if parse_error is not None:
+        return RepoVerifyResult(
+            name=repo_config.name,
+            path=rel_path,
+            present=True,
+            overall="error",
+            error=parse_error,
+            warnings=parse_warnings,
         )
 
     overall = _overall_from_sections(sections)
@@ -321,6 +364,7 @@ def _verify_one_repo(workspace_root: Path, repo_config: RepoConfig) -> RepoVerif
         present=True,
         overall=overall,
         sections=sections,
+        warnings=parse_warnings,
     )
 
 
@@ -354,5 +398,7 @@ def verify_workspace(
         result.repos.append(repo_result)
         if repo_result.overall == "error" and repo_result.error:
             result.errors.append(f"{repo_result.name}: {repo_result.error}")
+        for warn in repo_result.warnings:
+            result.warnings.append(f"{repo_result.name}: {warn}")
 
     return result

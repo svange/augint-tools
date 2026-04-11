@@ -1,16 +1,13 @@
 """Tests for workspace standardize verify aggregator."""
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
 from augint_tools.config import RepoConfig, WorkspaceConfig
 from augint_tools.workspace_standardize import (
-    SECTION_NAMES,
     _filter_and_order,
-    _locate_sections,
     _overall_from_sections,
-    _parse_verify_output,
+    _parse_verify_text,
     verify_workspace,
 )
 
@@ -33,113 +30,153 @@ def _make_repo(
     )
 
 
-def _clean_verify_payload() -> dict:
-    """An ai-shell verify JSON payload where every section is clean."""
-    return {
-        "command": "standardize repo --verify",
-        "scope": "repo",
-        "status": "ok",
-        "result": {
-            "sections": {name: {"status": "pass", "detail": f"{name} ok"} for name in SECTION_NAMES}
-        },
-    }
+def _clean_verify_text() -> str:
+    """All 9 canonical sections clean."""
+    return (
+        "[PASS] detect: python/library\n"
+        "[PASS] pipeline: all jobs present\n"
+        "[PASS] precommit: .pre-commit-config.yaml matches template\n"
+        "[PASS] renovate: renovate.json5 matches template\n"
+        "[PASS] release: [tool.semantic_release] matches canon\n"
+        "[PASS] dotfiles: .editorconfig, .gitignore match canon\n"
+        "[PASS] repo_settings: all settings match\n"
+        "[PASS] rulesets: library\n"
+        "[PASS] oidc: oidc role matches canon\n"
+    )
 
 
-def _drift_verify_payload() -> dict:
-    """An ai-shell verify payload where pipeline and renovate drift."""
-    payload = _clean_verify_payload()
-    payload["result"]["sections"]["pipeline"] = {
-        "status": "drift",
-        "detail": "missing: Code quality",
-    }
-    payload["result"]["sections"]["renovate"] = {
-        "status": "drift",
-        "detail": "renovate.json5 differs",
-    }
-    return payload
+def _drift_verify_text() -> str:
+    """Two drift sections out of nine — the classic landline-scrubber case."""
+    return (
+        "[PASS] detect: python/library\n"
+        "[DRIFT] pipeline: missing: Code quality, Security, Compliance, Build validation\n"
+        "[PASS] precommit: .pre-commit-config.yaml matches template\n"
+        "[DRIFT] renovate: /tmp/foo/renovate.json5 differs from template\n"
+        "[PASS] release: [tool.semantic_release] matches canon\n"
+        "[PASS] dotfiles: .editorconfig, .gitignore match canon\n"
+        "[PASS] repo_settings: all settings match\n"
+        "[PASS] rulesets: library\n"
+        "[PASS] oidc: oidc role matches canon\n"
+    )
 
 
-class TestLocateSections:
-    def test_envelope_with_result_sections(self):
-        payload = {"result": {"sections": {"detect": {"status": "pass", "detail": ""}}}}
-        sections = _locate_sections(payload)
-        assert sections is not None
-        assert "detect" in sections
-
-    def test_envelope_with_result_as_sections(self):
-        payload = {"result": {"detect": {"status": "pass", "detail": ""}}}
-        sections = _locate_sections(payload)
-        assert sections is not None
-        assert "detect" in sections
-
-    def test_top_level_sections(self):
-        payload = {"sections": {"pipeline": {"status": "drift", "detail": "x"}}}
-        sections = _locate_sections(payload)
-        assert sections is not None
-        assert "pipeline" in sections
-
-    def test_unrecognized_shape_returns_none(self):
-        assert _locate_sections({"foo": "bar"}) is None
-        assert _locate_sections({"result": {"unrelated": 123}}) is None
-        assert _locate_sections("not a dict") is None
-
-
-class TestParseVerifyOutput:
-    def test_clean_payload(self):
-        sections, err = _parse_verify_output(json.dumps(_clean_verify_payload()))
+class TestParseVerifyText:
+    def test_all_clean(self):
+        sections, warnings, err = _parse_verify_text(_clean_verify_text())
         assert err is None
-        assert len(sections) == len(SECTION_NAMES)
+        assert warnings == []
+        assert len(sections) == 9
         assert all(s.status == "pass" for s in sections.values())
+        assert sections["detect"].detail == "python/library"
 
-    def test_drift_payload(self):
-        sections, err = _parse_verify_output(json.dumps(_drift_verify_payload()))
+    def test_drift_output(self):
+        sections, warnings, err = _parse_verify_text(_drift_verify_text())
         assert err is None
+        assert warnings == []
         assert sections["pipeline"].status == "drift"
-        assert sections["pipeline"].detail == "missing: Code quality"
+        assert (
+            sections["pipeline"].detail
+            == "missing: Code quality, Security, Compliance, Build validation"
+        )
+        assert sections["renovate"].status == "drift"
         assert sections["detect"].status == "pass"
 
-    def test_empty_output(self):
-        sections, err = _parse_verify_output("")
+    def test_fail_status(self):
+        text = "[FAIL] release: semantic-release config is malformed\n"
+        sections, warnings, err = _parse_verify_text(text)
+        assert err is None
+        assert warnings == []
+        assert sections["release"].status == "fail"
+
+    def test_empty_output_is_error(self):
+        sections, warnings, err = _parse_verify_text("")
+        assert err == "ai-shell produced no output"
+        assert sections == {}
+        assert warnings == []
+
+    def test_whitespace_only_is_error(self):
+        sections, warnings, err = _parse_verify_text("   \n\t\n")
         assert err == "ai-shell produced no output"
         assert sections == {}
 
-    def test_invalid_json(self):
-        sections, err = _parse_verify_output("not json")
-        assert err is not None
-        assert "not valid JSON" in err
-
-    def test_missing_sections(self):
-        sections, err = _parse_verify_output(json.dumps({"result": {}}))
-        assert err is not None
+    def test_no_recognizable_sections(self):
+        text = "some stray stderr\nanother stray line\n"
+        sections, warnings, err = _parse_verify_text(text)
+        assert err == "no recognizable sections in ai-shell output"
         assert sections == {}
+        # Every stray line should have produced a warning.
+        assert len(warnings) == 2
+        assert all("unparseable line" in w for w in warnings)
 
-    def test_unknown_status_becomes_fail(self):
-        """Unknown section status must not silently drop to pass."""
-        payload = {"result": {"sections": {"detect": {"status": "weird", "detail": "x"}}}}
-        sections, err = _parse_verify_output(json.dumps(payload))
+    def test_continuation_line_appended_to_previous_detail(self):
+        """Lines starting with whitespace extend the most recent section."""
+        text = (
+            "[DRIFT] pipeline: missing: Code quality, Security,\n"
+            "    Compliance, Build validation\n"
+            "[PASS] detect: python/library\n"
+        )
+        sections, warnings, err = _parse_verify_text(text)
         assert err is None
-        assert sections["detect"].status == "fail"
-
-    def test_ok_status_normalized_to_pass(self):
-        payload = {"result": {"sections": {"detect": {"status": "ok", "detail": "x"}}}}
-        sections, err = _parse_verify_output(json.dumps(payload))
-        assert err is None
+        assert warnings == []
+        assert sections["pipeline"].status == "drift"
+        assert (
+            sections["pipeline"].detail
+            == "missing: Code quality, Security, Compliance, Build validation"
+        )
         assert sections["detect"].status == "pass"
+
+    def test_duplicate_section_warns_and_keeps_last(self):
+        text = (
+            "[PASS] pipeline: all jobs present\n"
+            "[DRIFT] pipeline: missing: Build validation\n"
+        )
+        sections, warnings, err = _parse_verify_text(text)
+        assert err is None
+        assert sections["pipeline"].status == "drift"
+        assert sections["pipeline"].detail == "missing: Build validation"
+        assert len(warnings) == 1
+        assert "multiple times" in warnings[0]
+        assert "pipeline" in warnings[0]
+
+    def test_unparseable_line_warns_but_keeps_parsing(self):
+        """A stray non-matching line is logged as a warning; parsing continues."""
+        text = (
+            "[PASS] detect: python/library\n"
+            "Warning: some stray message from ai-shell\n"
+            "[DRIFT] pipeline: missing: Code quality\n"
+        )
+        sections, warnings, err = _parse_verify_text(text)
+        assert err is None
+        assert len(sections) == 2
+        assert sections["detect"].status == "pass"
+        assert sections["pipeline"].status == "drift"
+        assert len(warnings) == 1
+        assert "stray message" in warnings[0]
+
+    def test_long_unparseable_line_truncated_in_warning(self):
+        text = "[PASS] detect: python/library\n" + ("x" * 500) + "\n"
+        _, warnings, err = _parse_verify_text(text)
+        assert err is None
+        assert len(warnings) == 1
+        # 120-char cap (+ ellipsis) — must not dump the whole 500-char line.
+        assert len(warnings[0]) < 200
 
 
 class TestOverallFromSections:
     def test_all_pass(self):
-        sections, _ = _parse_verify_output(json.dumps(_clean_verify_payload()))
+        sections, _, _ = _parse_verify_text(_clean_verify_text())
         assert _overall_from_sections(sections) == "pass"
 
     def test_any_drift(self):
-        sections, _ = _parse_verify_output(json.dumps(_drift_verify_payload()))
+        sections, _, _ = _parse_verify_text(_drift_verify_text())
         assert _overall_from_sections(sections) == "drift"
 
     def test_fail_beats_drift(self):
-        payload = _drift_verify_payload()
-        payload["result"]["sections"]["release"] = {"status": "fail", "detail": "x"}
-        sections, _ = _parse_verify_output(json.dumps(payload))
+        text = (
+            "[DRIFT] pipeline: missing: Code quality\n"
+            "[FAIL] release: semantic-release config is malformed\n"
+        )
+        sections, _, _ = _parse_verify_text(text)
         assert _overall_from_sections(sections) == "fail"
 
 
@@ -178,10 +215,9 @@ class TestVerifyWorkspace:
             [_make_repo("lib-a", path="lib-a"), _make_repo("lib-b", path="lib-b")]
         )
 
-        clean_stdout = json.dumps(_clean_verify_payload())
         with patch(
             "augint_tools.workspace_standardize._run_ai_shell_verify",
-            return_value=(0, clean_stdout, ""),
+            return_value=(0, _clean_verify_text(), ""),
         ):
             result = verify_workspace(tmp_path, config)
 
@@ -192,6 +228,8 @@ class TestVerifyWorkspace:
         assert result.aggregate["repos_error"] == 0
         assert result.aggregate["total_sections_drift"] == 0
         assert all(r.overall == "pass" for r in result.repos)
+        assert result.warnings == []
+        assert result.errors == []
 
     def test_drift_across_children(self, tmp_path):
         (tmp_path / "lib-a").mkdir()
@@ -200,21 +238,23 @@ class TestVerifyWorkspace:
             [_make_repo("lib-a", path="lib-a"), _make_repo("lib-b", path="lib-b")]
         )
 
-        drift_stdout = json.dumps(_drift_verify_payload())
         with patch(
             "augint_tools.workspace_standardize._run_ai_shell_verify",
-            return_value=(0, drift_stdout, ""),
+            return_value=(0, _drift_verify_text(), ""),
         ):
             result = verify_workspace(tmp_path, config)
 
         assert result.status == "drift"
         assert result.exit_code == 1
         assert result.aggregate["repos_drift"] == 2
-        # Two drift sections per repo, two repos -> 4.
+        # Two drift sections (pipeline, renovate) per repo, two repos -> 4.
         assert result.aggregate["total_sections_drift"] == 4
+        assert result.errors == []
+        assert result.warnings == []
 
     def test_missing_child_path_becomes_error(self, tmp_path):
-        """A child whose path doesn't exist must become overall=error and flip workspace to error."""
+        """A child whose path doesn't exist must become overall=error and flip
+        the workspace to error."""
         (tmp_path / "lib-a").mkdir()
         config = _make_config(
             [
@@ -223,10 +263,9 @@ class TestVerifyWorkspace:
             ]
         )
 
-        clean_stdout = json.dumps(_clean_verify_payload())
         with patch(
             "augint_tools.workspace_standardize._run_ai_shell_verify",
-            return_value=(0, clean_stdout, ""),
+            return_value=(0, _clean_verify_text(), ""),
         ) as mock_run:
             result = verify_workspace(tmp_path, config)
 
@@ -253,7 +292,68 @@ class TestVerifyWorkspace:
         assert result.status == "error"
         assert result.exit_code == 2
         assert result.repos[0].overall == "error"
+        assert result.repos[0].error is not None
         assert "not found" in result.repos[0].error
+
+    def test_ai_shell_nonzero_exit_is_error(self, tmp_path):
+        """Ticket T6-3: ai-shell exits 0 on drift; non-zero means it broke.
+
+        Non-zero exit must flip the child to overall=error even if stdout
+        happens to contain parseable-looking lines.
+        """
+        (tmp_path / "lib-a").mkdir()
+        config = _make_config([_make_repo("lib-a", path="lib-a")])
+
+        with patch(
+            "augint_tools.workspace_standardize._run_ai_shell_verify",
+            return_value=(2, "", "Error: path '/bogus' does not exist"),
+        ):
+            result = verify_workspace(tmp_path, config)
+
+        assert result.status == "error"
+        assert result.repos[0].overall == "error"
+        assert result.repos[0].error is not None
+        assert "does not exist" in result.repos[0].error
+
+    def test_empty_stdout_is_error(self, tmp_path):
+        (tmp_path / "lib-a").mkdir()
+        config = _make_config([_make_repo("lib-a", path="lib-a")])
+
+        with patch(
+            "augint_tools.workspace_standardize._run_ai_shell_verify",
+            return_value=(0, "", ""),
+        ):
+            result = verify_workspace(tmp_path, config)
+
+        assert result.status == "error"
+        assert result.repos[0].overall == "error"
+        assert result.repos[0].error == "ai-shell produced no output"
+
+    def test_parse_warnings_bubble_up_to_workspace(self, tmp_path):
+        """A stray non-matching line in one child should produce a workspace
+        warning prefixed with the repo name — not an error."""
+        (tmp_path / "lib-a").mkdir()
+        config = _make_config([_make_repo("lib-a", path="lib-a")])
+
+        stdout = (
+            "[PASS] detect: python/library\n"
+            "Warning: stderr noise bleeding into stdout\n"
+            "[DRIFT] pipeline: missing: Code quality\n"
+        )
+        with patch(
+            "augint_tools.workspace_standardize._run_ai_shell_verify",
+            return_value=(0, stdout, ""),
+        ):
+            result = verify_workspace(tmp_path, config)
+
+        assert result.status == "drift"
+        assert result.exit_code == 1
+        assert len(result.warnings) == 1
+        assert result.warnings[0].startswith("lib-a: ")
+        assert "stderr noise" in result.warnings[0]
+        # Warning must not corrupt the parsed sections.
+        assert result.repos[0].sections["detect"].status == "pass"
+        assert result.repos[0].sections["pipeline"].status == "drift"
 
     def test_only_filter(self, tmp_path):
         (tmp_path / "lib-a").mkdir()
@@ -267,10 +367,9 @@ class TestVerifyWorkspace:
             ]
         )
 
-        clean_stdout = json.dumps(_clean_verify_payload())
         with patch(
             "augint_tools.workspace_standardize._run_ai_shell_verify",
-            return_value=(0, clean_stdout, ""),
+            return_value=(0, _clean_verify_text(), ""),
         ) as mock_run:
             result = verify_workspace(tmp_path, config, only=["lib-a", "lib-c"])
 
@@ -280,8 +379,8 @@ class TestVerifyWorkspace:
         assert result.aggregate["repos_checked"] == 2
 
     def test_no_cd_into_child(self, tmp_path):
-        """Ticket acceptance: subprocess must be invoked with the child path as an argument,
-        not by cding into the child. We assert the child path was passed absolute."""
+        """Ticket acceptance: subprocess must be invoked with the child path as an
+        argument, not by cding into the child."""
         (tmp_path / "lib-a").mkdir()
         config = _make_config([_make_repo("lib-a", path="lib-a")])
 
@@ -289,7 +388,7 @@ class TestVerifyWorkspace:
 
         def fake_run(repo_path: Path):
             recorded["path"] = repo_path
-            return 0, json.dumps(_clean_verify_payload()), ""
+            return 0, _clean_verify_text(), ""
 
         with patch(
             "augint_tools.workspace_standardize._run_ai_shell_verify",
@@ -299,3 +398,30 @@ class TestVerifyWorkspace:
 
         assert recorded["path"].is_absolute()
         assert recorded["path"] == tmp_path / "lib-a"
+
+
+class TestRunAiShellVerify:
+    """The subprocess wrapper itself: verify we drop --json (T6-3 core fix)."""
+
+    def test_command_has_no_json_flag(self, tmp_path):
+        import augint_tools.workspace_standardize as ws
+
+        captured = {}
+
+        class FakeProc:
+            returncode = 0
+            stdout = _clean_verify_text()
+            stderr = ""
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return FakeProc()
+
+        with patch("augint_tools.workspace_standardize.subprocess.run", side_effect=fake_run):
+            ws._run_ai_shell_verify(tmp_path)
+
+        assert captured["cmd"][0] == "ai-shell"
+        assert "--json" not in captured["cmd"]
+        assert "standardize" in captured["cmd"]
+        assert "--verify" in captured["cmd"]
+        assert str(tmp_path) in captured["cmd"]

@@ -40,10 +40,7 @@ def _clean_verify_payload() -> dict:
         "scope": "repo",
         "status": "ok",
         "result": {
-            "sections": {
-                name: {"status": "pass", "detail": f"{name} ok"}
-                for name in SECTION_NAMES
-            }
+            "sections": {name: {"status": "pass", "detail": f"{name} ok"} for name in SECTION_NAMES}
         },
     }
 

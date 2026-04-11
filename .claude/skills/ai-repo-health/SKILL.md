@@ -7,7 +7,7 @@ argument-hint: "[--remote-only] [--local-only] [--dry-run]"
 Run a structured repository health audit: $ARGUMENTS
 
 Primary command:
-- `ai-tools repo health --json $ARGUMENTS`
+- `uv run ai-tools repo health --json $ARGUMENTS`
 
 Report:
 - hygiene findings grouped by severity
@@ -15,5 +15,5 @@ Report:
 - prioritized next actions
 
 Transitional fallback:
-- If `ai-tools repo health` is unavailable, run `ai-tools repo status --actionable --json` for a limited health snapshot.
+- If `uv run ai-tools repo health` is unavailable, run `uv run ai-tools repo status --actionable --json` for a limited health snapshot.
 - Note that full health planning requires an updated `ai-tools` version.

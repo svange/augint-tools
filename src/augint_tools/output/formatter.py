@@ -215,19 +215,6 @@ def _format_inspect(result: dict[str, Any]) -> None:
             click.echo(f"  {key}: {result[key]}")
 
 
-def _format_audit(result: dict[str, Any]) -> None:
-    findings = result.get("findings", [])
-    if not findings:
-        click.echo("  No findings")
-        return
-    for f in findings:
-        severity = f.get("severity", "info")
-        color = "red" if severity == "error" else "yellow" if severity == "warning" else "white"
-        click.echo(f"  {click.style(f'[{severity}]', fg=color)} {f['id']}: {f.get('subject', '')}")
-        click.echo(f"    expected: {f.get('expected', '')}")
-        click.echo(f"    actual: {f.get('actual', '')}")
-
-
 # Command -> formatter registry
 _HUMAN_FORMATTERS: dict[str, Any] = {
     "repo status": _format_repo_status,
@@ -244,8 +231,6 @@ _HUMAN_FORMATTERS: dict[str, Any] = {
     "workspace branch": _format_branch,
     "workspace check": _format_check_run,
     "workspace foreach": _format_foreach,
-    "standardize detect": _format_inspect,
-    "standardize audit": _format_audit,
 }
 
 

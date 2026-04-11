@@ -9,7 +9,7 @@ Intelligently find or select GitHub issues: $ARGUMENTS
 > Workflow automation: once an issue is selected and design alignment is reached, continue to `/ai-prepare-branch` without asking for extra confirmation.
 
 Primary command:
-- `ai-tools repo issues pick --json $ARGUMENTS`
+- `uv run ai-tools repo issues pick --json $ARGUMENTS`
 
 Return:
 - top issue candidates (or the requested issue)
@@ -18,5 +18,5 @@ Return:
 - recommended next branch plan
 
 Transitional fallback:
-- If `ai-tools repo issues pick` is unavailable, state the tool gap and use `gh issue view` for numeric input or `gh issue list --state open --search ...` for search input.
+- If `uv run ai-tools repo issues pick` is unavailable, state the tool gap and use `gh issue view` for numeric input or `gh issue list --state open --search ...` for search input.
 - Never recommend closed issues as the default next task.

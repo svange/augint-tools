@@ -49,9 +49,9 @@ If the repo already has `ai-shell.toml`, prefer `--update` over `--init`.
 Confirm that:
 - `ai-shell.toml` has the expected `[project]` metadata
 - only the relevant skills were installed
-- workspace repos get `ai-workspace-*` skills and use `ai-tools workspace ...`
-- normal repos use `ai-tools repo ...`
-- standardization flows use `ai-tools standardize ...`
+- workspace repos get `ai-workspace-*` skills and use `uv run ai-tools workspace ...`
+- normal repos use `uv run ai-tools repo ...`
+- standardization flows use `uv run ai-tools standardize ...`
 - normal repos do not get workspace-only skills
 
 ## 5. Explain the Natural Workflow
@@ -62,7 +62,7 @@ For `library` / `service` repos:
 - develop
 - `/ai-submit-work`
 - `/ai-monitor-pipeline`
-- `/ai-standardize-repo` for standards alignment (`ai-tools standardize ...`)
+- `/ai-standardize-repo` for standards alignment (`uv run ai-tools standardize ...`)
 
 For `workspace` repos:
 - `/ai-workspace-sync`

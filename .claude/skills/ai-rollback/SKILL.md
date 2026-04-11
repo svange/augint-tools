@@ -7,10 +7,10 @@ argument-hint: "[PR-number or commit-sha or --dry-run]"
 Plan and apply a rollback using the standardized repo workflow: $ARGUMENTS
 
 Primary flow:
-1. Run `ai-tools repo rollback plan --json $ARGUMENTS`.
+1. Run `uv run ai-tools repo rollback plan --json $ARGUMENTS`.
 2. Present target, impact, and warnings (including migration/infrastructure notes if present).
 3. If this is a dry run, stop after the plan.
-4. For non-dry-run requests, get explicit user confirmation, then run `ai-tools repo rollback apply --json $ARGUMENTS`.
+4. For non-dry-run requests, get explicit user confirmation, then run `uv run ai-tools repo rollback apply --json $ARGUMENTS`.
 5. Summarize results and continue with `/ai-monitor-pipeline`.
 
 Transitional fallback:

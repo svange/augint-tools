@@ -7,7 +7,7 @@ argument-hint: "[--no-tests] [--no-security]"
 Submit the current branch using the standardized repo workflow: $ARGUMENTS
 
 Primary command:
-- `ai-tools repo submit --json $ARGUMENTS`
+- `uv run ai-tools repo submit --json $ARGUMENTS`
 
 Report:
 - checks executed and failing phases
@@ -18,5 +18,5 @@ Report:
 If submit succeeds and a PR is open, continue with `/ai-monitor-pipeline`.
 
 Transitional fallback:
-- If `ai-tools repo submit` is unavailable, try `ai-tools repo check run --json` to provide pre-submit validation context.
+- If `uv run ai-tools repo submit` is unavailable, try `uv run ai-tools repo check run --json` to provide pre-submit validation context.
 - If repo commands are missing, state the tool gap and recommend upgrading `ai-tools` instead of rebuilding full submit logic in skill prose.

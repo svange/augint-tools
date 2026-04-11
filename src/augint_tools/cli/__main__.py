@@ -8,7 +8,6 @@ import click
 from augint_tools import __version__
 from augint_tools.cli.commands.project import init
 from augint_tools.cli.commands.repo import repo
-from augint_tools.cli.commands.standardize import standardize
 from augint_tools.cli.commands.workspace import workspace
 
 
@@ -42,7 +41,6 @@ cli.add_command(init)
 # Command groups
 cli.add_command(repo)
 cli.add_command(workspace)
-cli.add_command(standardize)
 
 
 def main():

@@ -1,0 +1,51 @@
+# Standard pre-commit config for Python (uv-based) repos
+#
+# ADAPT before writing:
+#   - check-yaml exclude: uncomment SAM exclusion if template.yaml exists
+#   - ruff paths: adjust if source layout differs from src/ + tests/
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+        # Uncomment if repo has SAM/CloudFormation templates:
+        # exclude: '(^templates/.*\.yaml$|.*template\.yaml$)'
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: forbid-env-commit
+        name: Block committed .env files
+        entry: python -c "import subprocess, sys; files = subprocess.run(['git', 'ls-files'], capture_output=True, text=True).stdout; sys.exit(1 if any(f.endswith('/.env') or f == '.env' for f in files.splitlines()) else 0)"
+        language: system
+        pass_filenames: false
+
+      - id: ruff-format
+        name: Ruff format
+        entry: uv run --no-sync ruff format src/ tests/
+        language: system
+        files: '\.py$'
+        pass_filenames: false
+
+      - id: ruff-check
+        name: Ruff check
+        entry: uv run --no-sync ruff check --fix src/ tests/
+        language: system
+        files: '\.py$'
+        pass_filenames: false
+
+      - id: mypy
+        name: MyPy type checking
+        entry: uv run --no-sync mypy src/
+        language: system
+        files: '\.py$'
+        pass_filenames: false
+
+      - id: uv-lock-check
+        name: Check uv.lock is up to date
+        entry: uv lock --check
+        language: system
+        files: 'pyproject\.toml$'
+        pass_filenames: false

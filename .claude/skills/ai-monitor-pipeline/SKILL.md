@@ -7,8 +7,8 @@ argument-hint: "[run-id or branch-name]"
 Monitor CI and triage failures with the repo workflow tool: $ARGUMENTS
 
 Primary commands:
-- `ai-tools repo ci watch --json $ARGUMENTS`
-- if failures remain actionable: `ai-tools repo ci triage --json $ARGUMENTS`
+- `uv run ai-tools repo ci watch --json $ARGUMENTS`
+- if failures remain actionable: `uv run ai-tools repo ci triage --json $ARGUMENTS`
 
 Report:
 - run status and failed jobs

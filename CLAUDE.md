@@ -62,17 +62,16 @@ uv run ai-tools --help                  # Entry point script
 
 ### CLI Structure
 
-Three workflow families, all under `ai-tools`:
+Two workflow families, all under `ai-tools`:
 
 ```bash
 ai-tools repo ...         # Single repository workflow
 ai-tools workspace ...    # Workspace orchestration
-ai-tools standardize ...  # Repo standardization audit/fix
 ```
 
 Global output flags: `--json`, `--actionable`, `--summary`
 
-> This repo is a **library**. Use `repo` and `standardize` commands. Do not use `workspace` commands -- those are for workspace repos only.
+> This repo is a **library**. Use `repo` commands. Do not use `workspace` commands -- those are for workspace repos only. Standardization is owned by augint-shell Claude skills (`/ai-standardize-repo`, `/ai-standardize-dotfiles`, etc.); `ai-tools` no longer ships a `standardize` sub-command.
 
 ### Command Surface
 
@@ -105,17 +104,10 @@ Global output flags: `--json`, `--actionable`, `--summary`
 - `workspace update` -- downstream propagation (stub)
 - `workspace foreach` -- arbitrary command across repos
 
-**Standardize commands** (`src/augint_tools/cli/commands/standardize.py`):
-- `standardize detect` -- resolve standardization profile
-- `standardize audit` -- normalized finding model across sections
-- `standardize fix` -- template-backed fixes (--dry-run, --write)
-- `standardize verify` -- re-audit after fixes
-
 ### Core Infrastructure
 
 - **Detection engine** (`src/augint_tools/detection/`): Shared `detect() -> RepoContext` used by all commands. Resolves repo kind, language, framework, branches, toolchain, command plan, GitHub state.
 - **Check system** (`src/augint_tools/checks/`): Phase enum, presets (quick/default/full/ci), plan resolution, execution runner.
-- **Standardize engine** (`src/augint_tools/standardize/`): Finding model, section checkers (github, pipeline, quality, dotfiles, renovate, release), fix engine.
 - **Output model** (`src/augint_tools/output/response.py`): `CommandResponse` dataclass, `ExitCode` enum. All commands return structured responses via `emit_response()`.
 
 ### Output Contract
@@ -174,7 +166,6 @@ build = "uv build"
 
 ## Key Files
 
-- `augint-tools.md` - Product spec and design doc (implementation reference)
 - `ai-shell.toml` - Repo classification and tool config
 - `workspace.yaml` - Workspace manifest for workspace repos
 - `pyproject.toml` - Python packaging, dependencies, tool config

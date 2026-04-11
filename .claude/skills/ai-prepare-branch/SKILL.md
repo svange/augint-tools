@@ -7,7 +7,7 @@ argument-hint: "[issue-number, description, or branch-name]"
 Prepare a work branch with the configured repo policy: $ARGUMENTS
 
 Primary command:
-- `ai-tools repo branch prepare --json $ARGUMENTS`
+- `uv run ai-tools repo branch prepare --json $ARGUMENTS`
 
 Report:
 - selected base branch and PR target branch
@@ -16,6 +16,6 @@ Report:
 - next command to run
 
 Transitional fallback:
-- If `ai-tools repo branch prepare` is unavailable, state the tool gap first.
+- If `uv run ai-tools repo branch prepare` is unavailable, state the tool gap first.
 - Run only a minimal safe fallback (`git fetch --all --prune`, detect base branch, create/switch branch).
 - Keep fallback logic small; do not recreate the old shell-heavy branching algorithm in this skill.

@@ -1,4 +1,4 @@
-"""Shared detection engine for repo, workspace, and standardize workflows."""
+"""Shared detection engine for repo and workspace workflows."""
 
 from augint_tools.detection.engine import (
     CommandPlan,

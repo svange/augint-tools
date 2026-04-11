@@ -27,7 +27,7 @@ For `service` repos, create and push a development branch (`dev`/`develop`/`stag
 
 Create the baseline project skeleton for the selected ecosystem, then run package manager initialization commands.
 
-Do not manually encode the full standards policy in this skill. Keep local scaffolding minimal and delegate standards rules to `ai-tools standardize`.
+Do not manually encode the full standards policy in this skill. Keep local scaffolding minimal and delegate standards rules to `uv run ai-tools standardize`.
 
 ## 4. Scaffold AI Tooling
 
@@ -39,7 +39,7 @@ ai-shell init --service
 ai-shell init --workspace
 ```
 
-## 5. Apply Standards via `ai-tools standardize`
+## 5. Apply Standards via `uv run ai-tools standardize`
 
 Run:
 
@@ -55,13 +55,13 @@ If the user asks for audit-only mode, skip `fix` and stop after `audit`.
 ## 6. Verify Workflow Surface
 
 For normal repos, confirm:
-- `ai-tools repo status --json` works
-- `ai-tools repo branch prepare --json` is the branch-prep entrypoint
-- `ai-tools repo submit --json` is the submit entrypoint
+- `uv run ai-tools repo status --json` works
+- `uv run ai-tools repo branch prepare --json` is the branch-prep entrypoint
+- `uv run ai-tools repo submit --json` is the submit entrypoint
 
 For workspace repos, confirm:
-- `ai-tools workspace status --json` works
-- workspace skills map to `ai-tools workspace ...`
+- `uv run ai-tools workspace status --json` works
+- workspace skills map to `uv run ai-tools workspace ...`
 
 ## 7. Initial Commit and Push
 

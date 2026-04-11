@@ -16,7 +16,6 @@ class TestCli:
         assert "init" in result.output
         assert "repo" in result.output
         assert "workspace" in result.output
-        assert "standardize" in result.output
 
     def test_global_flags_in_help(self):
         runner = CliRunner()
@@ -105,21 +104,6 @@ class TestCli:
         assert result.exit_code == 1
         data = json.loads(result.output)
         assert data["status"] == "error"
-
-    def test_standardize_detect(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["standardize", "detect"])
-        assert result.exit_code == 0
-        assert "python" in result.output.lower()
-
-    def test_standardize_audit_json(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "standardize", "audit"])
-        # exit code 0 or 2 (action-required)
-        assert result.exit_code in (0, 2)
-        data = json.loads(result.output)
-        assert data["command"] == "standardize audit"
-        assert "findings" in data["result"]
 
     def test_stub_commands(self):
         """Test that P1/P2 stubs emit the right output."""

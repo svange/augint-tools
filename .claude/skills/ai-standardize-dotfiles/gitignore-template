@@ -1,0 +1,104 @@
+# === Secrets and Credentials ===
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+*.env
+!*.env.example
+.ai-shell.toml
+*.pem
+*.key
+*.crt
+*.cer
+!*.example.pem
+!*.example.key
+
+# === Claude Code ===
+.claude/settings.local.json
+
+# === AI Tool History ===
+.aider.chat.history.md
+.aider.input.history
+.aider/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+**/.venv/
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.ruff_cache/
+*.log
+.ipynb_checkpoints/
+
+# === Node.js ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/integrity
+dist/
+.next/
+.nuxt/
+.cache/
+
+# === AWS and IaC ===
+.aws-sam/
+cdk.out/
+.terraform/
+*.tfstate
+*.tfstate.*
+!*.tfstate.example
+.terraform.lock.hcl
+.serverless/
+
+# === IDE ===
+.idea/
+.vscode/
+*.sublime-*
+*.iml
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# === OS Files ===
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.*.sw?
+
+# === Temporary Files ===
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+tmp/
+temp/

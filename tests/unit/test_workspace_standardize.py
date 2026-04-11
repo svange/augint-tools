@@ -126,10 +126,7 @@ class TestParseVerifyText:
         assert sections["detect"].status == "pass"
 
     def test_duplicate_section_warns_and_keeps_last(self):
-        text = (
-            "[PASS] pipeline: all jobs present\n"
-            "[DRIFT] pipeline: missing: Build validation\n"
-        )
+        text = "[PASS] pipeline: all jobs present\n[DRIFT] pipeline: missing: Build validation\n"
         sections, warnings, err = _parse_verify_text(text)
         assert err is None
         assert sections["pipeline"].status == "drift"

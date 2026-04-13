@@ -173,16 +173,6 @@ uv run pre-commit run --all-files  # All hooks
 4. **Repo-type aware** - Different defaults for libraries, services, and workspaces
 5. **Skills call tools** - AI skills orchestrate this CLI, not replace it with shell scripts
 
-## Architecture
-
-See [augint-tools.md](./augint-tools.md) for the complete design specification and implementation guide.
-
 ## License
 
-MIT License - See LICENSE file for details.
-
-## Status
-
-**Current version: 2.0.0**
-
-This is a complete rewrite and repurposing of the `augint-tools` package. All commands are currently scaffolded stubs that emit JSON with `implemented: false`. See [augint-tools.md](./augint-tools.md) for the implementation roadmap.
+MIT

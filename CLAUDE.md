@@ -143,7 +143,7 @@ Exit codes: 0=success, 1=failure, 2=action-required, 3=blocked, 4=partial
 
 Three repo types with different branching strategies:
 - **library** - PyPI/npm packages, feature branches -> main directly
-- **service** - Services/IaC, feature branches -> dev -> main
+- **service** - Deployable services, feature branches -> dev -> main
 - **workspace** - Coordination repo that orchestrates multiple child repos
 
 Classification stored in `ai-shell.toml`:

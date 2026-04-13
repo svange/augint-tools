@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 from augint_tools.git import (
     detect_base_branch,
+    extract_repo_slug,
     get_ahead_behind,
     get_current_branch,
     get_dirty_files,
@@ -58,6 +59,32 @@ class TestGitRepo:
 
         branch = detect_base_branch()
         assert branch == "dev"
+
+
+class TestExtractRepoSlug:
+    def test_https_url(self):
+        assert extract_repo_slug("https://github.com/myorg/my-repo.git") == "myorg/my-repo"
+
+    def test_https_url_no_suffix(self):
+        assert extract_repo_slug("https://github.com/myorg/my-repo") == "myorg/my-repo"
+
+    def test_ssh_url(self):
+        assert extract_repo_slug("git@github.com:myorg/my-repo.git") == "myorg/my-repo"
+
+    def test_proxy_url(self):
+        assert (
+            extract_repo_slug("http://local_proxy@127.0.0.1:8080/git/myorg/my-repo")
+            == "myorg/my-repo"
+        )
+
+    def test_proxy_url_https(self):
+        assert extract_repo_slug("https://local_proxy@127.0.0.1:9999/git/Org/Repo") == "Org/Repo"
+
+    def test_non_github_url(self):
+        assert extract_repo_slug("https://gitlab.com/myorg/my-repo.git") is None
+
+    def test_trailing_slash(self):
+        assert extract_repo_slug("https://github.com/myorg/my-repo/") == "myorg/my-repo"
 
 
 class TestGitStatus:

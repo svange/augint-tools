@@ -30,6 +30,13 @@ from augint_tools.standardize.checks import (
 
 _VALID_AREAS = ("pipeline", "precommit", "renovate", "release", "dotfiles")
 
+# Config files that standardize may write and Prettier should format.
+_PRETTIER_TARGETS = (
+    ".releaserc.json",
+    "lint-staged.config.json",
+    "renovate.json5",
+)
+
 # Subprocess timeout. Standardize --all can write several config files and
 # touch the filesystem; 5 minutes is generous without being silly.
 _TIMEOUT_SECS = 300
@@ -86,6 +93,33 @@ def _echo_captured(stdout: str, stderr: str, opts: dict[str, Any]) -> None:
         click.echo(stdout.rstrip())
     if stderr:
         click.echo(stderr.rstrip(), err=True)
+
+
+def _run_prettier_on_configs(path: Path) -> None:
+    """Run prettier on config files in Node repos after standardize writes them.
+
+    T13-4: ai-shell templates don't match Prettier defaults, so Node repos
+    fail ``format:check`` immediately after apply. This is a best-effort
+    fixup -- if prettier isn't available or fails, we silently skip.
+    """
+    if not (path / "package.json").exists():
+        return
+
+    files_to_format = [str(path / f) for f in _PRETTIER_TARGETS if (path / f).exists()]
+    if not files_to_format:
+        return
+
+    try:
+        subprocess.run(
+            ["npx", "--yes", "prettier", "--write", *files_to_format],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=str(path),
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
 
 
 @click.command("standardize")
@@ -460,6 +494,10 @@ def _run_area(path: Path, area: str, dry_run: bool, opts: dict[str, Any]) -> Non
 
     _echo_captured(stdout, stderr, opts)
 
+    # T13-4: format config files with Prettier for Node repos after area apply.
+    if rc == 0 and not dry_run and area in ("renovate", "release", "precommit"):
+        _run_prettier_on_configs(path)
+
     result: dict[str, Any] = {
         "path": str(path),
         "area": area,
@@ -539,6 +577,10 @@ def _run_all(path: Path, dry_run: bool, opts: dict[str, Any]) -> None:
         sys.exit(_EXIT_ERROR)
 
     _echo_captured(stdout, stderr, opts)
+
+    # T13-4: format config files with Prettier for Node repos after apply.
+    if rc == 0 and not dry_run:
+        _run_prettier_on_configs(path)
 
     result: dict[str, Any] = {
         "path": str(path),

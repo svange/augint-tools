@@ -13,6 +13,8 @@ from augint_tools.cli.__main__ import cli
 from augint_tools.standardize.checks import (
     check_ci_skip_keywords,
     check_delete_branch_on_merge,
+    check_forbid_env_commit_exclusion,
+    check_no_commit_to_branch_skip,
     check_pip_licenses_dep,
     check_quality_gate_thresholds,
     check_renovate_default_branch,
@@ -492,7 +494,7 @@ class TestDeleteBranchOnMerge:
 
 class TestRunSupplementalChecks:
     def test_area_none_runs_all(self, tmp_path: Path) -> None:
-        """area=None should run renovate, pipeline, and repo_settings checks."""
+        """area=None should run renovate, pipeline, precommit, and repo_settings checks."""
         with (
             patch(
                 "augint_tools.standardize.checks.check_renovate_dual_config",
@@ -522,6 +524,14 @@ class TestRunSupplementalChecks:
                 "augint_tools.standardize.checks.check_delete_branch_on_merge",
                 return_value=[],
             ) as m7,
+            patch(
+                "augint_tools.standardize.checks.check_no_commit_to_branch_skip",
+                return_value=[],
+            ) as m8,
+            patch(
+                "augint_tools.standardize.checks.check_forbid_env_commit_exclusion",
+                return_value=[],
+            ) as m9,
         ):
             run_supplemental_checks(tmp_path, area=None)
             m1.assert_called_once()
@@ -531,6 +541,8 @@ class TestRunSupplementalChecks:
             m5.assert_called_once()
             m6.assert_called_once()
             m7.assert_called_once()
+            m8.assert_called_once()
+            m9.assert_called_once()
 
     def test_area_renovate_only(self, tmp_path: Path) -> None:
         with (
@@ -839,3 +851,95 @@ class TestRenovateFormattingNoiseFilter:
         assert findings[0]["status"] == "DRIFT"
         assert findings[0]["diff"] == diff
         assert "formatting" not in findings[0]["message"]
+
+
+# =========================================================================== #
+# T13-8: no-commit-to-branch without pipeline SKIP                            #
+# =========================================================================== #
+
+
+class TestNoCommitToBranchSkip:
+    def test_no_pre_commit_config(self, tmp_path: Path) -> None:
+        assert check_no_commit_to_branch_skip(tmp_path) == []
+
+    def test_no_hook_present(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text("repos: []\n")
+        assert check_no_commit_to_branch_skip(tmp_path) == []
+
+    def test_hook_present_no_pipeline(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text(
+            "repos:\n  - hooks:\n    - id: no-commit-to-branch\n"
+        )
+        findings = check_no_commit_to_branch_skip(tmp_path)
+        assert len(findings) == 1
+        assert findings[0]["status"] == "DRIFT"
+        assert "no-commit-to-branch" in findings[0]["message"]
+
+    def test_hook_present_pipeline_without_skip(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text(
+            "repos:\n  - hooks:\n    - id: no-commit-to-branch\n"
+        )
+        wf = tmp_path / ".github" / "workflows"
+        wf.mkdir(parents=True)
+        (wf / "pipeline.yaml").write_text("name: CI\nsteps:\n  - run: pre-commit\n")
+        findings = check_no_commit_to_branch_skip(tmp_path)
+        assert len(findings) == 1
+        assert findings[0]["status"] == "DRIFT"
+
+    def test_hook_present_pipeline_with_skip(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text(
+            "repos:\n  - hooks:\n    - id: no-commit-to-branch\n"
+        )
+        wf = tmp_path / ".github" / "workflows"
+        wf.mkdir(parents=True)
+        (wf / "pipeline.yaml").write_text(
+            "name: CI\nenv:\n  SKIP: no-commit-to-branch\nsteps:\n  - run: pre-commit\n"
+        )
+        assert check_no_commit_to_branch_skip(tmp_path) == []
+
+
+# =========================================================================== #
+# T13-2: forbid-env-commit without .env.example exclusion                     #
+# =========================================================================== #
+
+
+class TestForbidEnvCommitExclusion:
+    def test_no_pre_commit_config(self, tmp_path: Path) -> None:
+        assert check_forbid_env_commit_exclusion(tmp_path) == []
+
+    def test_no_hook_present(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text("repos: []\n")
+        assert check_forbid_env_commit_exclusion(tmp_path) == []
+
+    def test_hook_present_no_env_template(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text(
+            "repos:\n  - hooks:\n    - id: forbid-env-commit\n"
+        )
+        assert check_forbid_env_commit_exclusion(tmp_path) == []
+
+    def test_hook_present_env_example_no_exclude(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text(
+            "repos:\n  - hooks:\n    - id: forbid-env-commit\n"
+        )
+        (tmp_path / ".env.example").write_text("DB_URL=\n")
+        findings = check_forbid_env_commit_exclusion(tmp_path)
+        assert len(findings) == 1
+        assert findings[0]["status"] == "DRIFT"
+        assert "forbid-env-commit" in findings[0]["message"]
+        assert "exclude" in findings[0]["message"]
+
+    def test_hook_present_env_sample_no_exclude(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text(
+            "repos:\n  - hooks:\n    - id: forbid-env-commit\n"
+        )
+        (tmp_path / ".env.sample").write_text("DB_URL=\n")
+        findings = check_forbid_env_commit_exclusion(tmp_path)
+        assert len(findings) == 1
+
+    def test_hook_present_with_exclude(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text(
+            "repos:\n  - hooks:\n    - id: forbid-env-commit\n"
+            "      exclude: '\\.(example|sample)$'\n"
+        )
+        (tmp_path / ".env.example").write_text("DB_URL=\n")
+        assert check_forbid_env_commit_exclusion(tmp_path) == []

@@ -10,6 +10,7 @@ from augint_tools.detection.language import detect_language
 from augint_tools.detection.toolchain import ToolchainInfo, detect_toolchain
 from augint_tools.git.repo import (
     detect_base_branch,
+    extract_repo_slug,
     get_current_branch,
     get_remote_url,
     is_git_repo,
@@ -142,7 +143,7 @@ def detect(path: Path | None = None) -> RepoContext:
             # Extract repo slug from remote URL
             remote_url = get_remote_url(path) if is_git_repo(path) else None
             if remote_url:
-                github.repo_slug = _extract_repo_slug(remote_url)
+                github.repo_slug = extract_repo_slug(remote_url)
 
     return RepoContext(
         repo_kind=repo_kind,
@@ -159,29 +160,3 @@ def detect(path: Path | None = None) -> RepoContext:
         config_source=config_source,
         path=path,
     )
-
-
-def _extract_repo_slug(remote_url: str) -> str | None:
-    """Extract owner/repo from a git remote URL.
-
-    Handles both HTTPS and SSH formats:
-        https://github.com/owner/repo.git -> owner/repo
-        git@github.com:owner/repo.git -> owner/repo
-    """
-    url = remote_url.rstrip("/").removesuffix(".git")
-
-    if "github.com" not in url:
-        return None
-
-    if url.startswith("git@"):
-        # git@github.com:owner/repo
-        parts = url.split(":")
-        if len(parts) == 2:
-            return parts[1]
-    else:
-        # https://github.com/owner/repo
-        parts = url.split("/")
-        if len(parts) >= 2:
-            return f"{parts[-2]}/{parts[-1]}"
-
-    return None

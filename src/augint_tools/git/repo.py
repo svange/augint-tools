@@ -83,6 +83,41 @@ def get_remote_url(path: Path | None = None, remote: str = "origin") -> str | No
         return None
 
 
+def extract_repo_slug(remote_url: str) -> str | None:
+    """Extract owner/repo from a git remote URL.
+
+    Handles HTTPS, SSH, and proxy formats:
+        https://github.com/owner/repo.git -> owner/repo
+        git@github.com:owner/repo.git -> owner/repo
+        http://local_proxy@127.0.0.1:8080/git/owner/repo -> owner/repo
+    """
+    url = remote_url.rstrip("/").removesuffix(".git")
+
+    # Proxy format: http://local_proxy@127.0.0.1:PORT/git/owner/repo
+    if "local_proxy@127.0.0.1" in url and "/git/" in url:
+        after_git = url.split("/git/", 1)[1]
+        parts = after_git.split("/")
+        if len(parts) >= 2:
+            return f"{parts[0]}/{parts[1]}"
+        return None
+
+    if "github.com" not in url:
+        return None
+
+    if url.startswith("git@"):
+        # git@github.com:owner/repo
+        parts = url.split(":")
+        if len(parts) == 2:
+            return parts[1]
+    else:
+        # https://github.com/owner/repo
+        parts = url.split("/")
+        if len(parts) >= 2:
+            return f"{parts[-2]}/{parts[-1]}"
+
+    return None
+
+
 def detect_base_branch(path: Path | None = None) -> str:
     """
     Detect the base branch for the repository.

@@ -97,19 +97,24 @@ def create_pr(
         return None
 
 
-def enable_automerge(pr_number: int, repo: str | None = None) -> bool:
+def enable_automerge(
+    pr_number: int,
+    repo: str | None = None,
+    method: str = "merge",
+) -> bool:
     """
     Enable auto-merge for a pull request.
 
     Args:
         pr_number: PR number
         repo: Repository in "owner/repo" format (uses current repo if None)
+        method: Merge method ("merge", "squash", or "rebase")
 
     Returns:
         True if successful
     """
     try:
-        args = ["pr", "merge", str(pr_number), "--auto", "--squash"]
+        args = ["pr", "merge", str(pr_number), "--auto", f"--{method}"]
 
         if repo:
             args.extend(["--repo", repo])

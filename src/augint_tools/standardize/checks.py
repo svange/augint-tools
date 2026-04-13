@@ -9,6 +9,8 @@ These checks detect issues that ai-shell does not currently catch:
 - T12-3: Renovate config on default branch differs from working branch
 - T12-4: CI skip keywords in workflow files
 - T12-5: Wrong tokens used for check-runs API in promote workflows
+- T13-2: forbid-env-commit hook without .env.example exclusion
+- T13-8: no-commit-to-branch hook without pipeline SKIP
 """
 
 from __future__ import annotations
@@ -69,6 +71,10 @@ def run_supplemental_checks(path: Path, *, area: str | None = None) -> list[Find
         findings.extend(check_quality_gate_thresholds(path))
         findings.extend(check_ci_skip_keywords(path))
         findings.extend(check_workflow_token_usage(path))
+
+    if area is None or area == "precommit":
+        findings.extend(check_no_commit_to_branch_skip(path))
+        findings.extend(check_forbid_env_commit_exclusion(path))
 
     if area is None:
         findings.extend(check_delete_branch_on_merge(path))
@@ -583,6 +589,97 @@ def check_delete_branch_on_merge(path: Path) -> list[Finding]:
                 "branches (dev). GitHub auto-delete bypasses branch rulesets and "
                 "will delete dev on every merge to main. Fix with: "
                 f"gh api repos/{slug} -X PATCH -f delete_branch_on_merge=false"
+            ),
+            "diff": None,
+            "is_clean": False,
+        }
+    ]
+
+
+# --- T13-8: no-commit-to-branch without pipeline SKIP -------------------- #
+
+
+def check_no_commit_to_branch_skip(path: Path) -> list[Finding]:
+    """Detect no-commit-to-branch in pre-commit config without SKIP in pipeline.
+
+    The hook blocks commits on main/dev, which is fine for local dev but breaks
+    post-merge CI when the pipeline runs ``pre-commit run --all-files``.
+    """
+    pre_commit_cfg = path / ".pre-commit-config.yaml"
+    if not pre_commit_cfg.exists():
+        return []
+
+    try:
+        content = pre_commit_cfg.read_text()
+    except OSError:
+        return []
+
+    if "no-commit-to-branch" not in content:
+        return []
+
+    # Check if pipeline.yaml already sets SKIP to handle this.
+    pipeline = path / ".github" / "workflows" / "pipeline.yaml"
+    if pipeline.exists():
+        try:
+            pipeline_text = pipeline.read_text()
+            if "no-commit-to-branch" in pipeline_text and "SKIP" in pipeline_text:
+                return []
+        except OSError:
+            pass
+
+    return [
+        {
+            "section": "precommit_ci_compat",
+            "status": "DRIFT",
+            "message": (
+                ".pre-commit-config.yaml has no-commit-to-branch hook but "
+                "pipeline.yaml does not set SKIP for it. Post-merge CI on "
+                "main/dev will fail. Either remove the hook (rulesets already "
+                "protect branches) or add SKIP: no-commit-to-branch to the "
+                "pipeline quality step."
+            ),
+            "diff": None,
+            "is_clean": False,
+        }
+    ]
+
+
+# --- T13-2: forbid-env-commit without .env.example exclusion ------------- #
+
+
+def check_forbid_env_commit_exclusion(path: Path) -> list[Finding]:
+    """Detect forbid-env-commit hook that would catch .env.example files."""
+    pre_commit_cfg = path / ".pre-commit-config.yaml"
+    if not pre_commit_cfg.exists():
+        return []
+
+    try:
+        content = pre_commit_cfg.read_text()
+    except OSError:
+        return []
+
+    if "forbid-env-commit" not in content:
+        return []
+
+    # Check if any .env.example or .env.sample files exist.
+    has_env_template = any((path / name).exists() for name in (".env.example", ".env.sample"))
+    if not has_env_template:
+        return []
+
+    # Check if the hook already has an exclude for example/sample.
+    # The exclude value may use a literal dot or an escaped dot (\\.).
+    if re.search(r"exclude:.*\\?\.?\(?(example|sample)", content):
+        return []
+
+    return [
+        {
+            "section": "precommit_env_exclusion",
+            "status": "DRIFT",
+            "message": (
+                ".pre-commit-config.yaml has forbid-env-commit hook but no "
+                "exclude for .env.example/.env.sample. This will block "
+                "committing configuration templates. Add: "
+                "exclude: '\\.(example|sample)$'"
             ),
             "diff": None,
             "is_clean": False,

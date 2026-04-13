@@ -111,6 +111,17 @@ Global output flags: `--json`, `--actionable`, `--summary`
 - `workspace update` -- downstream propagation (stub)
 - `workspace foreach` -- arbitrary command across repos
 
+### Workspace Environment Variables
+
+Two optional environment variables support proxied/containerized environments (e.g., Claude Code Web):
+
+- **`WORKSPACE_REPOS_DIR`** -- Override directory where child repos are located. When set, `get_repo_path()` resolves repos as `$WORKSPACE_REPOS_DIR/<repo_name>` instead of using the path from workspace.yaml. Affects all workspace commands.
+- **`GIT_CLONE_URL_TEMPLATE`** -- URL template for git clone operations. Supports `{slug}` (owner/repo), `{org}`, and `{repo}` placeholders. Example: `http://local_proxy@127.0.0.1:9999/git/{org}/{repo}`. Only affects `workspace sync` clone operations.
+
+When neither env var is set, `workspace sync` also auto-detects proxy environments by inspecting the workspace root's origin remote URL. If it matches the Claude Code Web proxy pattern (`http://local_proxy@127.0.0.1:PORT/git/*`), clone URLs are automatically rewritten to use the same proxy.
+
+Additionally, `get_repo_path()` auto-detects sibling repo layouts: if the configured path has no `.git/` but a sibling path (`../repo_name`) does, it uses the sibling. This handles Claude Code Web's flat cloning layout.
+
 ### Core Infrastructure
 
 - **Detection engine** (`src/augint_tools/detection/`): Shared `detect() -> RepoContext` used by all commands. Resolves repo kind, language, framework, branches, toolchain, command plan, GitHub state.

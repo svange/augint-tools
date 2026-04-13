@@ -9,7 +9,7 @@ from augint_tools.checks import resolve_plan, run_plan
 from augint_tools.config import load_workspace_config
 from augint_tools.detection import detect
 from augint_tools.execution import run_command
-from augint_tools.execution.workspace import get_repo_path, topological_sort
+from augint_tools.execution.workspace import get_repo_path, resolve_clone_url, topological_sort
 from augint_tools.git import (
     create_branch,
     get_current_branch,
@@ -134,7 +134,8 @@ def sync(ctx):
         else:
             repo_path.parent.mkdir(parents=True, exist_ok=True)
             try:
-                run_git(["clone", repo_config.url, str(repo_path)], check=True)
+                clone_url = resolve_clone_url(repo_config, cwd)
+                run_git(["clone", clone_url, str(repo_path)], check=True)
                 results.append({"name": repo_config.name, "action": "cloned", "success": True})
             except Exception as e:
                 results.append(

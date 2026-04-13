@@ -70,10 +70,7 @@ def load_ai_shell_config(path: Path | None = None) -> AiShellConfig | None:
 
         project = data.get("project", {})
 
-        # Map old "iac" to "service" for backward compatibility
         repo_type = project.get("repo_type", "library")
-        if repo_type == "iac":
-            repo_type = "service"
 
         # Parse [ai_tools] sections
         ai_tools = data.get("ai_tools", {})

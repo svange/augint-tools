@@ -363,16 +363,34 @@ class TestStandardizeArea:
         data = json.loads(result.output)
         assert data["status"] == "drift"
 
-    def test_pipeline_rejects_dry_run(self, tmp_path, monkeypatch):
+    def test_pipeline_dry_run_delegates_to_all(self, tmp_path, monkeypatch):
+        """T13-1: --area pipeline --dry-run delegates to --all --dry-run."""
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            ["--json", "standardize", "--area", "pipeline", "--dry-run", str(tmp_path)],
-        )
-        assert result.exit_code == 1
+        plan = [{"step": "pipeline", "status": "OK", "message": "spec clean"}]
+        captured: dict = {}
+
+        def fake_run(cmd: list[str]) -> tuple[int, str, str]:
+            captured["cmd"] = cmd
+            return 0, json.dumps(plan), ""
+
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            side_effect=fake_run,
+        ):
+            result = runner.invoke(
+                cli,
+                ["--json", "standardize", "--area", "pipeline", "--dry-run", str(tmp_path)],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "--all" in captured["cmd"]
+        assert "--dry-run" in captured["cmd"]
+        assert "--json" in captured["cmd"]
         data = json.loads(result.output)
-        assert "dry-run" in data["summary"].lower()
+        assert data["command"] == "standardize --area pipeline --dry-run"
+        assert data["result"]["step"] == plan[0]
+        assert data["result"]["dry_run"] is True
 
     def test_precommit_runs(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -399,16 +417,34 @@ class TestStandardizeArea:
             str(tmp_path.resolve()),
         ]
 
-    def test_precommit_rejects_dry_run(self, tmp_path, monkeypatch):
+    def test_precommit_dry_run_delegates_to_all(self, tmp_path, monkeypatch):
+        """T13-1: --area precommit --dry-run delegates to --all --dry-run."""
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            ["--json", "standardize", "--area", "precommit", "--dry-run", str(tmp_path)],
-        )
-        assert result.exit_code == 1
+        plan = [
+            {"step": "pipeline", "status": "OK", "message": "spec clean"},
+            {"step": "precommit", "status": "DRIFT", "message": "would write 7 hooks"},
+        ]
+        captured: dict = {}
+
+        def fake_run(cmd: list[str]) -> tuple[int, str, str]:
+            captured["cmd"] = cmd
+            return 0, json.dumps(plan), ""
+
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            side_effect=fake_run,
+        ):
+            result = runner.invoke(
+                cli,
+                ["--json", "standardize", "--area", "precommit", "--dry-run", str(tmp_path)],
+            )
+
+        assert result.exit_code == 0, result.output
         data = json.loads(result.output)
-        assert "dry-run" in data["summary"].lower()
+        assert data["command"] == "standardize --area precommit --dry-run"
+        assert data["result"]["step"] == plan[1]
+        assert "would write 7 hooks" in data["summary"]
 
     def test_dotfiles_supports_dry_run(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -589,3 +625,189 @@ class TestStandardizeLocalJsonFlag:
         assert "--dry-run" in captured["cmd"]
         data = json.loads(result.output)
         assert data["result"]["plan"] == {"plan": ["step1"]}
+
+
+class TestAreaDryRun:
+    """T13-1: --area <name> --dry-run extracts from --all --dry-run plan."""
+
+    def test_step_not_found_includes_full_plan(self, tmp_path, monkeypatch):
+        """When the area step isn't in the plan, the full plan is returned."""
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        plan = [{"step": "pipeline", "status": "OK", "message": "clean"}]
+
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            return_value=(0, json.dumps(plan), ""),
+        ):
+            result = runner.invoke(
+                cli, ["--json", "standardize", "--area", "renovate", "--dry-run", str(tmp_path)]
+            )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert "step" not in data["result"]
+        assert data["result"]["plan"] == plan
+
+    def test_plan_as_dict_with_steps_key(self, tmp_path, monkeypatch):
+        """Plan wrapped in a dict with a 'steps' key is handled."""
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        plan = {"steps": [{"step": "renovate", "status": "DRIFT", "message": "would update"}]}
+
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            return_value=(0, json.dumps(plan), ""),
+        ):
+            result = runner.invoke(
+                cli, ["--json", "standardize", "--area", "renovate", "--dry-run", str(tmp_path)]
+            )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["result"]["step"] == plan["steps"][0]
+
+    def test_spawn_failure_exits_2(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            return_value=(-1, "", "ai-shell executable not found on PATH"),
+        ):
+            result = runner.invoke(
+                cli, ["--json", "standardize", "--area", "pipeline", "--dry-run", str(tmp_path)]
+            )
+
+        assert result.exit_code == 2
+        data = json.loads(result.output)
+        assert data["status"] == "error"
+        assert "not found" in data["summary"]
+
+    def test_supplemental_downgrades_to_drift(self, tmp_path, monkeypatch):
+        """Supplemental findings downgrade a clean dry-run to drift."""
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        plan = [{"step": "pipeline", "status": "OK", "message": "spec clean"}]
+        fake_finding = [
+            {"section": "pipeline_ci_skip", "status": "FAIL", "message": "skip ci found"}
+        ]
+
+        with (
+            patch(
+                "augint_tools.cli.commands.standardize._run_ai_shell",
+                return_value=(0, json.dumps(plan), ""),
+            ),
+            patch(
+                "augint_tools.cli.commands.standardize.run_supplemental_checks",
+                return_value=fake_finding,
+            ),
+        ):
+            result = runner.invoke(
+                cli, ["--json", "standardize", "--area", "pipeline", "--dry-run", str(tmp_path)]
+            )
+
+        assert result.exit_code == 1, result.output
+        data = json.loads(result.output)
+        assert data["status"] == "drift"
+        assert "1 supplemental issue found" in data["summary"]
+        assert data["result"]["supplemental_findings"] == fake_finding
+
+    def test_dotfiles_dry_run_still_uses_native(self, tmp_path, monkeypatch):
+        """dotfiles --dry-run still delegates natively, not via --all."""
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        captured: dict = {}
+
+        def fake_run(cmd: list[str]) -> tuple[int, str, str]:
+            captured["cmd"] = cmd
+            return 0, "would write .editorconfig", ""
+
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            side_effect=fake_run,
+        ):
+            result = runner.invoke(
+                cli,
+                ["--json", "standardize", "--area", "dotfiles", "--dry-run", str(tmp_path)],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["cmd"][:3] == ["ai-shell", "standardize", "dotfiles"]
+        assert "--dry-run" in captured["cmd"]
+        assert "--all" not in captured["cmd"]
+
+
+class TestAllSupplementalChecks:
+    """T13-3: --all surfaces supplemental checks alongside ai-shell plan."""
+
+    def test_dry_run_includes_supplemental_findings(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        fake_finding = [
+            {"section": "pipeline_ci_skip", "status": "FAIL", "message": "skip ci found"}
+        ]
+
+        with (
+            patch(
+                "augint_tools.cli.commands.standardize._run_ai_shell",
+                return_value=(0, json.dumps({"plan": ["step1"]}), ""),
+            ),
+            patch(
+                "augint_tools.cli.commands.standardize.run_supplemental_checks",
+                return_value=fake_finding,
+            ),
+        ):
+            result = runner.invoke(
+                cli, ["--json", "standardize", "--all", "--dry-run", str(tmp_path)]
+            )
+
+        assert result.exit_code == 1, result.output
+        data = json.loads(result.output)
+        assert data["status"] == "drift"
+        assert data["result"]["supplemental_findings"] == fake_finding
+        assert "not auto-fixable" in data["summary"]
+
+    def test_apply_includes_supplemental_findings(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        fake_finding = [
+            {"section": "pipeline_token_usage", "status": "DRIFT", "message": "wrong token"}
+        ]
+
+        with (
+            patch(
+                "augint_tools.cli.commands.standardize._run_ai_shell",
+                return_value=(0, "wrote files", ""),
+            ),
+            patch(
+                "augint_tools.cli.commands.standardize.run_supplemental_checks",
+                return_value=fake_finding,
+            ),
+        ):
+            result = runner.invoke(cli, ["--json", "standardize", "--all", str(tmp_path)])
+
+        assert result.exit_code == 1, result.output
+        data = json.loads(result.output)
+        assert data["status"] == "drift"
+        assert data["result"]["supplemental_findings"] == fake_finding
+
+    def test_no_supplemental_stays_ok(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+
+        with (
+            patch(
+                "augint_tools.cli.commands.standardize._run_ai_shell",
+                return_value=(0, "wrote files", ""),
+            ),
+            patch(
+                "augint_tools.cli.commands.standardize.run_supplemental_checks",
+                return_value=[],
+            ),
+        ):
+            result = runner.invoke(cli, ["--json", "standardize", "--all", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["status"] == "ok"
+        assert "supplemental_findings" not in data["result"]

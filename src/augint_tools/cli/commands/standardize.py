@@ -109,7 +109,7 @@ def _echo_captured(stdout: str, stderr: str, opts: dict[str, Any]) -> None:
     "--dry-run",
     is_flag=True,
     default=False,
-    help="Compute what would change without writing (only with --all or --area dotfiles).",
+    help="Compute what would change without writing.",
 )
 @click.option("--json", "json_mode_local", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
@@ -322,19 +322,113 @@ def _run_verify(path: Path, opts: dict[str, Any]) -> None:
     sys.exit(exit_code)
 
 
+def _extract_area_step(plan_data: Any, area: str) -> dict[str, Any] | None:
+    """Extract a single area's step from the ``--all --dry-run`` plan."""
+    steps: list[Any] | None = None
+    if isinstance(plan_data, list):
+        steps = plan_data
+    elif isinstance(plan_data, dict):
+        for key in ("plan", "steps"):
+            candidate = plan_data.get(key)
+            if isinstance(candidate, list):
+                steps = candidate
+                break
+    if steps is None:
+        return None
+    for step in steps:
+        if isinstance(step, dict) and step.get("step") == area:
+            return step
+    return None
+
+
+def _run_area_dry_run(path: Path, area: str, opts: dict[str, Any]) -> None:
+    """T13-1: Handle ``--area <name> --dry-run`` via ``--all --dry-run``.
+
+    Areas other than dotfiles have no upstream ``--dry-run`` support in
+    ai-shell.  We delegate to ``--all --dry-run --json``, parse the plan,
+    and extract just the step for *area*.
+    """
+    cmd = ["ai-shell", "standardize", "repo", "--all", "--dry-run", "--json", str(path)]
+    rc, stdout, stderr = _run_ai_shell(cmd)
+
+    cmd_label = f"standardize --area {area} --dry-run"
+
+    if rc == -1:
+        detail = stderr.strip() or "ai-shell failed to launch"
+        emit_response(CommandResponse.error(cmd_label, "repo", detail), **opts)
+        sys.exit(_EXIT_ERROR)
+
+    result: dict[str, Any] = {
+        "path": str(path),
+        "area": area,
+        "dry_run": True,
+    }
+
+    # Try to extract the area's step from the plan.
+    if stdout.strip():
+        try:
+            parsed = json.loads(stdout)
+            step = _extract_area_step(parsed, area)
+            if step is not None:
+                result["step"] = step
+            else:
+                # Step not found — include the full plan so it's not lost.
+                result["plan"] = parsed
+        except json.JSONDecodeError:
+            result["stdout"] = stdout
+
+    if stderr.strip():
+        result["stderr"] = stderr
+
+    # Run area-specific supplemental checks.
+    supplemental = run_supplemental_checks(path, area=area)
+    if supplemental:
+        result["supplemental_findings"] = supplemental
+
+    if rc == 0:
+        status = "ok"
+        exit_code = _EXIT_OK
+        step_info = result.get("step")
+        if step_info and isinstance(step_info, dict):
+            step_msg = step_info.get("message", "")
+            summary = f"{area} dry-run: {step_msg}" if step_msg else f"{area} dry-run: ok"
+        else:
+            summary = f"{area} dry-run: ok"
+        # Supplemental checks can downgrade ok -> drift.
+        if supplemental:
+            status = "drift"
+            exit_code = _EXIT_DRIFT
+            n = len(supplemental)
+            summary += f"; {n} supplemental {'issue' if n == 1 else 'issues'} found"
+    else:
+        status = "error"
+        exit_code = _EXIT_ERROR
+        summary = f"ai-shell standardize --all --dry-run exited {rc}"
+
+    errors = [stderr.strip()] if rc != 0 and stderr.strip() else []
+    emit_response(
+        CommandResponse(
+            command=cmd_label,
+            scope="repo",
+            status=status,
+            summary=summary,
+            result=result,
+            errors=errors,
+        ),
+        **opts,
+    )
+    sys.exit(exit_code)
+
+
 def _run_area(path: Path, area: str, dry_run: bool, opts: dict[str, Any]) -> None:
+    # T13-1: --dry-run for areas other than dotfiles delegates to
+    # --all --dry-run --json and extracts the relevant step.
+    if dry_run and area != "dotfiles":
+        _run_area_dry_run(path, area, opts)
+        return
+
     # Build ai-shell invocation per area.
     if area == "pipeline":
-        if dry_run:
-            emit_response(
-                CommandResponse.error(
-                    "standardize --area pipeline",
-                    "repo",
-                    "--dry-run is not supported with --area pipeline (validate is already read-only).",
-                ),
-                **opts,
-            )
-            sys.exit(_EXIT_DRIFT)
         cmd = ["ai-shell", "standardize", "pipeline", "--validate"]
         if opts.get("json_mode"):
             cmd.append("--json")
@@ -345,17 +439,6 @@ def _run_area(path: Path, area: str, dry_run: bool, opts: dict[str, Any]) -> Non
             cmd.append("--dry-run")
         cmd.append(str(path))
     else:
-        # precommit, renovate, release — no --dry-run support upstream.
-        if dry_run:
-            emit_response(
-                CommandResponse.error(
-                    f"standardize --area {area}",
-                    "repo",
-                    f"--dry-run is not supported with --area {area}.",
-                ),
-                **opts,
-            )
-            sys.exit(_EXIT_DRIFT)
         cmd = ["ai-shell", "standardize", area, str(path)]
 
     rc, stdout, stderr = _run_ai_shell(cmd)
@@ -466,6 +549,12 @@ def _run_all(path: Path, dry_run: bool, opts: dict[str, Any]) -> None:
     if stderr.strip():
         result["stderr"] = stderr
 
+    # T13-3: run supplemental checks so dry-run surfaces the same issues
+    # as --verify. Also useful after apply to show remaining issues.
+    supplemental = run_supplemental_checks(path)
+    if supplemental:
+        result["supplemental_findings"] = supplemental
+
     status = "ok" if rc == 0 else "error"
     exit_code = _EXIT_OK if rc == 0 else _EXIT_ERROR
     mode_str = "dry-run" if dry_run else "apply"
@@ -474,6 +563,13 @@ def _run_all(path: Path, dry_run: bool, opts: dict[str, Any]) -> None:
         if rc == 0
         else f"ai-shell standardize --all ({mode_str}) exited {rc}"
     )
+    # Supplemental checks can downgrade ok -> drift.
+    if rc == 0 and supplemental:
+        status = "drift"
+        exit_code = _EXIT_DRIFT
+        n = len(supplemental)
+        summary += f"; {n} supplemental {'issue' if n == 1 else 'issues'} not auto-fixable"
+
     errors = [stderr.strip()] if rc != 0 and stderr.strip() else []
 
     emit_response(

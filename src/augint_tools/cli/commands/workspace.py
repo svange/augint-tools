@@ -26,7 +26,7 @@ from augint_tools.github import (
     is_gh_available,
     list_issues,
 )
-from augint_tools.output import CommandResponse, emit_response, emit_stub
+from augint_tools.output import CommandResponse, emit_response
 
 
 def _get_output_opts(ctx: click.Context) -> dict:
@@ -289,16 +289,6 @@ def issues(ctx, query):
         ),
         **opts,
     )
-
-
-# --- workspace graph ---
-
-
-@workspace.command()
-@click.pass_context
-def graph(ctx):
-    """Emit dependency order and affected downstream closures."""
-    emit_stub("workspace graph", "workspace", json_mode=_get_output_opts(ctx)["json_mode"])
 
 
 # --- workspace branch ---
@@ -598,16 +588,6 @@ def submit(ctx, monitor):
         ),
         **opts,
     )
-
-
-# --- workspace update ---
-
-
-@workspace.command()
-@click.pass_context
-def update(ctx):
-    """Update downstream repos after upstream changes."""
-    emit_stub("workspace update", "workspace", json_mode=_get_output_opts(ctx)["json_mode"])
 
 
 # --- workspace foreach ---

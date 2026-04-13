@@ -79,29 +79,23 @@ Global output flags: `--json`, `--actionable`, `--summary`
 - `repo inspect` -- one-call repo snapshot (kind, branch, toolchain, command plan)
 - `repo status` -- git state + upstream + open PR + CI + next action
 - `repo issues pick` -- issue recommendation/search
-- `repo issues view` -- issue detail (stub)
 - `repo branch prepare` -- create work branch from correct base
 - `repo check plan` -- resolve validation plan without running
 - `repo check run` -- execute validation plan
 - `repo submit` -- stage, check, push, create PR, automerge
 - `repo ci watch` -- monitor CI run
 - `repo ci triage` -- classify CI failures
-- `repo promote` -- dev->main promotion (stub)
-- `repo rollback plan/apply` -- rollback workflow (stub)
-- `repo health` -- hygiene audit (stub)
 
 **Workspace commands** (`src/augint_tools/cli/commands/workspace.py`):
 - `workspace inspect` -- workspace snapshot
 - `workspace sync` -- clone/pull child repos
 - `workspace status` -- workspace health (--actionable, --blocked-only, --dirty-only)
 - `workspace issues` -- aggregate issues across repos
-- `workspace graph` -- dependency order (stub)
 - `workspace branch` -- coordinated branch prep (--issue, --description, --name)
 - `workspace check` -- grouped validation across repos (--phase, --repos, --preset)
 - `workspace test` -- alias for check --phase tests
 - `workspace lint` -- alias for check --phase quality
 - `workspace submit` -- open PRs for changed repos
-- `workspace update` -- downstream propagation (stub)
 - `workspace foreach` -- arbitrary command across repos
 
 ### Workspace Environment Variables
@@ -171,9 +165,7 @@ build = "uv build"
 
 2. **AI-first design**: Commands are called by ai-shell skills, not just humans. Error messages must be specific and parseable.
 
-3. **Stub pattern**: Unimplemented commands call `emit_stub()` which outputs a structured error with `implemented: false`. This preserves the command surface while development is in progress.
-
-4. **Detection once**: Commands call `detect()` once at the top and pass the `RepoContext` down. No scattered detection logic.
+3. **Detection once**: Commands call `detect()` once at the top and pass the `RepoContext` down. No scattered detection logic.
 
 ## Key Files
 

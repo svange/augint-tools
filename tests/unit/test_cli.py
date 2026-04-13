@@ -35,9 +35,6 @@ class TestCli:
         assert "check" in result.output
         assert "submit" in result.output
         assert "ci" in result.output
-        assert "promote" in result.output
-        assert "rollback" in result.output
-        assert "health" in result.output
 
     def test_repo_inspect(self):
         runner = CliRunner()
@@ -104,18 +101,3 @@ class TestCli:
         assert result.exit_code == 1
         data = json.loads(result.output)
         assert data["status"] == "error"
-
-    def test_stub_commands(self):
-        """Test that P1/P2 stubs emit the right output."""
-        runner = CliRunner()
-        stubs = [
-            ["repo", "promote"],
-            ["repo", "rollback", "plan"],
-            ["repo", "rollback", "apply"],
-            ["repo", "health"],
-            ["workspace", "graph"],
-            ["workspace", "update"],
-        ]
-        for args in stubs:
-            result = runner.invoke(cli, args)
-            assert "not yet implemented" in result.output.lower(), f"Stub failed for {args}"

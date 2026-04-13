@@ -39,15 +39,15 @@ ai-tools init --library
 # Check repository status
 ai-tools repo status --json
 
-# List issues
-ai-tools repo issues "bug"
+# Search/pick issues
+ai-tools repo issues pick "bug"
 
 # Create feature branch
-ai-tools repo branch feat/issue-42-example
+ai-tools repo branch prepare --issue 42 --description "fix the thing"
 
-# Run tests and linting
-ai-tools repo test
-ai-tools repo lint --fix
+# Run checks
+ai-tools repo check run
+ai-tools repo check run --preset full --fix
 
 # Submit work (push + create PR)
 ai-tools repo submit
@@ -66,10 +66,11 @@ ai-tools workspace sync --json
 ai-tools workspace status
 
 # Create coordinated branches
-ai-tools workspace branch feat/multi-repo-change
+ai-tools workspace branch --name feat/multi-repo-change
 
-# Run tests across all repos
+# Run tests and lint across all repos
 ai-tools workspace test
+ai-tools workspace lint
 
 # Run command in all repos
 ai-tools workspace foreach -- git status
@@ -86,24 +87,28 @@ ai-tools workspace submit
 
 ### Repository Commands (`ai-tools repo`)
 
+- `inspect` - One-call repo snapshot (kind, branch, toolchain, command plan)
 - `status` - Show repository status (branch, dirty state, PRs, CI)
-- `issues [query]` - List and filter issues
-- `branch <name>` - Create or switch branches using repo defaults
-- `test` - Run configured test commands
-- `lint [--fix]` - Run quality checks
-- `submit` - Push branch and create PR
+- `issues pick [query]` - Issue recommendation and search
+- `branch prepare` - Create work branch from correct base
+- `check plan` - Resolve validation plan without running
+- `check run` - Execute validation plan
+- `submit` - Push branch and create PR with automerge
+- `ci watch` - Monitor CI run
+- `ci triage` - Classify CI failures
 
 ### Workspace Commands (`ai-tools workspace`)
 
+- `inspect` - Workspace snapshot
 - `status` - Status across all child repositories
 - `sync` - Clone missing repos and update existing
 - `issues [query]` - Aggregate issues from all repos
-- `branch <name>` - Create coordinated branches
-- `test` - Run tests in dependency order
-- `lint [--fix]` - Quality checks across repos
+- `branch` - Create coordinated branches
+- `check` - Grouped validation across repos
+- `test` - Alias for check --phase tests
+- `lint` - Alias for check --phase quality
 - `foreach <command>` - Execute command in all repos
 - `submit` - Push and create PRs for modified repos
-- `update` - Propagate upstream changes downstream
 
 ## Configuration
 

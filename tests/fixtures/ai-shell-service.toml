@@ -1,4 +1,0 @@
-[project]
-repo_type = "service"
-branch_strategy = "dev"
-dev_branch = "dev"

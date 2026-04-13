@@ -1,8 +1,7 @@
-"""Command plan resolution from config and ecosystem defaults."""
+"""Command plan resolution from ecosystem defaults."""
 
 from dataclasses import dataclass
 
-from augint_tools.config.ai_shell import AiToolsCommandsConfig
 from augint_tools.detection.toolchain import ToolchainInfo
 
 
@@ -17,40 +16,13 @@ class CommandPlan:
     build: str | None = None
 
 
-def resolve_command_plan(
-    config_commands: AiToolsCommandsConfig | None,
-    toolchain: ToolchainInfo,
-    language: str,
-) -> CommandPlan:
-    """Resolve the command plan from explicit config or ecosystem defaults.
-
-    Priority: explicit config > ecosystem-based defaults.
-    """
-    plan = CommandPlan()
-
-    # Start with ecosystem defaults
+def resolve_command_plan(toolchain: ToolchainInfo, language: str) -> CommandPlan:
+    """Resolve the command plan from ecosystem defaults."""
     if language == "python":
-        plan = _python_defaults(toolchain)
-    elif language == "typescript":
-        plan = _typescript_defaults(toolchain)
-    elif language == "mixed":
-        # For mixed, prefer python tooling for quality/tests, add JS where needed
-        plan = _python_defaults(toolchain)
-
-    # Override with explicit config
-    if config_commands:
-        if config_commands.quality is not None:
-            plan.quality = config_commands.quality
-        if config_commands.tests is not None:
-            plan.tests = config_commands.tests
-        if config_commands.security is not None:
-            plan.security = config_commands.security
-        if config_commands.licenses is not None:
-            plan.licenses = config_commands.licenses
-        if config_commands.build is not None:
-            plan.build = config_commands.build
-
-    return plan
+        return _python_defaults(toolchain)
+    elif language in ("typescript", "mixed"):
+        return _typescript_defaults(toolchain)
+    return CommandPlan()
 
 
 def _python_defaults(toolchain: ToolchainInfo) -> CommandPlan:

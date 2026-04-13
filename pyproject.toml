@@ -9,7 +9,6 @@ dependencies = [
     "click>=8.1.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
-    "tomli-w>=1.2.0",
 ]
 
 [project.optional-dependencies]

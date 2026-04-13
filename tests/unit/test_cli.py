@@ -13,7 +13,6 @@ class TestCli:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         assert "CLI for AI-assisted repository and workspace workflows." in result.output
-        assert "init" in result.output
         assert "repo" in result.output
         assert "workspace" in result.output
 

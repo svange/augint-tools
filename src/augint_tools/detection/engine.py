@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from augint_tools.config.ai_shell import AiToolsCommandsConfig, load_ai_shell_config
 from augint_tools.detection.commands import CommandPlan, resolve_command_plan
 from augint_tools.detection.framework import detect_framework
 from augint_tools.detection.language import detect_language
@@ -34,31 +33,24 @@ class RepoContext:
     Every command should call detect() once and pass this down.
     """
 
-    repo_kind: str  # library, service, workspace
     language: str  # python, typescript, mixed, unknown
     framework: str  # plain, sam, cdk, terraform, vite, nextjs
     default_branch: str
-    dev_branch: str | None
     current_branch: str | None
     target_pr_branch: str
-    branch_strategy: str  # main, dev
     toolchain: ToolchainInfo
     command_plan: CommandPlan
     github: GitHubState
-    config_source: str  # ai-shell.toml, detected, default
     path: Path
 
     def to_dict(self) -> dict:
         """Serialize for JSON output."""
         return {
-            "repo_kind": self.repo_kind,
             "language": self.language,
             "framework": self.framework,
             "default_branch": self.default_branch,
-            "dev_branch": self.dev_branch,
             "current_branch": self.current_branch,
             "target_pr_branch": self.target_pr_branch,
-            "branch_strategy": self.branch_strategy,
             "toolchain": {
                 "package_manager": self.toolchain.package_manager,
                 "has_pre_commit": self.toolchain.has_pre_commit,
@@ -78,13 +70,12 @@ class RepoContext:
                 "authenticated": self.github.authenticated,
                 "repo_slug": self.github.repo_slug,
             },
-            "config_source": self.config_source,
             "path": str(self.path),
         }
 
 
 def detect(path: Path | None = None) -> RepoContext:
-    """One-call detection: reads config, probes filesystem, checks git and GitHub.
+    """One-call detection: probes filesystem, checks git and GitHub.
 
     Args:
         path: Repository root path. Defaults to cwd.
@@ -95,21 +86,6 @@ def detect(path: Path | None = None) -> RepoContext:
     if path is None:
         path = Path.cwd()
 
-    # Load config
-    config = load_ai_shell_config(path / "ai-shell.toml")
-    config_source = "ai-shell.toml" if config else "detected"
-
-    # Repo kind
-    if config:
-        repo_kind = config.repo_type
-        branch_strategy = config.branch_strategy
-        dev_branch = config.dev_branch if branch_strategy == "dev" else None
-    else:
-        repo_kind = "library"  # safe default
-        branch_strategy = "main"
-        dev_branch = None
-        config_source = "default"
-
     # Language and framework
     language = detect_language(path)
     framework = detect_framework(path)
@@ -117,9 +93,8 @@ def detect(path: Path | None = None) -> RepoContext:
     # Toolchain
     toolchain = detect_toolchain(path)
 
-    # Command plan
-    config_commands: AiToolsCommandsConfig | None = config.ai_tools_commands if config else None
-    command_plan = resolve_command_plan(config_commands, toolchain, language)
+    # Command plan from ecosystem defaults only
+    command_plan = resolve_command_plan(toolchain, language)
 
     # Git state
     default_branch = "main"
@@ -128,35 +103,24 @@ def detect(path: Path | None = None) -> RepoContext:
         default_branch = detect_base_branch(path)
         current_branch = get_current_branch(path)
 
-    # Target branch for PRs
-    if branch_strategy == "dev" and dev_branch:
-        target_pr_branch = dev_branch
-    else:
-        target_pr_branch = default_branch
-
     # GitHub state
     github = GitHubState()
     if is_gh_available():
         github.available = True
         if is_gh_authenticated():
             github.authenticated = True
-            # Extract repo slug from remote URL
             remote_url = get_remote_url(path) if is_git_repo(path) else None
             if remote_url:
                 github.repo_slug = extract_repo_slug(remote_url)
 
     return RepoContext(
-        repo_kind=repo_kind,
         language=language,
         framework=framework,
         default_branch=default_branch,
-        dev_branch=dev_branch,
         current_branch=current_branch,
-        target_pr_branch=target_pr_branch,
-        branch_strategy=branch_strategy,
+        target_pr_branch=default_branch,
         toolchain=toolchain,
         command_plan=command_plan,
         github=github,
-        config_source=config_source,
         path=path,
     )

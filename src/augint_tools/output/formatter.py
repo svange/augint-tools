@@ -143,18 +143,6 @@ def _format_workspace_status(result: dict[str, Any]) -> None:
         click.echo(f"    [{icon}] {name} ({branch})")
 
 
-def _format_issues(result: dict[str, Any]) -> None:
-    issues = result.get("issues", [])
-    if not issues:
-        click.echo("  No issues found")
-        return
-    click.echo(f"  Found {len(issues)} issues:")
-    for issue in issues:
-        labels = issue.get("labels", [])
-        label_str = f" [{', '.join(labels)}]" if labels else ""
-        click.echo(f"    #{issue.get('number', '?')}: {issue.get('title', '')}{label_str}")
-
-
 def _format_branch(result: dict[str, Any]) -> None:
     if "branch" in result:
         click.echo(f"  Branch: {click.style(result['branch'], fg='cyan')}")
@@ -177,16 +165,6 @@ def _format_foreach(result: dict[str, Any]) -> None:
                     click.echo(f"      {line}")
 
 
-def _format_check_plan(result: dict[str, Any]) -> None:
-    phases = result.get("phases", [])
-    if not phases:
-        click.echo("  No phases in plan")
-        return
-    click.echo(f"  Preset: {result.get('preset', 'unknown')}")
-    for phase in phases:
-        click.echo(f"    {phase['name']}: {phase['command']}")
-
-
 def _format_check_run(result: dict[str, Any]) -> None:
     phases = result.get("phases", [])
     for phase in phases:
@@ -202,31 +180,12 @@ def _format_check_run(result: dict[str, Any]) -> None:
             click.echo(f"      {failure}")
 
 
-def _format_inspect(result: dict[str, Any]) -> None:
-    for key in [
-        "repo_kind",
-        "language",
-        "framework",
-        "default_branch",
-        "current_branch",
-        "target_pr_branch",
-    ]:
-        if key in result:
-            click.echo(f"  {key}: {result[key]}")
-
-
 # Command -> formatter registry
 _HUMAN_FORMATTERS: dict[str, Any] = {
     "repo status": _format_repo_status,
-    "repo inspect": _format_inspect,
-    "repo issues pick": _format_issues,
     "repo branch prepare": _format_branch,
-    "repo check plan": _format_check_plan,
-    "repo check run": _format_check_run,
     "repo submit": _format_branch,
     "workspace status": _format_workspace_status,
-    "workspace inspect": _format_inspect,
-    "workspace issues": _format_issues,
     "workspace branch": _format_branch,
     "workspace check": _format_check_run,
     "workspace foreach": _format_foreach,

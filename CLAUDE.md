@@ -76,25 +76,16 @@ Global output flags: `--json`, `--actionable`, `--summary`
 ### Command Surface
 
 **Repo commands** (`src/augint_tools/cli/commands/repo.py`):
-- `repo inspect` -- one-call repo snapshot (kind, branch, toolchain, command plan)
 - `repo status` -- git state + upstream + open PR + CI + next action
-- `repo issues pick` -- issue recommendation/search
 - `repo branch prepare` -- create work branch from correct base
-- `repo check plan` -- resolve validation plan without running
-- `repo check run` -- execute validation plan
-- `repo submit` -- stage, check, push, create PR, automerge
-- `repo ci watch` -- monitor CI run
+- `repo submit` -- run checks, push branch, create PR, enable automerge
 - `repo ci triage` -- classify CI failures
 
 **Workspace commands** (`src/augint_tools/cli/commands/workspace.py`):
-- `workspace inspect` -- workspace snapshot
 - `workspace sync` -- clone/pull child repos
 - `workspace status` -- workspace health (--actionable, --blocked-only, --dirty-only)
-- `workspace issues` -- aggregate issues across repos
 - `workspace branch` -- coordinated branch prep (--issue, --description, --name)
 - `workspace check` -- grouped validation across repos (--phase, --repos, --preset)
-- `workspace test` -- alias for check --phase tests
-- `workspace lint` -- alias for check --phase quality
 - `workspace submit` -- open PRs for changed repos
 - `workspace foreach` -- arbitrary command across repos
 
@@ -111,7 +102,7 @@ Additionally, `get_repo_path()` auto-detects sibling repo layouts: if the config
 
 ### Core Infrastructure
 
-- **Detection engine** (`src/augint_tools/detection/`): Shared `detect() -> RepoContext` used by all commands. Resolves repo kind, language, framework, branches, toolchain, command plan, GitHub state.
+- **Detection engine** (`src/augint_tools/detection/`): Shared `detect() -> RepoContext` used by all commands. Resolves language, framework, branches, toolchain, command plan, GitHub state from the filesystem and git.
 - **Check system** (`src/augint_tools/checks/`): Phase enum, presets (quick/default/full/ci), plan resolution, execution runner.
 - **Output model** (`src/augint_tools/output/response.py`): `CommandResponse` dataclass, `ExitCode` enum. All commands return structured responses via `emit_response()`.
 
@@ -133,43 +124,18 @@ Every command returns a `CommandResponse` with this JSON shape:
 
 Exit codes: 0=success, 1=failure, 2=action-required, 3=blocked, 4=partial
 
-### Repo Classification System
-
-Three repo types with different branching strategies:
-- **library** - PyPI/npm packages, feature branches -> main directly
-- **service** - Deployable services, feature branches -> dev -> main
-- **workspace** - Coordination repo that orchestrates multiple child repos
-
-Classification stored in `ai-shell.toml`:
-```toml
-[project]
-repo_type = "library"
-branch_strategy = "main"  # or "dev"
-dev_branch = "dev"        # only when branch_strategy = "dev"
-
-[ai_tools.repo]
-update_work_branch_strategy = "rebase"
-default_submit_preset = "full"
-
-[ai_tools.commands]
-quality = "uv run pre-commit run --all-files"
-tests = "uv run pytest --cov=src --cov-fail-under=80 -v"
-security = "uv run pip-audit"
-licenses = "uv run pip-licenses --from=mixed --summary"
-build = "uv build"
-```
-
 ## Implementation Principles
 
 1. **Safe defaults**: No destructive git operations. No silent resets. No force pushes. No rebase on default branches.
 
-2. **AI-first design**: Commands are called by ai-shell skills, not just humans. Error messages must be specific and parseable.
+2. **AI-first design**: Commands are called by AI agents, not just humans. Error messages must be specific and parseable.
 
 3. **Detection once**: Commands call `detect()` once at the top and pass the `RepoContext` down. No scattered detection logic.
 
+4. **No config files**: Detection is purely filesystem- and git-based. No `ai-shell.toml` or similar config files. Toolchain, language, and branch targets are inferred from the repo itself.
+
 ## Key Files
 
-- `ai-shell.toml` - Repo classification and tool config
 - `workspace.yaml` - Workspace manifest for workspace repos
 - `pyproject.toml` - Python packaging, dependencies, tool config
 
@@ -187,10 +153,3 @@ Uses semantic-release with conventional commits:
 - Build command: `uv lock && uv build`
 - No git hooks skipped (`no_git_verify = false`)
 
-## Relationship to ai-shell
-
-**ai-shell responsibilities**: scaffold configs, persist repo kind, launch AI tools in containers
-
-**augint-tools responsibilities**: execute workflows, inspect GitHub state, coordinate child repos, submit PRs
-
-ai-shell skills should call augint-tools commands, not reimplement workflow logic with raw shell loops.

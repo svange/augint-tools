@@ -77,27 +77,13 @@ class TestCommandPlanResolution:
             has_pre_commit=True,
             has_pytest=True,
         )
-        plan = resolve_command_plan(None, toolchain, "python")
+        plan = resolve_command_plan(toolchain, "python")
         assert plan.quality == "uv run pre-commit run --all-files"
         assert plan.tests == "uv run pytest -v"
 
-    def test_config_overrides(self):
-        from augint_tools.config.ai_shell import AiToolsCommandsConfig
-
-        toolchain = ToolchainInfo(package_manager="uv", has_pre_commit=True, has_pytest=True)
-        config = AiToolsCommandsConfig(
-            quality="custom-lint",
-            tests="custom-test",
-        )
-        plan = resolve_command_plan(config, toolchain, "python")
-        assert plan.quality == "custom-lint"
-        assert plan.tests == "custom-test"
-        # Unset config fields keep defaults
-        assert plan.build == "uv build"
-
     def test_typescript_defaults(self):
         toolchain = ToolchainInfo(package_manager="npm", has_npm=True)
-        plan = resolve_command_plan(None, toolchain, "typescript")
+        plan = resolve_command_plan(toolchain, "typescript")
         assert plan.quality == "npm run lint"
         assert plan.tests == "npm test"
         assert plan.build == "npm run build"

@@ -152,4 +152,3 @@ Uses semantic-release with conventional commits:
 - Version stored in: `pyproject.toml:project.version` and `src/augint_tools/__init__.py:__version__`
 - Build command: `uv lock && uv build`
 - No git hooks skipped (`no_git_verify = false`)
-

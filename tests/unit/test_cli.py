@@ -16,7 +16,6 @@ class TestCli:
         assert "init" in result.output
         assert "repo" in result.output
         assert "workspace" in result.output
-        assert "standardize" in result.output
 
     def test_global_flags_in_help(self):
         runner = CliRunner()
@@ -105,43 +104,6 @@ class TestCli:
         assert result.exit_code == 1
         data = json.loads(result.output)
         assert data["status"] == "error"
-
-    def test_standardize_help(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["standardize", "--help"])
-        assert result.exit_code == 0
-        assert "--verify" in result.output
-        assert "--area" in result.output
-        assert "--all" in result.output
-        assert "--dry-run" in result.output
-
-    def test_standardize_requires_mode(self, tmp_path, monkeypatch):
-        """No flag given -> error asking for --verify/--area/--all."""
-        monkeypatch.chdir(tmp_path)
-        runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "standardize"])
-        assert result.exit_code == 1
-        data = json.loads(result.output)
-        assert data["status"] == "error"
-        assert "--verify" in data["summary"]
-
-    def test_standardize_mutual_exclusion(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "standardize", "--verify", "--all"])
-        assert result.exit_code == 1
-        data = json.loads(result.output)
-        assert data["status"] == "error"
-        assert "mutually exclusive" in data["summary"].lower()
-
-    def test_standardize_missing_path(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "standardize", str(tmp_path / "nope"), "--verify"])
-        assert result.exit_code == 2
-        data = json.loads(result.output)
-        assert data["status"] == "error"
-        assert "does not exist" in data["summary"].lower()
 
     def test_stub_commands(self):
         """Test that P1/P2 stubs emit the right output."""

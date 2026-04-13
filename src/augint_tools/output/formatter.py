@@ -215,37 +215,6 @@ def _format_inspect(result: dict[str, Any]) -> None:
             click.echo(f"  {key}: {result[key]}")
 
 
-def _format_standardize_verify(result: dict[str, Any]) -> None:
-    """Human-readable renderer for `ai-tools standardize --verify` JSON.
-
-    Matches the shape returned by ``ai-shell standardize repo --verify --json``:
-    ``{"path": ..., "overall": ..., "findings": [{"section", "status", "message", "diff"}]}``.
-    """
-    path = result.get("path", "")
-    overall = result.get("overall", "")
-    findings = result.get("findings", [])
-
-    if path:
-        click.echo(f"  Path: {path}")
-    if overall:
-        click.echo(f"  Overall: {overall}")
-
-    icons = {
-        "PASS": click.style("[PASS] ", fg="green"),
-        "DRIFT": click.style("[DRIFT]", fg="yellow"),
-        "FAIL": click.style("[FAIL] ", fg="red"),
-    }
-    for finding in findings:
-        status = finding.get("status", "")
-        icon = icons.get(status, click.style(f"[{status}]", fg="yellow"))
-        section = finding.get("section", "")
-        message = finding.get("message", "")
-        line = f"    {icon} {section}"
-        if message:
-            line = f"{line}: {message}"
-        click.echo(line)
-
-
 # Command -> formatter registry
 _HUMAN_FORMATTERS: dict[str, Any] = {
     "repo status": _format_repo_status,
@@ -262,7 +231,6 @@ _HUMAN_FORMATTERS: dict[str, Any] = {
     "workspace branch": _format_branch,
     "workspace check": _format_check_run,
     "workspace foreach": _format_foreach,
-    "standardize --verify": _format_standardize_verify,
 }
 
 

@@ -23,6 +23,7 @@ from typing import Any
 import click
 
 from augint_tools.output import CommandResponse, emit_response
+from augint_tools.standardize.checks import run_supplemental_checks
 
 _VALID_AREAS = ("pipeline", "precommit", "renovate", "release", "dotfiles")
 
@@ -261,6 +262,12 @@ def _run_verify(path: Path, opts: dict[str, Any]) -> None:
         )
         sys.exit(_EXIT_ERROR)
 
+    # Run supplemental checks and merge into findings.
+    supplemental = run_supplemental_checks(path)
+    if supplemental:
+        findings.extend(supplemental)
+        parsed["findings"] = findings
+
     pass_count = sum(1 for f in findings if f.get("status") == "PASS")
     drift_count = sum(1 for f in findings if f.get("status") == "DRIFT")
     fail_count = sum(1 for f in findings if f.get("status") == "FAIL")
@@ -379,10 +386,21 @@ def _run_area(path: Path, area: str, dry_run: bool, opts: dict[str, Any]) -> Non
     if stderr.strip():
         result["stderr"] = stderr
 
+    # Run area-specific supplemental checks.
+    supplemental = run_supplemental_checks(path, area=area)
+    if supplemental:
+        result["supplemental_findings"] = supplemental
+
     if rc == 0:
         status = "ok"
         exit_code = _EXIT_OK
         summary = f"ai-shell standardize {area} completed"
+        # Supplemental checks can downgrade ok -> drift.
+        if supplemental:
+            status = "drift"
+            exit_code = _EXIT_DRIFT
+            n = len(supplemental)
+            summary += f" but {n} supplemental {'issue' if n == 1 else 'issues'} found"
     else:
         # ai-shell returned non-zero. For pipeline --validate this means
         # drift; for write commands it means the subcommand failed.

@@ -56,17 +56,12 @@ def load_workspace_config(path: Path | None = None) -> WorkspaceConfig | None:
 
         repos = []
         for repo_data in repos_data:
-            # Map old "iac" to "service" for backward compatibility
-            repo_type = repo_data.get("repo_type", "library")
-            if repo_type == "iac":
-                repo_type = "service"
-
             repos.append(
                 RepoConfig(
                     name=repo_data["name"],
                     path=repo_data["path"],
                     url=repo_data["url"],
-                    repo_type=repo_type,
+                    repo_type=repo_data.get("repo_type", "library"),
                     base_branch=repo_data.get("base_branch", "main"),
                     pr_target_branch=repo_data.get("pr_target_branch", "main"),
                     install=repo_data.get("install", ""),

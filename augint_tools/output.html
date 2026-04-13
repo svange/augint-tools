@@ -103,9 +103,6 @@
                     <a class="function" href="#emit_response">emit_response</a>
             </li>
             <li>
-                    <a class="function" href="#emit_stub">emit_stub</a>
-            </li>
-            <li>
                     <a class="function" href="#emit_warning">emit_warning</a>
             </li>
     </ul>
@@ -136,19 +133,17 @@
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.output.formatter</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
 </span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a>    <span class="n">emit_error</span><span class="p">,</span>
 </span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a>    <span class="n">emit_response</span><span class="p">,</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>    <span class="n">emit_stub</span><span class="p">,</span>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a>    <span class="n">emit_warning</span><span class="p">,</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="p">)</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.output.response</span><span class="w"> </span><span class="kn">import</span> <span class="n">CommandResponse</span><span class="p">,</span> <span class="n">ExitCode</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>    <span class="s2">&quot;CommandResponse&quot;</span><span class="p">,</span>
-</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>    <span class="s2">&quot;ExitCode&quot;</span><span class="p">,</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="s2">&quot;emit_error&quot;</span><span class="p">,</span>
-</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="s2">&quot;emit_response&quot;</span><span class="p">,</span>
-</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>    <span class="s2">&quot;emit_stub&quot;</span><span class="p">,</span>
-</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="s2">&quot;emit_warning&quot;</span><span class="p">,</span>
-</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a><span class="p">]</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>    <span class="n">emit_warning</span><span class="p">,</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="p">)</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.output.response</span><span class="w"> </span><span class="kn">import</span> <span class="n">CommandResponse</span><span class="p">,</span> <span class="n">ExitCode</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a>
+</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a>    <span class="s2">&quot;CommandResponse&quot;</span><span class="p">,</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>    <span class="s2">&quot;ExitCode&quot;</span><span class="p">,</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>    <span class="s2">&quot;emit_error&quot;</span><span class="p">,</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="s2">&quot;emit_response&quot;</span><span class="p">,</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="s2">&quot;emit_warning&quot;</span><span class="p">,</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="p">]</span>
 </span></pre></div>
 
 
@@ -558,11 +553,11 @@
 
     </div>
     <a class="headerlink" href="#emit_error"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_error-241"><a href="#emit_error-241"><span class="linenos">241</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_error</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">exit_code</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="emit_error-242"><a href="#emit_error-242"><span class="linenos">242</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit error message to stderr.&quot;&quot;&quot;</span>
-</span><span id="emit_error-243"><a href="#emit_error-243"><span class="linenos">243</span></a>    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">click</span><span class="o">.</span><span class="n">style</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">fg</span><span class="o">=</span><span class="s2">&quot;red&quot;</span><span class="p">),</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="emit_error-244"><a href="#emit_error-244"><span class="linenos">244</span></a>    <span class="k">if</span> <span class="n">exit_code</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="emit_error-245"><a href="#emit_error-245"><span class="linenos">245</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">exit_code</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_error-240"><a href="#emit_error-240"><span class="linenos">240</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_error</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">exit_code</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="emit_error-241"><a href="#emit_error-241"><span class="linenos">241</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit error message to stderr.&quot;&quot;&quot;</span>
+</span><span id="emit_error-242"><a href="#emit_error-242"><span class="linenos">242</span></a>    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">click</span><span class="o">.</span><span class="n">style</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">fg</span><span class="o">=</span><span class="s2">&quot;red&quot;</span><span class="p">),</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="emit_error-243"><a href="#emit_error-243"><span class="linenos">243</span></a>    <span class="k">if</span> <span class="n">exit_code</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="emit_error-244"><a href="#emit_error-244"><span class="linenos">244</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">exit_code</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -631,38 +626,6 @@
 
 
                 </section>
-                <section id="emit_stub">
-                            <input id="emit_stub-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-<div class="attr function">
-            
-        <span class="def">def</span>
-        <span class="name">emit_stub</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">command</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="n">scope</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="o">*</span>, </span><span class="param"><span class="n">json_mode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
-
-                <label class="view-source-button" for="emit_stub-view-source"><span>View Source</span></label>
-
-    </div>
-    <a class="headerlink" href="#emit_stub"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_stub-253"><a href="#emit_stub-253"><span class="linenos">253</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_stub</span><span class="p">(</span><span class="n">command</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">json_mode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="emit_stub-254"><a href="#emit_stub-254"><span class="linenos">254</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit a stub response for unimplemented commands.&quot;&quot;&quot;</span>
-</span><span id="emit_stub-255"><a href="#emit_stub-255"><span class="linenos">255</span></a>    <span class="n">response</span> <span class="o">=</span> <span class="n">CommandResponse</span><span class="p">(</span>
-</span><span id="emit_stub-256"><a href="#emit_stub-256"><span class="linenos">256</span></a>        <span class="n">command</span><span class="o">=</span><span class="n">command</span><span class="p">,</span>
-</span><span id="emit_stub-257"><a href="#emit_stub-257"><span class="linenos">257</span></a>        <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">,</span>
-</span><span id="emit_stub-258"><a href="#emit_stub-258"><span class="linenos">258</span></a>        <span class="n">status</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
-</span><span id="emit_stub-259"><a href="#emit_stub-259"><span class="linenos">259</span></a>        <span class="n">summary</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">command</span><span class="si">}</span><span class="s2"> is not yet implemented&quot;</span><span class="p">,</span>
-</span><span id="emit_stub-260"><a href="#emit_stub-260"><span class="linenos">260</span></a>        <span class="n">errors</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Not yet implemented&quot;</span><span class="p">],</span>
-</span><span id="emit_stub-261"><a href="#emit_stub-261"><span class="linenos">261</span></a>        <span class="n">result</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;implemented&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">},</span>
-</span><span id="emit_stub-262"><a href="#emit_stub-262"><span class="linenos">262</span></a>    <span class="p">)</span>
-</span><span id="emit_stub-263"><a href="#emit_stub-263"><span class="linenos">263</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">json_mode</span><span class="p">:</span>
-</span><span id="emit_stub-264"><a href="#emit_stub-264"><span class="linenos">264</span></a>        <span class="n">emit_warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">command</span><span class="si">}</span><span class="s2"> is not yet implemented&quot;</span><span class="p">)</span>
-</span><span id="emit_stub-265"><a href="#emit_stub-265"><span class="linenos">265</span></a>    <span class="n">emit_response</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">json_mode</span><span class="o">=</span><span class="n">json_mode</span><span class="p">)</span>
-</span></pre></div>
-
-
-            <div class="docstring"><p>Emit a stub response for unimplemented commands.</p>
-</div>
-
-
-                </section>
                 <section id="emit_warning">
                             <input id="emit_warning-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr function">
@@ -674,9 +637,9 @@
 
     </div>
     <a class="headerlink" href="#emit_warning"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_warning-248"><a href="#emit_warning-248"><span class="linenos">248</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_warning</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="emit_warning-249"><a href="#emit_warning-249"><span class="linenos">249</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit warning message to stderr.&quot;&quot;&quot;</span>
-</span><span id="emit_warning-250"><a href="#emit_warning-250"><span class="linenos">250</span></a>    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">click</span><span class="o">.</span><span class="n">style</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Warning: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">fg</span><span class="o">=</span><span class="s2">&quot;yellow&quot;</span><span class="p">),</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="emit_warning-247"><a href="#emit_warning-247"><span class="linenos">247</span></a><span class="k">def</span><span class="w"> </span><span class="nf">emit_warning</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="emit_warning-248"><a href="#emit_warning-248"><span class="linenos">248</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit warning message to stderr.&quot;&quot;&quot;</span>
+</span><span id="emit_warning-249"><a href="#emit_warning-249"><span class="linenos">249</span></a>    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">click</span><span class="o">.</span><span class="n">style</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Warning: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">fg</span><span class="o">=</span><span class="s2">&quot;yellow&quot;</span><span class="p">),</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </span></pre></div>
 
 

@@ -77,6 +77,118 @@ def run_supplemental_checks(path: Path, *, area: str | None = None) -> list[Find
 
 
 # =========================================================================== #
+# T13-2: JSON5 formatting noise filter                                        #
+# =========================================================================== #
+
+# Pattern for unquoted JSON5 keys: $schema:, extends:, baseBranchPatterns:
+# Group 1 captures the prefix (start-of-string or delimiter), group 2 the key.
+_JSON5_UNQUOTED_KEY = re.compile(r"(^|[{,\s])(\$?[a-zA-Z_][\w$.-]*)\s*:")
+
+
+def _normalize_json5_text(text: str) -> str:
+    """Normalize JSON5 text to canonical JSON for semantic comparison.
+
+    Handles unquoted keys, single quotes, trailing commas, and whitespace.
+    Comments are preserved because they carry semantic meaning in Renovate
+    configs (e.g. the repo-type header).  This is intentionally *not* a
+    full parser -- it covers the patterns that appear in Renovate configs.
+    """
+    s = text
+    # Trailing commas before } or ].
+    s = re.sub(r",(\s*[}\]])", r"\1", s)
+    # Single quotes -> double quotes.
+    s = s.replace("'", '"')
+    # Quote unquoted keys.
+    s = _JSON5_UNQUOTED_KEY.sub(r'\1"\2":', s)
+    # Collapse whitespace so multi-line vs single-line arrays match.
+    s = re.sub(r"\s+", " ", s).strip()
+    # Normalize whitespace inside brackets/braces.
+    s = re.sub(r"\[\s+", "[", s)
+    s = re.sub(r"\s+]", "]", s)
+    s = re.sub(r"\{\s+", "{", s)
+    s = re.sub(r"\s+}", "}", s)
+    return s
+
+
+def filter_renovate_formatting_noise(findings: list[Finding]) -> None:
+    """T13-2: Detect and filter JSON5 formatting noise in renovate diffs.
+
+    Modifies *findings* in place. For renovate DRIFT findings whose diff is
+    entirely formatting noise (JSON5 vs JSON style), the status is downgraded
+    to PASS. For mixed diffs (semantic + formatting changes), only the
+    formatting-only hunks are stripped.
+    """
+    for finding in findings:
+        section = finding.get("section", "")
+        if section != "renovate":
+            continue
+        if finding.get("status") != "DRIFT":
+            continue
+        diff = finding.get("diff")
+        if not diff:
+            continue
+
+        # Parse the unified diff into hunks.
+        hunks: list[list[str]] = []
+        current: list[str] = []
+        header_lines: list[str] = []
+
+        for line in diff.splitlines():
+            if line.startswith("---") or line.startswith("+++"):
+                header_lines.append(line)
+            elif line.startswith("@@"):
+                if current:
+                    hunks.append(current)
+                current = [line]
+            else:
+                current.append(line)
+        if current:
+            hunks.append(current)
+
+        semantic_hunks: list[list[str]] = []
+        had_formatting = False
+
+        for hunk in hunks:
+            minus = [ln[1:] for ln in hunk if ln.startswith("-") and not ln.startswith("---")]
+            plus = [ln[1:] for ln in hunk if ln.startswith("+") and not ln.startswith("+++")]
+
+            minus_norm = _normalize_json5_text("\n".join(minus))
+            plus_norm = _normalize_json5_text("\n".join(plus))
+
+            if minus_norm == plus_norm:
+                had_formatting = True
+            else:
+                semantic_hunks.append(hunk)
+
+        if not had_formatting:
+            continue
+
+        if not semantic_hunks:
+            # Entire diff is formatting noise -- downgrade to PASS.
+            finding["status"] = "PASS"
+            finding["is_clean"] = True
+            original_msg = finding.get("message", "")
+            finding["message"] = (
+                f"{original_msg} (formatting differences only -- semantically clean)"
+                if original_msg
+                else "formatting differences only -- semantically clean"
+            )
+            finding["diff"] = None
+        else:
+            # Mixed: keep DRIFT but strip formatting hunks from the diff.
+            rebuilt = header_lines[:]
+            for h in semantic_hunks:
+                rebuilt.extend(h)
+            finding["diff"] = "\n".join(rebuilt)
+            msg = finding.get("message", "")
+            finding["message"] = (
+                f"{msg} (formatting-only hunks filtered from diff)"
+                if msg
+                else "formatting-only hunks filtered from diff"
+            )
+
+
+# =========================================================================== #
 # Individual checks                                                           #
 # =========================================================================== #
 

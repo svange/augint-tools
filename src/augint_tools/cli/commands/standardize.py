@@ -23,7 +23,10 @@ from typing import Any
 import click
 
 from augint_tools.output import CommandResponse, emit_response
-from augint_tools.standardize.checks import run_supplemental_checks
+from augint_tools.standardize.checks import (
+    filter_renovate_formatting_noise,
+    run_supplemental_checks,
+)
 
 _VALID_AREAS = ("pipeline", "precommit", "renovate", "release", "dotfiles")
 
@@ -269,6 +272,10 @@ def _run_verify(path: Path, opts: dict[str, Any]) -> None:
     if supplemental:
         findings.extend(supplemental)
         parsed["findings"] = findings
+
+    # T13-2: filter JSON5 formatting noise from renovate diffs so only
+    # semantic changes show as DRIFT.
+    filter_renovate_formatting_noise(findings)
 
     pass_count = sum(1 for f in findings if f.get("status") == "PASS")
     drift_count = sum(1 for f in findings if f.get("status") == "DRIFT")

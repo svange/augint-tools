@@ -18,6 +18,7 @@ from augint_tools.standardize.checks import (
     check_renovate_default_branch,
     check_renovate_dual_config,
     check_workflow_token_usage,
+    filter_renovate_formatting_noise,
     run_supplemental_checks,
 )
 
@@ -709,3 +710,132 @@ class TestAreaIntegration:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["status"] == "ok"
+
+
+# =========================================================================== #
+# T13-2: Renovate formatting noise filter                                     #
+# =========================================================================== #
+
+
+class TestRenovateFormattingNoiseFilter:
+    """T13-2: filter_renovate_formatting_noise detects JSON5 vs JSON noise."""
+
+    def test_pure_formatting_diff_downgraded_to_pass(self) -> None:
+        """A diff with only JSON5 formatting changes becomes PASS."""
+        diff = textwrap.dedent("""\
+            --- expected
+            +++ /path/to/renovate.json5
+            @@ -3,5 +3,3 @@
+            -  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+            -  "extends": [
+            -    "config:recommended",
+            -    "helpers:pinGitHubActionDigestsToSemver"
+            -  ],
+            +  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+            +  extends: ['config:recommended', 'helpers:pinGitHubActionDigestsToSemver'],
+        """).rstrip()
+
+        findings = [
+            {
+                "section": "renovate",
+                "status": "DRIFT",
+                "message": "renovate.json5 differs",
+                "diff": diff,
+                "is_clean": False,
+            }
+        ]
+        filter_renovate_formatting_noise(findings)
+
+        assert findings[0]["status"] == "PASS"
+        assert findings[0]["is_clean"] is True
+        assert findings[0]["diff"] is None
+        assert "formatting differences only" in findings[0]["message"]
+
+    def test_mixed_diff_keeps_semantic_hunks(self) -> None:
+        """A diff with both semantic and formatting changes keeps only semantic hunks."""
+        diff = textwrap.dedent("""\
+            --- expected
+            +++ /path/to/renovate.json5
+            @@ -1,2 +1,2 @@
+            -// Renovate Bot Configuration -- service
+            +// Renovate Bot Configuration -- IaC
+            @@ -5,3 +5,2 @@
+            -  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+            -  "baseBranchPatterns": ["dev"],
+            +  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+            +  baseBranchPatterns: ['dev'],
+        """).rstrip()
+
+        findings = [
+            {
+                "section": "renovate",
+                "status": "DRIFT",
+                "message": "renovate.json5 differs",
+                "diff": diff,
+                "is_clean": False,
+            }
+        ]
+        filter_renovate_formatting_noise(findings)
+
+        assert findings[0]["status"] == "DRIFT"
+        # The semantic hunk (comment change) is preserved.
+        assert "service" in findings[0]["diff"]
+        assert "IaC" in findings[0]["diff"]
+        # The formatting hunk ($schema, baseBranchPatterns) is stripped.
+        assert "$schema" not in findings[0]["diff"]
+        assert "formatting-only hunks filtered" in findings[0]["message"]
+
+    def test_no_diff_is_noop(self) -> None:
+        """Findings without a diff are not modified."""
+        findings = [
+            {
+                "section": "renovate",
+                "status": "DRIFT",
+                "message": "renovate.json5 missing",
+                "diff": None,
+                "is_clean": False,
+            }
+        ]
+        filter_renovate_formatting_noise(findings)
+        assert findings[0]["status"] == "DRIFT"
+        assert findings[0]["diff"] is None
+
+    def test_non_renovate_section_ignored(self) -> None:
+        """Findings for other sections are not touched."""
+        findings = [
+            {
+                "section": "pipeline",
+                "status": "DRIFT",
+                "message": "pipeline drifted",
+                "diff": "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new",
+                "is_clean": False,
+            }
+        ]
+        original_diff = findings[0]["diff"]
+        filter_renovate_formatting_noise(findings)
+        assert findings[0]["status"] == "DRIFT"
+        assert findings[0]["diff"] == original_diff
+
+    def test_semantic_only_diff_unchanged(self) -> None:
+        """A diff with only semantic changes is not modified."""
+        diff = textwrap.dedent("""\
+            --- expected
+            +++ /path/to/renovate.json5
+            @@ -1,2 +1,2 @@
+            -// Renovate Bot Configuration -- service
+            +// Renovate Bot Configuration -- IaC
+        """).rstrip()
+
+        findings = [
+            {
+                "section": "renovate",
+                "status": "DRIFT",
+                "message": "renovate.json5 differs",
+                "diff": diff,
+                "is_clean": False,
+            }
+        ]
+        filter_renovate_formatting_noise(findings)
+        assert findings[0]["status"] == "DRIFT"
+        assert findings[0]["diff"] == diff
+        assert "formatting" not in findings[0]["message"]

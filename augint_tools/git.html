@@ -40,6 +40,9 @@
                     <a class="function" href="#get_remote_url">get_remote_url</a>
             </li>
             <li>
+                    <a class="function" href="#extract_repo_slug">extract_repo_slug</a>
+            </li>
+            <li>
                     <a class="function" href="#detect_base_branch">detect_base_branch</a>
             </li>
             <li>
@@ -94,27 +97,29 @@
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.git.branch</span><span class="w"> </span><span class="kn">import</span> <span class="n">branch_exists</span><span class="p">,</span> <span class="n">create_branch</span><span class="p">,</span> <span class="n">push_branch</span><span class="p">,</span> <span class="n">switch_branch</span>
 </span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.git.repo</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
 </span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a>    <span class="n">detect_base_branch</span><span class="p">,</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>    <span class="n">get_current_branch</span><span class="p">,</span>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a>    <span class="n">get_remote_url</span><span class="p">,</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a>    <span class="n">is_git_repo</span><span class="p">,</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a>    <span class="n">run_git</span><span class="p">,</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="p">)</span>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.git.status</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_ahead_behind</span><span class="p">,</span> <span class="n">get_dirty_files</span><span class="p">,</span> <span class="n">get_repo_status</span>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>
-</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="s2">&quot;is_git_repo&quot;</span><span class="p">,</span>
-</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="s2">&quot;get_current_branch&quot;</span><span class="p">,</span>
-</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>    <span class="s2">&quot;get_remote_url&quot;</span><span class="p">,</span>
-</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="s2">&quot;detect_base_branch&quot;</span><span class="p">,</span>
-</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a>    <span class="s2">&quot;run_git&quot;</span><span class="p">,</span>
-</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>    <span class="s2">&quot;get_dirty_files&quot;</span><span class="p">,</span>
-</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a>    <span class="s2">&quot;get_ahead_behind&quot;</span><span class="p">,</span>
-</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a>    <span class="s2">&quot;get_repo_status&quot;</span><span class="p">,</span>
-</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a>    <span class="s2">&quot;create_branch&quot;</span><span class="p">,</span>
-</span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a>    <span class="s2">&quot;switch_branch&quot;</span><span class="p">,</span>
-</span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a>    <span class="s2">&quot;push_branch&quot;</span><span class="p">,</span>
-</span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a>    <span class="s2">&quot;branch_exists&quot;</span><span class="p">,</span>
-</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a><span class="p">]</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>    <span class="n">extract_repo_slug</span><span class="p">,</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a>    <span class="n">get_current_branch</span><span class="p">,</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a>    <span class="n">get_remote_url</span><span class="p">,</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a>    <span class="n">is_git_repo</span><span class="p">,</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a>    <span class="n">run_git</span><span class="p">,</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="p">)</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">augint_tools.git.status</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_ahead_behind</span><span class="p">,</span> <span class="n">get_dirty_files</span><span class="p">,</span> <span class="n">get_repo_status</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="s2">&quot;is_git_repo&quot;</span><span class="p">,</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>    <span class="s2">&quot;get_current_branch&quot;</span><span class="p">,</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="s2">&quot;get_remote_url&quot;</span><span class="p">,</span>
+</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a>    <span class="s2">&quot;extract_repo_slug&quot;</span><span class="p">,</span>
+</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>    <span class="s2">&quot;detect_base_branch&quot;</span><span class="p">,</span>
+</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a>    <span class="s2">&quot;run_git&quot;</span><span class="p">,</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a>    <span class="s2">&quot;get_dirty_files&quot;</span><span class="p">,</span>
+</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a>    <span class="s2">&quot;get_ahead_behind&quot;</span><span class="p">,</span>
+</span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a>    <span class="s2">&quot;get_repo_status&quot;</span><span class="p">,</span>
+</span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a>    <span class="s2">&quot;create_branch&quot;</span><span class="p">,</span>
+</span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a>    <span class="s2">&quot;switch_branch&quot;</span><span class="p">,</span>
+</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a>    <span class="s2">&quot;push_branch&quot;</span><span class="p">,</span>
+</span><span id="L-27"><a href="#L-27"><span class="linenos">27</span></a>    <span class="s2">&quot;branch_exists&quot;</span><span class="p">,</span>
+</span><span id="L-28"><a href="#L-28"><span class="linenos">28</span></a><span class="p">]</span>
 </span></pre></div>
 
 
@@ -245,6 +250,63 @@
 
 
                 </section>
+                <section id="extract_repo_slug">
+                            <input id="extract_repo_slug-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">extract_repo_slug</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">remote_url</span><span class="p">:</span> <span class="nb">str</span></span><span class="return-annotation">) -> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>:</span></span>
+
+                <label class="view-source-button" for="extract_repo_slug-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#extract_repo_slug"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="extract_repo_slug-87"><a href="#extract_repo_slug-87"><span class="linenos"> 87</span></a><span class="k">def</span><span class="w"> </span><span class="nf">extract_repo_slug</span><span class="p">(</span><span class="n">remote_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="extract_repo_slug-88"><a href="#extract_repo_slug-88"><span class="linenos"> 88</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract owner/repo from a git remote URL.</span>
+</span><span id="extract_repo_slug-89"><a href="#extract_repo_slug-89"><span class="linenos"> 89</span></a>
+</span><span id="extract_repo_slug-90"><a href="#extract_repo_slug-90"><span class="linenos"> 90</span></a><span class="sd">    Handles HTTPS, SSH, and proxy formats:</span>
+</span><span id="extract_repo_slug-91"><a href="#extract_repo_slug-91"><span class="linenos"> 91</span></a><span class="sd">        https://github.com/owner/repo.git -&gt; owner/repo</span>
+</span><span id="extract_repo_slug-92"><a href="#extract_repo_slug-92"><span class="linenos"> 92</span></a><span class="sd">        git@github.com:owner/repo.git -&gt; owner/repo</span>
+</span><span id="extract_repo_slug-93"><a href="#extract_repo_slug-93"><span class="linenos"> 93</span></a><span class="sd">        http://local_proxy@127.0.0.1:8080/git/owner/repo -&gt; owner/repo</span>
+</span><span id="extract_repo_slug-94"><a href="#extract_repo_slug-94"><span class="linenos"> 94</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="extract_repo_slug-95"><a href="#extract_repo_slug-95"><span class="linenos"> 95</span></a>    <span class="n">url</span> <span class="o">=</span> <span class="n">remote_url</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">removesuffix</span><span class="p">(</span><span class="s2">&quot;.git&quot;</span><span class="p">)</span>
+</span><span id="extract_repo_slug-96"><a href="#extract_repo_slug-96"><span class="linenos"> 96</span></a>
+</span><span id="extract_repo_slug-97"><a href="#extract_repo_slug-97"><span class="linenos"> 97</span></a>    <span class="c1"># Proxy format: http://local_proxy@127.0.0.1:PORT/git/owner/repo</span>
+</span><span id="extract_repo_slug-98"><a href="#extract_repo_slug-98"><span class="linenos"> 98</span></a>    <span class="k">if</span> <span class="s2">&quot;local_proxy@127.0.0.1&quot;</span> <span class="ow">in</span> <span class="n">url</span> <span class="ow">and</span> <span class="s2">&quot;/git/&quot;</span> <span class="ow">in</span> <span class="n">url</span><span class="p">:</span>
+</span><span id="extract_repo_slug-99"><a href="#extract_repo_slug-99"><span class="linenos"> 99</span></a>        <span class="n">after_git</span> <span class="o">=</span> <span class="n">url</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;/git/&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+</span><span id="extract_repo_slug-100"><a href="#extract_repo_slug-100"><span class="linenos">100</span></a>        <span class="n">parts</span> <span class="o">=</span> <span class="n">after_git</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
+</span><span id="extract_repo_slug-101"><a href="#extract_repo_slug-101"><span class="linenos">101</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">:</span>
+</span><span id="extract_repo_slug-102"><a href="#extract_repo_slug-102"><span class="linenos">102</span></a>            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="extract_repo_slug-103"><a href="#extract_repo_slug-103"><span class="linenos">103</span></a>        <span class="k">return</span> <span class="kc">None</span>
+</span><span id="extract_repo_slug-104"><a href="#extract_repo_slug-104"><span class="linenos">104</span></a>
+</span><span id="extract_repo_slug-105"><a href="#extract_repo_slug-105"><span class="linenos">105</span></a>    <span class="k">if</span> <span class="s2">&quot;github.com&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">url</span><span class="p">:</span>
+</span><span id="extract_repo_slug-106"><a href="#extract_repo_slug-106"><span class="linenos">106</span></a>        <span class="k">return</span> <span class="kc">None</span>
+</span><span id="extract_repo_slug-107"><a href="#extract_repo_slug-107"><span class="linenos">107</span></a>
+</span><span id="extract_repo_slug-108"><a href="#extract_repo_slug-108"><span class="linenos">108</span></a>    <span class="k">if</span> <span class="n">url</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;git@&quot;</span><span class="p">):</span>
+</span><span id="extract_repo_slug-109"><a href="#extract_repo_slug-109"><span class="linenos">109</span></a>        <span class="c1"># git@github.com:owner/repo</span>
+</span><span id="extract_repo_slug-110"><a href="#extract_repo_slug-110"><span class="linenos">110</span></a>        <span class="n">parts</span> <span class="o">=</span> <span class="n">url</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
+</span><span id="extract_repo_slug-111"><a href="#extract_repo_slug-111"><span class="linenos">111</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+</span><span id="extract_repo_slug-112"><a href="#extract_repo_slug-112"><span class="linenos">112</span></a>            <span class="k">return</span> <span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+</span><span id="extract_repo_slug-113"><a href="#extract_repo_slug-113"><span class="linenos">113</span></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="extract_repo_slug-114"><a href="#extract_repo_slug-114"><span class="linenos">114</span></a>        <span class="c1"># https://github.com/owner/repo</span>
+</span><span id="extract_repo_slug-115"><a href="#extract_repo_slug-115"><span class="linenos">115</span></a>        <span class="n">parts</span> <span class="o">=</span> <span class="n">url</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
+</span><span id="extract_repo_slug-116"><a href="#extract_repo_slug-116"><span class="linenos">116</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">:</span>
+</span><span id="extract_repo_slug-117"><a href="#extract_repo_slug-117"><span class="linenos">117</span></a>            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">parts</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">parts</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="extract_repo_slug-118"><a href="#extract_repo_slug-118"><span class="linenos">118</span></a>
+</span><span id="extract_repo_slug-119"><a href="#extract_repo_slug-119"><span class="linenos">119</span></a>    <span class="k">return</span> <span class="kc">None</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Extract owner/repo from a git remote URL.</p>
+
+<p>Handles HTTPS, SSH, and proxy formats:
+    <a href="https://github.com/owner/repo.git">https://github.com/owner/repo.git</a> -> owner/repo
+    git@github.com:owner/repo.git -> owner/repo
+    <a href="http://local_proxy@127.0.0.1:8080/git/owner/repo">http://local_proxy@127.0.0.1:8080/git/owner/repo</a> -> owner/repo</p>
+</div>
+
+
+                </section>
                 <section id="detect_base_branch">
                             <input id="detect_base_branch-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr function">
@@ -256,41 +318,41 @@
 
     </div>
     <a class="headerlink" href="#detect_base_branch"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="detect_base_branch-87"><a href="#detect_base_branch-87"><span class="linenos"> 87</span></a><span class="k">def</span><span class="w"> </span><span class="nf">detect_base_branch</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="detect_base_branch-88"><a href="#detect_base_branch-88"><span class="linenos"> 88</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="detect_base_branch-89"><a href="#detect_base_branch-89"><span class="linenos"> 89</span></a><span class="sd">    Detect the base branch for the repository.</span>
-</span><span id="detect_base_branch-90"><a href="#detect_base_branch-90"><span class="linenos"> 90</span></a>
-</span><span id="detect_base_branch-91"><a href="#detect_base_branch-91"><span class="linenos"> 91</span></a><span class="sd">    Checks for main, master, dev, develop in that order.</span>
-</span><span id="detect_base_branch-92"><a href="#detect_base_branch-92"><span class="linenos"> 92</span></a>
-</span><span id="detect_base_branch-93"><a href="#detect_base_branch-93"><span class="linenos"> 93</span></a><span class="sd">    Args:</span>
-</span><span id="detect_base_branch-94"><a href="#detect_base_branch-94"><span class="linenos"> 94</span></a><span class="sd">        path: Repository path (defaults to current directory)</span>
-</span><span id="detect_base_branch-95"><a href="#detect_base_branch-95"><span class="linenos"> 95</span></a>
-</span><span id="detect_base_branch-96"><a href="#detect_base_branch-96"><span class="linenos"> 96</span></a><span class="sd">    Returns:</span>
-</span><span id="detect_base_branch-97"><a href="#detect_base_branch-97"><span class="linenos"> 97</span></a><span class="sd">        Base branch name (defaults to &quot;main&quot; if none found)</span>
-</span><span id="detect_base_branch-98"><a href="#detect_base_branch-98"><span class="linenos"> 98</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="detect_base_branch-99"><a href="#detect_base_branch-99"><span class="linenos"> 99</span></a>    <span class="n">candidates</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;main&quot;</span><span class="p">,</span> <span class="s2">&quot;master&quot;</span><span class="p">,</span> <span class="s2">&quot;dev&quot;</span><span class="p">,</span> <span class="s2">&quot;develop&quot;</span><span class="p">]</span>
-</span><span id="detect_base_branch-100"><a href="#detect_base_branch-100"><span class="linenos">100</span></a>
-</span><span id="detect_base_branch-101"><a href="#detect_base_branch-101"><span class="linenos">101</span></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="detect_base_branch-102"><a href="#detect_base_branch-102"><span class="linenos">102</span></a>        <span class="c1"># Get all branches</span>
-</span><span id="detect_base_branch-103"><a href="#detect_base_branch-103"><span class="linenos">103</span></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">run_git</span><span class="p">([</span><span class="s2">&quot;branch&quot;</span><span class="p">,</span> <span class="s2">&quot;-a&quot;</span><span class="p">],</span> <span class="n">cwd</span><span class="o">=</span><span class="n">path</span><span class="p">,</span> <span class="n">check</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</span><span id="detect_base_branch-104"><a href="#detect_base_branch-104"><span class="linenos">104</span></a>        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
-</span><span id="detect_base_branch-105"><a href="#detect_base_branch-105"><span class="linenos">105</span></a>            <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
-</span><span id="detect_base_branch-106"><a href="#detect_base_branch-106"><span class="linenos">106</span></a>
-</span><span id="detect_base_branch-107"><a href="#detect_base_branch-107"><span class="linenos">107</span></a>        <span class="n">branches</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">&quot;* &quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)]</span>
-</span><span id="detect_base_branch-108"><a href="#detect_base_branch-108"><span class="linenos">108</span></a>
-</span><span id="detect_base_branch-109"><a href="#detect_base_branch-109"><span class="linenos">109</span></a>        <span class="c1"># Check for local branches first</span>
-</span><span id="detect_base_branch-110"><a href="#detect_base_branch-110"><span class="linenos">110</span></a>        <span class="k">for</span> <span class="n">candidate</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">:</span>
-</span><span id="detect_base_branch-111"><a href="#detect_base_branch-111"><span class="linenos">111</span></a>            <span class="k">if</span> <span class="n">candidate</span> <span class="ow">in</span> <span class="n">branches</span><span class="p">:</span>
-</span><span id="detect_base_branch-112"><a href="#detect_base_branch-112"><span class="linenos">112</span></a>                <span class="k">return</span> <span class="n">candidate</span>
-</span><span id="detect_base_branch-113"><a href="#detect_base_branch-113"><span class="linenos">113</span></a>
-</span><span id="detect_base_branch-114"><a href="#detect_base_branch-114"><span class="linenos">114</span></a>        <span class="c1"># Check for remote branches</span>
-</span><span id="detect_base_branch-115"><a href="#detect_base_branch-115"><span class="linenos">115</span></a>        <span class="k">for</span> <span class="n">candidate</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">:</span>
-</span><span id="detect_base_branch-116"><a href="#detect_base_branch-116"><span class="linenos">116</span></a>            <span class="k">if</span> <span class="sa">f</span><span class="s2">&quot;remotes/origin/</span><span class="si">{</span><span class="n">candidate</span><span class="si">}</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">branches</span><span class="p">:</span>
-</span><span id="detect_base_branch-117"><a href="#detect_base_branch-117"><span class="linenos">117</span></a>                <span class="k">return</span> <span class="n">candidate</span>
-</span><span id="detect_base_branch-118"><a href="#detect_base_branch-118"><span class="linenos">118</span></a>
-</span><span id="detect_base_branch-119"><a href="#detect_base_branch-119"><span class="linenos">119</span></a>        <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
-</span><span id="detect_base_branch-120"><a href="#detect_base_branch-120"><span class="linenos">120</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-</span><span id="detect_base_branch-121"><a href="#detect_base_branch-121"><span class="linenos">121</span></a>        <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="detect_base_branch-122"><a href="#detect_base_branch-122"><span class="linenos">122</span></a><span class="k">def</span><span class="w"> </span><span class="nf">detect_base_branch</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="detect_base_branch-123"><a href="#detect_base_branch-123"><span class="linenos">123</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="detect_base_branch-124"><a href="#detect_base_branch-124"><span class="linenos">124</span></a><span class="sd">    Detect the base branch for the repository.</span>
+</span><span id="detect_base_branch-125"><a href="#detect_base_branch-125"><span class="linenos">125</span></a>
+</span><span id="detect_base_branch-126"><a href="#detect_base_branch-126"><span class="linenos">126</span></a><span class="sd">    Checks for main, master, dev, develop in that order.</span>
+</span><span id="detect_base_branch-127"><a href="#detect_base_branch-127"><span class="linenos">127</span></a>
+</span><span id="detect_base_branch-128"><a href="#detect_base_branch-128"><span class="linenos">128</span></a><span class="sd">    Args:</span>
+</span><span id="detect_base_branch-129"><a href="#detect_base_branch-129"><span class="linenos">129</span></a><span class="sd">        path: Repository path (defaults to current directory)</span>
+</span><span id="detect_base_branch-130"><a href="#detect_base_branch-130"><span class="linenos">130</span></a>
+</span><span id="detect_base_branch-131"><a href="#detect_base_branch-131"><span class="linenos">131</span></a><span class="sd">    Returns:</span>
+</span><span id="detect_base_branch-132"><a href="#detect_base_branch-132"><span class="linenos">132</span></a><span class="sd">        Base branch name (defaults to &quot;main&quot; if none found)</span>
+</span><span id="detect_base_branch-133"><a href="#detect_base_branch-133"><span class="linenos">133</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="detect_base_branch-134"><a href="#detect_base_branch-134"><span class="linenos">134</span></a>    <span class="n">candidates</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;main&quot;</span><span class="p">,</span> <span class="s2">&quot;master&quot;</span><span class="p">,</span> <span class="s2">&quot;dev&quot;</span><span class="p">,</span> <span class="s2">&quot;develop&quot;</span><span class="p">]</span>
+</span><span id="detect_base_branch-135"><a href="#detect_base_branch-135"><span class="linenos">135</span></a>
+</span><span id="detect_base_branch-136"><a href="#detect_base_branch-136"><span class="linenos">136</span></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="detect_base_branch-137"><a href="#detect_base_branch-137"><span class="linenos">137</span></a>        <span class="c1"># Get all branches</span>
+</span><span id="detect_base_branch-138"><a href="#detect_base_branch-138"><span class="linenos">138</span></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">run_git</span><span class="p">([</span><span class="s2">&quot;branch&quot;</span><span class="p">,</span> <span class="s2">&quot;-a&quot;</span><span class="p">],</span> <span class="n">cwd</span><span class="o">=</span><span class="n">path</span><span class="p">,</span> <span class="n">check</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</span><span id="detect_base_branch-139"><a href="#detect_base_branch-139"><span class="linenos">139</span></a>        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+</span><span id="detect_base_branch-140"><a href="#detect_base_branch-140"><span class="linenos">140</span></a>            <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
+</span><span id="detect_base_branch-141"><a href="#detect_base_branch-141"><span class="linenos">141</span></a>
+</span><span id="detect_base_branch-142"><a href="#detect_base_branch-142"><span class="linenos">142</span></a>        <span class="n">branches</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">&quot;* &quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)]</span>
+</span><span id="detect_base_branch-143"><a href="#detect_base_branch-143"><span class="linenos">143</span></a>
+</span><span id="detect_base_branch-144"><a href="#detect_base_branch-144"><span class="linenos">144</span></a>        <span class="c1"># Check for local branches first</span>
+</span><span id="detect_base_branch-145"><a href="#detect_base_branch-145"><span class="linenos">145</span></a>        <span class="k">for</span> <span class="n">candidate</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">:</span>
+</span><span id="detect_base_branch-146"><a href="#detect_base_branch-146"><span class="linenos">146</span></a>            <span class="k">if</span> <span class="n">candidate</span> <span class="ow">in</span> <span class="n">branches</span><span class="p">:</span>
+</span><span id="detect_base_branch-147"><a href="#detect_base_branch-147"><span class="linenos">147</span></a>                <span class="k">return</span> <span class="n">candidate</span>
+</span><span id="detect_base_branch-148"><a href="#detect_base_branch-148"><span class="linenos">148</span></a>
+</span><span id="detect_base_branch-149"><a href="#detect_base_branch-149"><span class="linenos">149</span></a>        <span class="c1"># Check for remote branches</span>
+</span><span id="detect_base_branch-150"><a href="#detect_base_branch-150"><span class="linenos">150</span></a>        <span class="k">for</span> <span class="n">candidate</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">:</span>
+</span><span id="detect_base_branch-151"><a href="#detect_base_branch-151"><span class="linenos">151</span></a>            <span class="k">if</span> <span class="sa">f</span><span class="s2">&quot;remotes/origin/</span><span class="si">{</span><span class="n">candidate</span><span class="si">}</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">branches</span><span class="p">:</span>
+</span><span id="detect_base_branch-152"><a href="#detect_base_branch-152"><span class="linenos">152</span></a>                <span class="k">return</span> <span class="n">candidate</span>
+</span><span id="detect_base_branch-153"><a href="#detect_base_branch-153"><span class="linenos">153</span></a>
+</span><span id="detect_base_branch-154"><a href="#detect_base_branch-154"><span class="linenos">154</span></a>        <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
+</span><span id="detect_base_branch-155"><a href="#detect_base_branch-155"><span class="linenos">155</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+</span><span id="detect_base_branch-156"><a href="#detect_base_branch-156"><span class="linenos">156</span></a>        <span class="k">return</span> <span class="s2">&quot;main&quot;</span>
 </span></pre></div>
 
 

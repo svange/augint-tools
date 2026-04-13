@@ -404,33 +404,38 @@
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">enable_automerge</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">pr_number</span><span class="p">:</span> <span class="nb">int</span>, </span><span class="param"><span class="n">repo</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">enable_automerge</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">pr_number</span><span class="p">:</span> <span class="nb">int</span>, </span><span class="param"><span class="n">repo</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>, </span><span class="param"><span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;merge&#39;</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="enable_automerge-view-source"><span>View Source</span></label>
 
     </div>
     <a class="headerlink" href="#enable_automerge"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="enable_automerge-101"><a href="#enable_automerge-101"><span class="linenos">101</span></a><span class="k">def</span><span class="w"> </span><span class="nf">enable_automerge</span><span class="p">(</span><span class="n">pr_number</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">repo</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-</span><span id="enable_automerge-102"><a href="#enable_automerge-102"><span class="linenos">102</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="enable_automerge-103"><a href="#enable_automerge-103"><span class="linenos">103</span></a><span class="sd">    Enable auto-merge for a pull request.</span>
-</span><span id="enable_automerge-104"><a href="#enable_automerge-104"><span class="linenos">104</span></a>
-</span><span id="enable_automerge-105"><a href="#enable_automerge-105"><span class="linenos">105</span></a><span class="sd">    Args:</span>
-</span><span id="enable_automerge-106"><a href="#enable_automerge-106"><span class="linenos">106</span></a><span class="sd">        pr_number: PR number</span>
-</span><span id="enable_automerge-107"><a href="#enable_automerge-107"><span class="linenos">107</span></a><span class="sd">        repo: Repository in &quot;owner/repo&quot; format (uses current repo if None)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="enable_automerge-101"><a href="#enable_automerge-101"><span class="linenos">101</span></a><span class="k">def</span><span class="w"> </span><span class="nf">enable_automerge</span><span class="p">(</span>
+</span><span id="enable_automerge-102"><a href="#enable_automerge-102"><span class="linenos">102</span></a>    <span class="n">pr_number</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+</span><span id="enable_automerge-103"><a href="#enable_automerge-103"><span class="linenos">103</span></a>    <span class="n">repo</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="enable_automerge-104"><a href="#enable_automerge-104"><span class="linenos">104</span></a>    <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;merge&quot;</span><span class="p">,</span>
+</span><span id="enable_automerge-105"><a href="#enable_automerge-105"><span class="linenos">105</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+</span><span id="enable_automerge-106"><a href="#enable_automerge-106"><span class="linenos">106</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="enable_automerge-107"><a href="#enable_automerge-107"><span class="linenos">107</span></a><span class="sd">    Enable auto-merge for a pull request.</span>
 </span><span id="enable_automerge-108"><a href="#enable_automerge-108"><span class="linenos">108</span></a>
-</span><span id="enable_automerge-109"><a href="#enable_automerge-109"><span class="linenos">109</span></a><span class="sd">    Returns:</span>
-</span><span id="enable_automerge-110"><a href="#enable_automerge-110"><span class="linenos">110</span></a><span class="sd">        True if successful</span>
-</span><span id="enable_automerge-111"><a href="#enable_automerge-111"><span class="linenos">111</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="enable_automerge-112"><a href="#enable_automerge-112"><span class="linenos">112</span></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="enable_automerge-113"><a href="#enable_automerge-113"><span class="linenos">113</span></a>        <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;merge&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">pr_number</span><span class="p">),</span> <span class="s2">&quot;--auto&quot;</span><span class="p">,</span> <span class="s2">&quot;--squash&quot;</span><span class="p">]</span>
-</span><span id="enable_automerge-114"><a href="#enable_automerge-114"><span class="linenos">114</span></a>
-</span><span id="enable_automerge-115"><a href="#enable_automerge-115"><span class="linenos">115</span></a>        <span class="k">if</span> <span class="n">repo</span><span class="p">:</span>
-</span><span id="enable_automerge-116"><a href="#enable_automerge-116"><span class="linenos">116</span></a>            <span class="n">args</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--repo&quot;</span><span class="p">,</span> <span class="n">repo</span><span class="p">])</span>
-</span><span id="enable_automerge-117"><a href="#enable_automerge-117"><span class="linenos">117</span></a>
-</span><span id="enable_automerge-118"><a href="#enable_automerge-118"><span class="linenos">118</span></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">run_gh</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">check</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</span><span id="enable_automerge-119"><a href="#enable_automerge-119"><span class="linenos">119</span></a>        <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">==</span> <span class="mi">0</span>
-</span><span id="enable_automerge-120"><a href="#enable_automerge-120"><span class="linenos">120</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-</span><span id="enable_automerge-121"><a href="#enable_automerge-121"><span class="linenos">121</span></a>        <span class="k">return</span> <span class="kc">False</span>
+</span><span id="enable_automerge-109"><a href="#enable_automerge-109"><span class="linenos">109</span></a><span class="sd">    Args:</span>
+</span><span id="enable_automerge-110"><a href="#enable_automerge-110"><span class="linenos">110</span></a><span class="sd">        pr_number: PR number</span>
+</span><span id="enable_automerge-111"><a href="#enable_automerge-111"><span class="linenos">111</span></a><span class="sd">        repo: Repository in &quot;owner/repo&quot; format (uses current repo if None)</span>
+</span><span id="enable_automerge-112"><a href="#enable_automerge-112"><span class="linenos">112</span></a><span class="sd">        method: Merge method (&quot;merge&quot;, &quot;squash&quot;, or &quot;rebase&quot;)</span>
+</span><span id="enable_automerge-113"><a href="#enable_automerge-113"><span class="linenos">113</span></a>
+</span><span id="enable_automerge-114"><a href="#enable_automerge-114"><span class="linenos">114</span></a><span class="sd">    Returns:</span>
+</span><span id="enable_automerge-115"><a href="#enable_automerge-115"><span class="linenos">115</span></a><span class="sd">        True if successful</span>
+</span><span id="enable_automerge-116"><a href="#enable_automerge-116"><span class="linenos">116</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="enable_automerge-117"><a href="#enable_automerge-117"><span class="linenos">117</span></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="enable_automerge-118"><a href="#enable_automerge-118"><span class="linenos">118</span></a>        <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;merge&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">pr_number</span><span class="p">),</span> <span class="s2">&quot;--auto&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;--</span><span class="si">{</span><span class="n">method</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+</span><span id="enable_automerge-119"><a href="#enable_automerge-119"><span class="linenos">119</span></a>
+</span><span id="enable_automerge-120"><a href="#enable_automerge-120"><span class="linenos">120</span></a>        <span class="k">if</span> <span class="n">repo</span><span class="p">:</span>
+</span><span id="enable_automerge-121"><a href="#enable_automerge-121"><span class="linenos">121</span></a>            <span class="n">args</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--repo&quot;</span><span class="p">,</span> <span class="n">repo</span><span class="p">])</span>
+</span><span id="enable_automerge-122"><a href="#enable_automerge-122"><span class="linenos">122</span></a>
+</span><span id="enable_automerge-123"><a href="#enable_automerge-123"><span class="linenos">123</span></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">run_gh</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">check</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</span><span id="enable_automerge-124"><a href="#enable_automerge-124"><span class="linenos">124</span></a>        <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">==</span> <span class="mi">0</span>
+</span><span id="enable_automerge-125"><a href="#enable_automerge-125"><span class="linenos">125</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+</span><span id="enable_automerge-126"><a href="#enable_automerge-126"><span class="linenos">126</span></a>        <span class="k">return</span> <span class="kc">False</span>
 </span></pre></div>
 
 
@@ -438,7 +443,8 @@
 
 <p>Args:
     pr_number: PR number
-    repo: Repository in "owner/repo" format (uses current repo if None)</p>
+    repo: Repository in "owner/repo" format (uses current repo if None)
+    method: Merge method ("merge", "squash", or "rebase")</p>
 
 <p>Returns:
     True if successful</p>

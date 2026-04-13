@@ -220,7 +220,6 @@ _HUMAN_FORMATTERS: dict[str, Any] = {
     "repo status": _format_repo_status,
     "repo inspect": _format_inspect,
     "repo issues pick": _format_issues,
-    "repo issues view": _format_issues,
     "repo branch prepare": _format_branch,
     "repo check plan": _format_check_plan,
     "repo check run": _format_check_run,
@@ -247,18 +246,3 @@ def emit_error(message: str, exit_code: int | None = None) -> None:
 def emit_warning(message: str) -> None:
     """Emit warning message to stderr."""
     click.echo(click.style(f"Warning: {message}", fg="yellow"), err=True)
-
-
-def emit_stub(command: str, scope: str, *, json_mode: bool = False) -> None:
-    """Emit a stub response for unimplemented commands."""
-    response = CommandResponse(
-        command=command,
-        scope=scope,
-        status="error",
-        summary=f"{command} is not yet implemented",
-        errors=["Not yet implemented"],
-        result={"implemented": False},
-    )
-    if not json_mode:
-        emit_warning(f"{command} is not yet implemented")
-    emit_response(response, json_mode=json_mode)

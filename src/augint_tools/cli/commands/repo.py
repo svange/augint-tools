@@ -23,7 +23,7 @@ from augint_tools.github import (
     list_issues,
 )
 from augint_tools.github.cli import run_gh
-from augint_tools.output import CommandResponse, emit_response, emit_stub
+from augint_tools.output import CommandResponse, emit_response
 
 
 def _get_output_opts(ctx: click.Context) -> dict:
@@ -231,14 +231,6 @@ def pick(ctx, query, limit):
     )
 
 
-@issues.command()
-@click.argument("number", type=int)
-@click.pass_context
-def view(ctx, number):
-    """View issue details."""
-    emit_stub("repo issues view", "repo", json_mode=_get_output_opts(ctx)["json_mode"])
-
-
 # --- repo branch ---
 
 
@@ -400,11 +392,8 @@ def check_run(ctx, preset, skip, fix_mechanical):
 @click.option("--preset", default="default", type=click.Choice(["quick", "default", "full", "ci"]))
 @click.option("--skip", help="Comma-separated check phases to skip.")
 @click.option("--draft", is_flag=True, default=False, help="Create PR as draft.")
-@click.option(
-    "--update-strategy", type=click.Choice(["rebase", "merge"]), help="Branch update strategy."
-)
 @click.pass_context
-def submit(ctx, preset, skip, draft, update_strategy):
+def submit(ctx, preset, skip, draft):
     """Push branch and create PR with checks."""
     cwd = _require_git(ctx, "repo submit")
     context = detect(cwd)
@@ -768,46 +757,3 @@ def _classify_failures(log_lines: list[str]) -> list[dict]:
             )
 
     return failures[:30]  # cap
-
-
-# --- repo promote ---
-
-
-@repo.command()
-@click.pass_context
-def promote(ctx):
-    """Handle dev -> main promotion flow."""
-    emit_stub("repo promote", "repo", json_mode=_get_output_opts(ctx)["json_mode"])
-
-
-# --- repo rollback ---
-
-
-@repo.group()
-def rollback():
-    """Rollback commands."""
-    pass
-
-
-@rollback.command("plan")
-@click.pass_context
-def rollback_plan(ctx):
-    """Inspect rollback plan."""
-    emit_stub("repo rollback plan", "repo", json_mode=_get_output_opts(ctx)["json_mode"])
-
-
-@rollback.command("apply")
-@click.pass_context
-def rollback_apply(ctx):
-    """Execute rollback."""
-    emit_stub("repo rollback apply", "repo", json_mode=_get_output_opts(ctx)["json_mode"])
-
-
-# --- repo health ---
-
-
-@repo.command()
-@click.pass_context
-def health(ctx):
-    """Structured repo hygiene audit."""
-    emit_stub("repo health", "repo", json_mode=_get_output_opts(ctx)["json_mode"])

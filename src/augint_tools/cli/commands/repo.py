@@ -20,7 +20,6 @@ from augint_tools.github import (
     create_pr,
     enable_automerge,
     get_open_prs,
-    list_issues,
 )
 from augint_tools.github.cli import run_gh
 from augint_tools.output import CommandResponse, emit_response
@@ -56,26 +55,6 @@ def _require_git(ctx: click.Context, command: str) -> Path | None:
 def repo(ctx):
     """Single repository workflow commands."""
     ctx.ensure_object(dict)
-
-
-# --- repo inspect ---
-
-
-@repo.command()
-@click.pass_context
-def inspect(ctx):
-    """One-call snapshot of repo kind, branch policy, toolchain, and command plan."""
-    _require_git(ctx, "repo inspect")
-    context = detect()
-    emit_response(
-        CommandResponse.ok(
-            "repo inspect",
-            "repo",
-            f"{context.language} {context.repo_kind} ({context.framework})",
-            result=context.to_dict(),
-        ),
-        **_get_output_opts(ctx),
-    )
 
 
 # --- repo status ---
@@ -188,49 +167,6 @@ def _compute_next_actions(repo_status, context, open_prs, ci_run) -> list[str]:
     return actions
 
 
-# --- repo issues ---
-
-
-@repo.group()
-def issues():
-    """Issue management."""
-    pass
-
-
-@issues.command()
-@click.argument("query", required=False)
-@click.option("--limit", default=10, help="Number of candidates to return.")
-@click.pass_context
-def pick(ctx, query, limit):
-    """Deterministic issue recommendation, lookup, or search."""
-    _require_git(ctx, "repo issues pick")
-    context = detect()
-
-    if not context.github.authenticated:
-        emit_response(
-            CommandResponse.error("repo issues pick", "repo", "GitHub CLI not authenticated"),
-            **_get_output_opts(ctx),
-        )
-        sys.exit(1)
-
-    # For now: direct lookup if numeric, search if text, list if empty
-    issue_list = list_issues(query=query)
-    issues_data = [
-        {"number": i.number, "title": i.title, "state": i.state, "labels": i.labels, "url": i.url}
-        for i in issue_list[:limit]
-    ]
-
-    emit_response(
-        CommandResponse.ok(
-            "repo issues pick",
-            "repo",
-            f"Found {len(issues_data)} issues",
-            result={"query": query, "issues": issues_data, "count": len(issues_data)},
-        ),
-        **_get_output_opts(ctx),
-    )
-
-
 # --- repo branch ---
 
 
@@ -316,72 +252,6 @@ def prepare(ctx, issue, description, name):
             ),
             **opts,
         )
-        sys.exit(1)
-
-
-# --- repo check ---
-
-
-@repo.group()
-def check():
-    """Validation checks."""
-    pass
-
-
-@check.command("plan")
-@click.option("--preset", default="default", type=click.Choice(["quick", "default", "full", "ci"]))
-@click.option("--skip", help="Comma-separated phases to skip.")
-@click.pass_context
-def check_plan(ctx, preset, skip):
-    """Resolve the validation plan without running it."""
-    _require_git(ctx, "repo check plan")
-    context = detect()
-    skip_list = [s.strip() for s in skip.split(",")] if skip else None
-    plan = resolve_plan(context.command_plan, preset=preset, skip=skip_list)
-
-    emit_response(
-        CommandResponse.ok(
-            "repo check plan",
-            "repo",
-            f"{len(plan.phases)} phases in {preset} preset",
-            result=plan.to_dict(),
-        ),
-        **_get_output_opts(ctx),
-    )
-
-
-@check.command("run")
-@click.option("--preset", default="default", type=click.Choice(["quick", "default", "full", "ci"]))
-@click.option("--skip", help="Comma-separated phases to skip.")
-@click.option(
-    "--fix", "fix_mechanical", is_flag=True, default=False, help="Attempt mechanical fixes."
-)
-@click.pass_context
-def check_run(ctx, preset, skip, fix_mechanical):
-    """Execute the resolved validation plan."""
-    cwd = _require_git(ctx, "repo check run")
-    context = detect(cwd)
-    skip_list = [s.strip() for s in skip.split(",")] if skip else None
-    plan = resolve_plan(context.command_plan, preset=preset, skip=skip_list)
-    results = run_plan(plan, cwd, fix=fix_mechanical)
-
-    passed = sum(1 for r in results if r.status in ("passed", "fixed"))
-    failed = sum(1 for r in results if r.status == "failed")
-    status = "ok" if failed == 0 else "error"
-    summary = f"{passed} passed, {failed} failed"
-
-    emit_response(
-        CommandResponse(
-            command="repo check run",
-            scope="repo",
-            status=status,
-            summary=summary,
-            result={"preset": preset, "phases": [r.to_dict() for r in results]},
-            next_actions=["fix failures"] if failed > 0 else [],
-        ),
-        **_get_output_opts(ctx),
-    )
-    if failed > 0:
         sys.exit(1)
 
 
@@ -511,109 +381,6 @@ def ci():
     """CI pipeline commands."""
     pass
 
-
-@ci.command()
-@click.option("--run-id", help="Specific run ID to watch.")
-@click.pass_context
-def watch(ctx, run_id):
-    """Monitor CI run and return compact status."""
-    cwd = _require_git(ctx, "repo ci watch")
-    context = detect(cwd)
-    opts = _get_output_opts(ctx)
-
-    if not context.github.authenticated:
-        emit_response(
-            CommandResponse.error("repo ci watch", "repo", "GitHub CLI not authenticated"), **opts
-        )
-        sys.exit(1)
-
-    branch = context.current_branch
-    if not branch and not run_id:
-        emit_response(
-            CommandResponse.error(
-                "repo ci watch", "repo", "Not on a branch and no --run-id provided"
-            ),
-            **opts,
-        )
-        sys.exit(1)
-
-    # Get runs
-    args = [
-        "run",
-        "list",
-        "--limit",
-        "1",
-        "--json",
-        "databaseId,status,conclusion,name,url,headBranch,event,createdAt",
-    ]
-    if run_id:
-        args = [
-            "run",
-            "view",
-            run_id,
-            "--json",
-            "databaseId,status,conclusion,name,url,headBranch,event,createdAt,jobs",
-        ]
-    elif branch:
-        args += ["--branch", branch]
-
-    try:
-        result = run_gh(args, check=False)
-        if result.returncode != 0:
-            emit_response(
-                CommandResponse.error(
-                    "repo ci watch", "repo", f"gh command failed: {result.stderr.strip()}"
-                ),
-                **opts,
-            )
-            sys.exit(1)
-
-        import json as json_mod
-
-        data = json_mod.loads(result.stdout)
-
-        if isinstance(data, list):
-            if not data:
-                emit_response(
-                    CommandResponse.ok(
-                        "repo ci watch", "repo", "No CI runs found", result={"runs": []}
-                    ),
-                    **opts,
-                )
-                return
-            run_info = data[0]
-        else:
-            run_info = data
-
-        run_status = run_info.get("status", "unknown")
-        conclusion = run_info.get("conclusion", "")
-        overall = conclusion if conclusion else run_status
-
-        next_actions = []
-        if overall == "failure":
-            next_actions.append("run repo ci triage")
-        elif overall in ("queued", "in_progress"):
-            next_actions.append("wait for completion")
-
-        emit_response(
-            CommandResponse(
-                command="repo ci watch",
-                scope="repo",
-                status="ok"
-                if overall == "success"
-                else "action-required"
-                if overall == "failure"
-                else "ok",
-                summary=f"CI {overall}"
-                + (f" on {run_info.get('headBranch', '')}" if run_info.get("headBranch") else ""),
-                result={"run": run_info},
-                next_actions=next_actions,
-            ),
-            **opts,
-        )
-    except Exception as e:
-        emit_response(CommandResponse.error("repo ci watch", "repo", str(e)), **opts)
-        sys.exit(1)
 
 
 @ci.command()

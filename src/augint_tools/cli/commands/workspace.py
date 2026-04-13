@@ -24,7 +24,6 @@ from augint_tools.github import (
     get_open_prs,
     is_gh_authenticated,
     is_gh_available,
-    list_issues,
 )
 from augint_tools.output import CommandResponse, emit_response
 
@@ -243,54 +242,6 @@ def status(ctx, blocked_only, dirty_only):
     )
 
 
-# --- workspace issues ---
-
-
-@workspace.command()
-@click.argument("query", required=False)
-@click.pass_context
-def issues(ctx, query):
-    """Aggregate issues across all child repositories."""
-    cwd, config = _require_workspace(ctx, "workspace issues")
-    opts = _get_output_opts(ctx)
-
-    if not is_gh_available() or not is_gh_authenticated():
-        emit_response(
-            CommandResponse.error(
-                "workspace issues", "workspace", "GitHub CLI not available or not authenticated"
-            ),
-            **opts,
-        )
-        sys.exit(1)
-
-    all_issues = []
-    for repo_config in config.repos:
-        url_parts = repo_config.url.rstrip(".git").split("/")
-        if len(url_parts) >= 2:
-            repo_name = f"{url_parts[-2]}/{url_parts[-1]}"
-            for issue in list_issues(repo=repo_name, query=query):
-                all_issues.append(
-                    {
-                        "repo": repo_config.name,
-                        "number": issue.number,
-                        "title": issue.title,
-                        "state": issue.state,
-                        "labels": issue.labels,
-                        "url": issue.url,
-                    }
-                )
-
-    emit_response(
-        CommandResponse.ok(
-            "workspace issues",
-            "workspace",
-            f"Found {len(all_issues)} issues across workspace",
-            result={"query": query, "issues": all_issues, "count": len(all_issues)},
-        ),
-        **opts,
-    )
-
-
 # --- workspace branch ---
 
 
@@ -444,37 +395,6 @@ def workspace_check(ctx, phase, preset, repos, fix_mechanical):
     )
     if total_failed > 0:
         sys.exit(1)
-
-
-# --- workspace test (alias) ---
-
-
-@workspace.command("test")
-@click.option("--repos", help="Comma-separated repo names.")
-@click.pass_context
-def workspace_test(ctx, repos):
-    """Run tests across repos (alias for workspace check --phase tests)."""
-    ctx.invoke(workspace_check, phase="tests", preset="default", repos=repos, fix_mechanical=False)
-
-
-# --- workspace lint (alias) ---
-
-
-@workspace.command("lint")
-@click.option("--repos", help="Comma-separated repo names.")
-@click.option(
-    "--fix", "fix_mechanical", is_flag=True, default=False, help="Attempt mechanical fixes."
-)
-@click.pass_context
-def workspace_lint(ctx, repos, fix_mechanical):
-    """Run quality checks across repos (alias for workspace check --phase quality)."""
-    ctx.invoke(
-        workspace_check,
-        phase="quality",
-        preset="default",
-        repos=repos,
-        fix_mechanical=fix_mechanical,
-    )
 
 
 # --- workspace submit ---

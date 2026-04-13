@@ -508,3 +508,84 @@ class TestStandardizeAll:
         data = json.loads(result.output)
         assert data["status"] == "error"
         assert "exited 3" in data["summary"]
+
+
+class TestStandardizeLocalJsonFlag:
+    """Tests for the subcommand-level --json flag on standardize."""
+
+    def test_local_json_flag_verify(self, tmp_path, monkeypatch):
+        """``ai-tools standardize --json --verify`` produces JSON output."""
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            return_value=(0, _CLEAN_JSON, ""),
+        ):
+            result = runner.invoke(cli, ["standardize", "--json", "--verify", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["command"] == "standardize --verify"
+        assert data["status"] == "ok"
+
+    def test_both_global_and_local_json_flags(self, tmp_path, monkeypatch):
+        """Both ``--json`` flags together must not crash and produce JSON."""
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            return_value=(0, _CLEAN_JSON, ""),
+        ):
+            result = runner.invoke(
+                cli, ["--json", "standardize", "--json", "--verify", str(tmp_path)]
+            )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["status"] == "ok"
+
+    def test_local_json_flag_area_pipeline(self, tmp_path, monkeypatch):
+        """Local ``--json`` propagates to the ai-shell subprocess for pipeline."""
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        captured: dict = {}
+
+        def fake_run(cmd: list[str]) -> tuple[int, str, str]:
+            captured["cmd"] = cmd
+            return 0, "ok", ""
+
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            side_effect=fake_run,
+        ):
+            result = runner.invoke(
+                cli, ["standardize", "--json", "--area", "pipeline", str(tmp_path)]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "--json" in captured["cmd"]
+        assert "--validate" in captured["cmd"]
+
+    def test_local_json_flag_all_dry_run(self, tmp_path, monkeypatch):
+        """Local ``--json`` propagates to ``--all --dry-run`` subprocess."""
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        captured: dict = {}
+
+        def fake_run(cmd: list[str]) -> tuple[int, str, str]:
+            captured["cmd"] = cmd
+            return 0, json.dumps({"plan": ["step1"]}), ""
+
+        with patch(
+            "augint_tools.cli.commands.standardize._run_ai_shell",
+            side_effect=fake_run,
+        ):
+            result = runner.invoke(
+                cli, ["standardize", "--json", "--all", "--dry-run", str(tmp_path)]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "--json" in captured["cmd"]
+        assert "--dry-run" in captured["cmd"]
+        data = json.loads(result.output)
+        assert data["result"]["plan"] == {"plan": ["step1"]}

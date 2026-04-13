@@ -40,10 +40,10 @@ _EXIT_DRIFT = 1
 _EXIT_ERROR = 2
 
 
-def _get_output_opts(ctx: click.Context) -> dict[str, Any]:
+def _get_output_opts(ctx: click.Context, *, json_mode_local: bool = False) -> dict[str, Any]:
     obj = ctx.obj or {}
     return {
-        "json_mode": obj.get("json_mode", False),
+        "json_mode": obj.get("json_mode", False) or json_mode_local,
         "actionable": obj.get("actionable", False),
         "summary_only": obj.get("summary_only", False),
     }
@@ -111,6 +111,7 @@ def _echo_captured(stdout: str, stderr: str, opts: dict[str, Any]) -> None:
     default=False,
     help="Compute what would change without writing (only with --all or --area dotfiles).",
 )
+@click.option("--json", "json_mode_local", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def standardize(
     ctx: click.Context,
@@ -119,13 +120,14 @@ def standardize(
     area: str | None,
     run_all: bool,
     dry_run: bool,
+    json_mode_local: bool,
 ) -> None:
     """Run or verify repository standardization.
 
     Thin wrapper around ``ai-shell standardize``. PATH defaults to cwd.
     Specify exactly one of ``--verify``, ``--area <name>``, or ``--all``.
     """
-    opts = _get_output_opts(ctx)
+    opts = _get_output_opts(ctx, json_mode_local=json_mode_local)
     target = (path or Path.cwd()).resolve()
 
     if not target.exists():

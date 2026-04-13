@@ -382,7 +382,6 @@ def ci():
     pass
 
 
-
 @ci.command()
 @click.option(
     "--fix", "fix_mechanical", is_flag=True, default=False, help="Attempt mechanical fixes."

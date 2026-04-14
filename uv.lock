@@ -29,7 +29,7 @@ wheels = [
 
 [[package]]
 name = "augint-shell"
-version = "0.62.0"
+version = "0.66.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -38,9 +38,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2d/0c/582ac27186510a2ec8e0f5943e5959b03fac5689eb77cdbdbd8711289e5a/augint_shell-0.62.0.tar.gz", hash = "sha256:0d138cefb54706a77746ac88526ddb87fa414d3fdf2adfebfd9b4ec49b4745db", size = 57929, upload-time = "2026-04-13T21:51:37.483Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ee/0f/c83250ed06b75d2540c4642ce12d28af992bb7cfc22d3c2acd4a07d93aca/augint_shell-0.66.0.tar.gz", hash = "sha256:d0934e87b1c9bab26ea9078b71917e2aa43160460bd25710c822377bf7c661bf", size = 58401, upload-time = "2026-04-14T01:53:42.879Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/e6/40d34d6cb4aa4212bd40bee035e53f9da1d8a80155bac66f190266f732e4/augint_shell-0.62.0-py3-none-any.whl", hash = "sha256:211fa9c0e04c839d889322447405b3f33b6368fa6dafb9ec6204b5a27c5113af", size = 84033, upload-time = "2026-04-13T21:51:36.155Z" },
+    { url = "https://files.pythonhosted.org/packages/21/55/dd4d45986e7dd7eb7e68cb504f130cc0b50087572f215f518e4b8a3002e9/augint_shell-0.66.0-py3-none-any.whl", hash = "sha256:97f48aeb3e4435f6cd42a45d9c345c5372fc5c74a63ac088024dc49c8dc650f1", size = 84565, upload-time = "2026-04-14T01:53:41.439Z" },
 ]
 
 [[package]]
@@ -1625,7 +1625,7 @@ wheels = [
 
 [[package]]
 name = "virtualenv"
-version = "21.2.1"
+version = "21.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "distlib" },
@@ -1633,9 +1633,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "python-discovery" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/97/c5/aff062c66b42e2183201a7ace10c6b2e959a9a16525c8e8ca8e59410d27a/virtualenv-21.2.1.tar.gz", hash = "sha256:b66ffe81301766c0d5e2208fc3576652c59d44e7b731fc5f5ed701c9b537fa78", size = 5844770, upload-time = "2026-04-09T18:47:11.482Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/8c/bdd9f89f89e4a787ac61bb2da4d884bc45e0c287ec694dfa3170dddd5cfe/virtualenv-21.2.3.tar.gz", hash = "sha256:9bb6d1414ab55ca624371e30c7719c32f183ef44da544ef8aa44a456de7ac191", size = 5844776, upload-time = "2026-04-14T01:10:36.692Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/0e/f083a76cb590e60dff3868779558eefefb8dfb7c9ed020babc7aa014ccbf/virtualenv-21.2.1-py3-none-any.whl", hash = "sha256:bd16b49c53562b28cf1a3ad2f36edb805ad71301dee70ddc449e5c88a9f919a2", size = 5828326, upload-time = "2026-04-09T18:47:09.331Z" },
+    { url = "https://files.pythonhosted.org/packages/95/19/bc7c4e05f42532863cf2ae7e7e847beab25835934e0410160b47eeff1e35/virtualenv-21.2.3-py3-none-any.whl", hash = "sha256:486652347ea8526d91e9807c0274583cb7ba31dd4942ff10fb5621402f0fe0d8", size = 5828329, upload-time = "2026-04-14T01:10:34.809Z" },
 ]
 
 [[package]]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import os
 import tempfile
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
 from typing import cast
 
 import defusedxml.ElementTree as defused_ET

@@ -30,9 +30,7 @@ def read_xml(
     if not os.path.exists(path):
         return None, None
     try:
-        tree: ET.ElementTree[ET.Element[str]] = cast(
-            "ET.ElementTree[ET.Element[str]]", defused_ET.parse(path)
-        )
+        tree = cast("ET.ElementTree[ET.Element[str]]", defused_ET.parse(path))
         root = tree.getroot()
         if root is None:
             return None, None

@@ -6,6 +6,9 @@ import io
 import os
 import tempfile
 import xml.etree.ElementTree as ET
+from typing import cast
+
+import defusedxml.ElementTree as defused_ET
 
 
 def minimal_project_xml() -> tuple[ET.ElementTree[ET.Element[str]], ET.Element[str]]:
@@ -27,7 +30,9 @@ def read_xml(
     if not os.path.exists(path):
         return None, None
     try:
-        tree = ET.parse(path)
+        tree: ET.ElementTree[ET.Element[str]] = cast(
+            "ET.ElementTree[ET.Element[str]]", defused_ET.parse(path)
+        )
         root = tree.getroot()
         if root is None:
             return None, None

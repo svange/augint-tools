@@ -49,6 +49,7 @@ version = "4.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
+    { name = "defusedxml" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
@@ -66,6 +67,7 @@ dev = [
     { name = "pytest-html" },
     { name = "python-semantic-release" },
     { name = "ruff" },
+    { name = "types-defusedxml" },
     { name = "types-pyyaml" },
 ]
 
@@ -79,6 +81,7 @@ dev = [
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0" },
     { name = "click", specifier = ">=8.1.0" },
+    { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "pdoc", marker = "extra == 'dev'", specifier = ">=15.0.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.0" },
@@ -91,6 +94,7 @@ requires-dist = [
     { name = "python-semantic-release", marker = "extra == 'dev'", specifier = ">=10.3.1" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
+    { name = "types-defusedxml", marker = "extra == 'dev'", specifier = ">=0.7.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
 provides-extras = ["dev"]
@@ -1582,6 +1586,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cc/18/0bbf3884e9eaa38819ebe46a7bd25dcd56b67434402b66a58c4b8e552575/tomlkit-0.13.3.tar.gz", hash = "sha256:430cf247ee57df2b94ee3fbe588e71d362a941ebb545dec29b53961d61add2a1", size = 185207, upload-time = "2025-06-05T07:13:44.947Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bd/75/8539d011f6be8e29f339c42e633aae3cb73bffa95dd0f9adec09b9c58e85/tomlkit-0.13.3-py3-none-any.whl", hash = "sha256:c89c649d79ee40629a9fda55f8ace8c6a1b42deb912b2a8fd8d942ddadb606b0", size = 38901, upload-time = "2025-06-05T07:13:43.546Z" },
+]
+
+[[package]]
+name = "types-defusedxml"
+version = "0.7.0.20260408"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/af/d324da5ffbf0af40477533a09ee6c902de335c445a8dcc88c58f62af6e5f/types_defusedxml-0.7.0.20260408.tar.gz", hash = "sha256:f35377d59344f98b57f9bf319cff2107aac35f9e4d42f9ed6cfeeafacffadb00", size = 10638, upload-time = "2026-04-08T04:26:12.239Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ed/68/7570cfb818d6a5b3ff964114527e28e360eccf18329b457f057a18596e64/types_defusedxml-0.7.0.20260408-py3-none-any.whl", hash = "sha256:2d68db82412170b91b3e490b7c118a4f4e5a27756a126e2453f629c8d514b106", size = 13435, upload-time = "2026-04-08T04:26:11.347Z" },
 ]
 
 [[package]]

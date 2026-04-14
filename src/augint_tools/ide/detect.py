@@ -10,6 +10,8 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
+import defusedxml.ElementTree as defused_ET
+
 from augint_tools.ide.xml import find_component
 
 
@@ -195,7 +197,7 @@ def resolve_windows_paths(
         _tree, root = (None, None)
         if os.path.exists(workspace_xml_path):
             try:
-                tree = ET.parse(workspace_xml_path)
+                tree = defused_ET.parse(workspace_xml_path)
                 root = tree.getroot()
             except ET.ParseError:
                 root = None

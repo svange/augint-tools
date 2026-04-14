@@ -7,6 +7,7 @@ import click
 
 from augint_tools import __version__
 from augint_tools.cli.commands.ide import ide
+from augint_tools.cli.commands.init import init
 from augint_tools.cli.commands.repo import repo
 from augint_tools.cli.commands.workspace import workspace
 
@@ -39,6 +40,7 @@ def cli(ctx, verbose, json_mode, actionable, summary_only):
 cli.add_command(repo)
 cli.add_command(workspace)
 cli.add_command(ide)
+cli.add_command(init)
 
 
 def main():

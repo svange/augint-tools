@@ -18,7 +18,6 @@ from augint_tools.ide import (
     step_module_sdk,
     step_project_sdk,
     step_project_structure,
-    step_terminal_right,
 )
 from augint_tools.ide.detect import (
     detect_project_name,
@@ -33,7 +32,6 @@ from augint_tools.ide.detect import (
 from augint_tools.output import CommandResponse, emit_response
 
 ALL_STEPS = [
-    "terminal",
     "module_sdk",
     "structure",
     "project_sdk",
@@ -113,6 +111,115 @@ def info(ctx: click.Context, project_dir: str, venv_path: str | None) -> None:
             },
         ),
         **_get_output_opts(ctx),
+    )
+
+
+# ---------------------------------------------------------------------------
+# ide reset
+# ---------------------------------------------------------------------------
+
+
+@ide.command("reset")
+@click.option("--project-dir", default=".", show_default=True, type=click.Path(exists=True))
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt (non-interactive).",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Show what would be deleted.")
+@click.pass_context
+def reset(ctx: click.Context, project_dir: str, yes: bool, dry_run: bool) -> None:
+    """Delete this project's IDEA product workspace file (force fresh load).
+
+    Forces IDEA to re-read .idea/workspace.xml on next project open, which is
+    needed for our bookmark / tasks edits to take effect when IDEA already had
+    cached state.
+
+    Affects ONLY the specified project. Other open IDEA windows are unaffected.
+    The project's window in IDEA must be closed first (File -> Close Project).
+    """
+    opts = _get_output_opts(ctx)
+    pdir = os.path.realpath(project_dir)
+    workspace_path = os.path.join(pdir, ".idea", "workspace.xml")
+    jb_options = find_jb_options_dir()
+    product_ws = resolve_product_workspace(jb_options, workspace_path)
+
+    if product_ws is None:
+        emit_response(
+            CommandResponse.ok(
+                "ide reset",
+                "ide",
+                "Nothing to reset (no product workspace file found for this project)",
+                result={"project_dir": pdir, "deleted": False},
+            ),
+            **opts,
+        )
+        return
+
+    if not yes and not opts["json_mode"]:
+        click.echo(click.style("This will delete:", bold=True))
+        click.echo(f"  {product_ws}")
+        click.echo("")
+        click.echo(
+            click.style(
+                "IMPORTANT: close this project's IDEA window first (File -> Close Project).",
+                fg="yellow",
+                bold=True,
+            )
+        )
+        click.echo("Other open IDEA windows are not affected.")
+        click.echo("")
+        if not click.confirm("Project window closed -- proceed with delete?", default=False):
+            emit_response(
+                CommandResponse(
+                    command="ide reset",
+                    scope="ide",
+                    status="blocked",
+                    summary="Aborted by user",
+                    result={"project_dir": pdir, "product_workspace": product_ws},
+                ),
+                **opts,
+            )
+            sys.exit(3)
+
+    if dry_run:
+        emit_response(
+            CommandResponse.ok(
+                "ide reset",
+                "ide",
+                f"[dry-run] would delete {product_ws}",
+                result={"project_dir": pdir, "product_workspace": product_ws, "deleted": False},
+            ),
+            **opts,
+        )
+        return
+
+    try:
+        os.remove(product_ws)
+    except OSError as exc:
+        emit_response(
+            CommandResponse.error(
+                "ide reset",
+                "ide",
+                f"Failed to delete {product_ws}: {exc}",
+            ),
+            **opts,
+        )
+        sys.exit(1)
+
+    emit_response(
+        CommandResponse.ok(
+            "ide reset",
+            "ide",
+            f"Deleted {product_ws}",
+            result={"project_dir": pdir, "product_workspace": product_ws, "deleted": True},
+            next_actions=[
+                "Reopen the project in IDEA -- it will read fresh state from .idea/workspace.xml"
+            ],
+        ),
+        **opts,
     )
 
 
@@ -303,9 +410,6 @@ def setup(
         return res
 
     results.append(
-        _run("terminal", lambda: step_terminal_right(workspace_path, product_ws, dry_run))
-    )
-    results.append(
         _run("module_sdk", lambda: step_module_sdk(iml_path, effective_sdk_name, dry_run))
     )
     results.append(
@@ -359,7 +463,7 @@ def setup(
     # bookmarks — detect files and write to product workspace
     bm_res = _run(
         "bookmarks",
-        lambda: step_bookmarks(pdir, project_name, product_ws, dry_run),
+        lambda: step_bookmarks(pdir, project_name, workspace_path, dry_run),
     )
     # Show bookmark table in human mode when files were found
     if human and bm_res.details.get("table"):

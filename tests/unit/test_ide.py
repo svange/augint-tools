@@ -501,12 +501,42 @@ class TestBookmarks:
 
     def test_step_bookmarks_no_workspace_file(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
-        res = step_bookmarks(str(tmp_path), "x", None, None)
+        ws_path = str(tmp_path / ".idea" / "workspace.xml")
+        res = step_bookmarks(str(tmp_path), "x", ws_path)
         assert res.status == "action-required"
-        assert "product_workspace_file" in res.missing_inputs
+        assert "workspace.xml" in res.missing_inputs
 
     def test_step_bookmarks_no_files(self, tmp_path: Path) -> None:
-        res = step_bookmarks(str(tmp_path), "x", None, None)
+        ws_path = str(tmp_path / ".idea" / "workspace.xml")
+        res = step_bookmarks(str(tmp_path), "x", ws_path)
+        assert res.status == "skipped"
+
+    def test_step_bookmarks_writes_legacy_format(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
+        (tmp_path / "README.md").write_text("# x\n")
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        ws_path = idea / "workspace.xml"
+        ws_path.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<project version="4"></project>\n'
+        )
+        res = step_bookmarks(str(tmp_path), "x", str(ws_path))
+        assert res.status == "ok"
+        content = ws_path.read_text()
+        assert '<component name="BookmarkManager">' in content
+        assert 'mnemonic="1"' in content
+        assert "pyproject.toml" in content
+
+    def test_step_bookmarks_idempotent(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        ws_path = idea / "workspace.xml"
+        ws_path.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<project version="4"></project>\n'
+        )
+        step_bookmarks(str(tmp_path), "x", str(ws_path))
+        res = step_bookmarks(str(tmp_path), "x", str(ws_path))
         assert res.status == "skipped"
 
     def test_find_product_workspace_file(self, tmp_path: Path) -> None:
@@ -564,6 +594,69 @@ class TestIdeCli:
         assert result.exit_code == 0
         assert "setup" in result.output
         assert "info" in result.output
+        assert "reset" in result.output
+
+    def test_reset_no_product_workspace(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["--json", "ide", "reset", "--project-dir", str(tmp_path), "-y"]
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["command"] == "ide reset"
+        assert data["result"]["deleted"] is False
+
+    def test_init_command_exists(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["init", "--help"])
+        assert result.exit_code == 0
+        assert "wizard" in result.output.lower()
+
+    def test_init_yes_on_empty_dir(self, tmp_path: Path) -> None:
+        # No .idea, no .git, no .venv -- everything should be skipped, no errors
+        runner = CliRunner()
+        result = runner.invoke(cli, ["init", "--project-dir", str(tmp_path), "-y"])
+        # Even with -y, an empty dir should produce only skips
+        assert result.exit_code == 0, result.output
+        assert "Nothing to do" in result.output or "skip" in result.output.lower()
+
+    def test_init_resilient_on_failing_step(self, tmp_path: Path, monkeypatch) -> None:
+        """A step that raises should not stop the wizard."""
+        from augint_tools.cli.commands import init as init_module
+
+        # Monkey-patch one step's run to raise
+        original = init_module._run_module_sdk
+
+        def boom(_c):
+            raise RuntimeError("simulated failure")
+
+        monkeypatch.setattr(init_module, "_run_module_sdk", boom)
+        # Need an applicable iml so the step runs
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        (idea / "test.iml").write_text(
+            '<module type="JAVA_MODULE" version="4">'
+            '<component name="NewModuleRootManager">'
+            '<content url="file://$MODULE_DIR$"/>'
+            "</component></module>"
+        )
+        # Find the step in the list and verify run is patched
+        for step in init_module.INIT_STEPS:
+            if step.id == "module_sdk":
+                step.run = boom
+                break
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["init", "--project-dir", str(tmp_path), "-y"])
+        # Wizard should complete despite the error
+        assert result.exit_code == 0, result.output
+        assert "simulated failure" in result.output
+
+        # Restore so other tests see the real function
+        for step in init_module.INIT_STEPS:
+            if step.id == "module_sdk":
+                step.run = original
+                break
 
     def test_info_json_on_tmp_project(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "sample"\n')

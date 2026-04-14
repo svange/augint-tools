@@ -232,12 +232,38 @@ def build_bookmarks_xml(
     return component
 
 
+def build_legacy_bookmarks_xml(
+    slots: list[BookmarkSlot],
+    project_dir: str,
+) -> ET.Element:
+    """Build an old-format ``BookmarkManager`` component (pre-2022.1).
+
+    IntelliJ's migration code reads this format from workspace.xml and
+    converts it to the new ``BookmarksManager`` format on first load.
+    The mnemonic is stored as a single character (``"1"``..``"0"``).
+    """
+    component = ET.Element("component", name="BookmarkManager")
+    for slot in slots:
+        rel = os.path.relpath(slot.path, project_dir).replace("\\", "/")
+        url = f"file://$PROJECT_DIR$/{rel}"
+        digit = slot.mnemonic.replace("DIGIT_", "")
+        ET.SubElement(
+            component,
+            "bookmark",
+            url=url,
+            line="0",
+            description=slot.label,
+            mnemonic=digit,
+        )
+    return component
+
+
 def inject_bookmarks(
     workspace_file: str,
     component: ET.Element,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Write the BookmarksManager component into the product workspace file.
+    """Write a BookmarksManager or BookmarkManager component into a workspace file.
 
     Returns a dict describing what happened: ``{"action": "created"|"replaced", ...}``.
     """
@@ -247,8 +273,8 @@ def inject_bookmarks(
     if tree is None or root is None:
         return {"action": "error", "reason": f"Could not read {workspace_file}"}
 
-    # Remove existing BookmarksManager if present
-    existing = root.find('.//component[@name="BookmarksManager"]')
+    comp_name = component.get("name", "")
+    existing = root.find(f'.//component[@name="{comp_name}"]')
     replaced = existing is not None
     if existing is not None:
         root.remove(existing)

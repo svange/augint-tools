@@ -105,9 +105,7 @@ def find_iml_file(project_dir: str) -> str | None:
     modules_xml = os.path.join(project_dir, ".idea", "modules.xml")
     if os.path.exists(modules_xml):
         try:
-            tree = ET.parse(
-                modules_xml
-            )  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
+            tree = defused_ET.parse(modules_xml)
             for mod in tree.findall(".//module"):
                 filepath = mod.get("filepath", "")
                 resolved = filepath.replace("$PROJECT_DIR$", project_dir)

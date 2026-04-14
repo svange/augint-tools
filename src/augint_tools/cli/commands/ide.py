@@ -26,6 +26,7 @@ from augint_tools.ide.detect import (
     find_iml_file,
     find_jb_options_dir,
     parse_dotenv,
+    resolve_product_workspace,
     resolve_windows_paths,
     upsert_dotenv,
 )
@@ -213,6 +214,7 @@ def setup(
         pdir, vpath, workspace_path, windows_project_dir
     )
     jb_options = find_jb_options_dir()
+    product_ws = resolve_product_workspace(jb_options, workspace_path)
 
     # Always show header in human mode (not just interactive)
     if human:
@@ -228,6 +230,12 @@ def setup(
             click.echo(f"  Win path : {win_proj}")
         if jb_options:
             click.echo(f"  JB config: {jb_options}")
+        if product_ws:
+            click.echo(f"  Prod WS  : {product_ws}")
+        else:
+            click.echo(
+                click.style("  Prod WS  : (not found — open project in IDEA first)", fg="yellow")
+            )
         if dry_run:
             click.echo(click.style("  Mode     : dry-run (no files will be written)", fg="cyan"))
         click.echo("")
@@ -243,7 +251,9 @@ def setup(
         _echo(res, human)
         return res
 
-    results.append(_run("terminal", lambda: step_terminal_right(workspace_path, dry_run)))
+    results.append(
+        _run("terminal", lambda: step_terminal_right(workspace_path, product_ws, dry_run))
+    )
     results.append(
         _run("module_sdk", lambda: step_module_sdk(iml_path, effective_sdk_name, dry_run))
     )
@@ -263,7 +273,7 @@ def setup(
         _echo(tasks_res, human)
     else:
         token = env.get("GH_TOKEN") or os.environ.get("GH_TOKEN", "")
-        tasks_res = step_github_tasks(workspace_path, pdir, token, dry_run)
+        tasks_res = step_github_tasks(workspace_path, pdir, token, product_ws, dry_run)
         _echo(tasks_res, human)
         if (
             interactive
@@ -274,7 +284,7 @@ def setup(
             if new_token:
                 env["GH_TOKEN"] = new_token
                 os.environ["GH_TOKEN"] = new_token
-                tasks_res = step_github_tasks(workspace_path, pdir, new_token, dry_run)
+                tasks_res = step_github_tasks(workspace_path, pdir, new_token, product_ws, dry_run)
                 _echo(tasks_res, human, retried=True)
     results.append(tasks_res)
 
@@ -310,7 +320,7 @@ def setup(
     # bookmarks — detect files and write to product workspace
     bm_res = _run(
         "bookmarks",
-        lambda: step_bookmarks(pdir, project_name, jb_options, win_proj, dry_run),
+        lambda: step_bookmarks(pdir, project_name, product_ws, dry_run),
     )
     # Show bookmark table in human mode when files were found
     if human and bm_res.details.get("table"):

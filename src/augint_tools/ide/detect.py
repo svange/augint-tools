@@ -124,6 +124,52 @@ def find_iml_file(project_dir: str) -> str | None:
     return root_matches[0] if root_matches else None
 
 
+def extract_project_id(workspace_xml_path: str) -> str | None:
+    """Read the IntelliJ ProjectId from ``.idea/workspace.xml``.
+
+    Returns the KSUID string (e.g. ``3CMMpoDrUzSqpNU3YNAXkZ3w9gH``) used to
+    name the product workspace file, or ``None`` if workspace.xml is absent or
+    doesn't contain a ProjectId component.
+    """
+    if not os.path.exists(workspace_xml_path):
+        return None
+    try:
+        tree = defused_ET.parse(workspace_xml_path)
+        root = tree.getroot()
+    except ET.ParseError:
+        return None
+    if root is None:
+        return None
+    comp = find_component(root, "ProjectId")
+    if comp is not None:
+        pid = comp.get("id")
+        if pid:
+            return pid
+    return None
+
+
+def resolve_product_workspace(
+    jb_options_dir: str | None,
+    workspace_xml_path: str,
+) -> str | None:
+    """Locate the IntelliJ product workspace file for this project.
+
+    Reads the ``ProjectId`` from ``.idea/workspace.xml`` and looks for
+    ``{config_root}/workspace/{project_id}.xml``.  Returns the path if it
+    exists, else ``None``.
+    """
+    if jb_options_dir is None:
+        return None
+    project_id = extract_project_id(workspace_xml_path)
+    if project_id is None:
+        return None
+    config_root = os.path.dirname(jb_options_dir)
+    candidate = os.path.join(config_root, "workspace", f"{project_id}.xml")
+    if os.path.exists(candidate):
+        return candidate
+    return None
+
+
 def parse_git_remote(project_dir: str) -> tuple[str, str, str] | None:
     """Return ``(owner, repo, canonical_url)`` for origin, or None if absent."""
     cfg_path = os.path.join(project_dir, ".git", "config")

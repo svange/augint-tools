@@ -95,9 +95,14 @@ def _action_required(
 # ---------------------------------------------------------------------------
 
 
-def step_terminal_right(workspace_path: str, dry_run: bool = False) -> StepResult:
-    name = "terminal"
-    tree, root = read_xml(workspace_path)
+def _apply_terminal_right(path: str, dry_run: bool) -> str:
+    """Set Terminal anchor=right in a workspace-like XML file.
+
+    Returns ``"ok"`` if modified, ``"skipped"`` if already correct,
+    ``"created"`` if the file was created from scratch.
+    """
+    tree, root = read_xml(path)
+    created = tree is None
     if tree is None or root is None:
         tree, root = minimal_project_xml()
 
@@ -109,7 +114,7 @@ def step_terminal_right(workspace_path: str, dry_run: bool = False) -> StepResul
     existing = layout.find('.//window_info[@id="Terminal"]')
     if existing is not None:
         if existing.get("anchor") == "right" and existing.get("side_tool") == "false":
-            return _skipped(name, "Terminal already anchored to right")
+            return "skipped"
         existing.set("anchor", "right")
         existing.set("side_tool", "false")
     else:
@@ -122,8 +127,32 @@ def step_terminal_right(workspace_path: str, dry_run: bool = False) -> StepResul
             order="7",
         )
 
-    write_xml(tree, workspace_path, dry_run)
-    return _ok(name, "Terminal anchor set to right")
+    write_xml(tree, path, dry_run)
+    return "created" if created else "ok"
+
+
+def step_terminal_right(
+    workspace_path: str,
+    product_workspace_path: str | None = None,
+    dry_run: bool = False,
+) -> StepResult:
+    name = "terminal"
+
+    # Write to product workspace file (what IDEA actually reads in 2022.1+)
+    if product_workspace_path:
+        pw_status = _apply_terminal_right(product_workspace_path, dry_run)
+    else:
+        pw_status = None
+
+    # Also write to .idea/workspace.xml (seed for new projects)
+    ws_status = _apply_terminal_right(workspace_path, dry_run)
+
+    if pw_status == "skipped" and ws_status == "skipped":
+        return _skipped(name, "Terminal already anchored to right")
+    if pw_status in ("ok", "created") or ws_status in ("ok", "created"):
+        where = "product workspace + workspace.xml" if pw_status else "workspace.xml"
+        return _ok(name, f"Terminal anchor set to right ({where})")
+    return _skipped(name, "Terminal already anchored to right")
 
 
 # ---------------------------------------------------------------------------
@@ -299,20 +328,19 @@ def step_project_sdk(misc_path: str, sdk_name: str, dry_run: bool = False) -> St
 # ---------------------------------------------------------------------------
 
 
-def step_github_tasks(
-    workspace_path: str,
-    project_dir: str,
-    gh_token: str | None,
-    dry_run: bool = False,
-) -> StepResult:
-    name = "github_tasks"
-    remote = parse_git_remote(project_dir)
-    if remote is None:
-        return _skipped(name, "No GitHub remote origin found in .git/config")
+def _apply_github_tasks(
+    path: str,
+    owner: str,
+    repo: str,
+    canonical_url: str,
+    gh_token: str,
+    dry_run: bool,
+) -> str:
+    """Add a GitHub Tasks server entry to a workspace-like XML file.
 
-    owner, repo, canonical_url = remote
-
-    tree, root = read_xml(workspace_path)
+    Returns ``"ok"`` if added, ``"skipped"`` if already present.
+    """
+    tree, root = read_xml(path)
     if tree is None or root is None:
         tree, root = minimal_project_xml()
 
@@ -323,19 +351,7 @@ def step_github_tasks(
 
     for server in servers.findall("server"):
         if server.get("url") == canonical_url:
-            return _skipped(name, f"GitHub server already configured for {canonical_url}")
-
-    if not gh_token:
-        return _action_required(
-            name,
-            f"GH_TOKEN not found; cannot configure Tasks server for {canonical_url}",
-            missing_inputs=["GH_TOKEN"],
-            next_action=(
-                "Create a token at "
-                "https://github.com/settings/tokens/new?scopes=repo,read:user&description=IntelliJ+Tasks "
-                "and add GH_TOKEN=<token> to .env"
-            ),
-        )
+            return "skipped"
 
     server_el = ET.SubElement(
         servers,
@@ -350,14 +366,58 @@ def step_github_tasks(
     ET.SubElement(server_el, "option", name="repoAuthor", value=owner)
     ET.SubElement(server_el, "option", name="repoName", value=repo)
 
-    write_xml(tree, workspace_path, dry_run)
-    return _ok(
-        name,
-        f"GitHub Tasks server added for {canonical_url}",
-        url=canonical_url,
-        owner=owner,
-        repo=repo,
-    )
+    write_xml(tree, path, dry_run)
+    return "ok"
+
+
+def step_github_tasks(
+    workspace_path: str,
+    project_dir: str,
+    gh_token: str | None,
+    product_workspace_path: str | None = None,
+    dry_run: bool = False,
+) -> StepResult:
+    name = "github_tasks"
+    remote = parse_git_remote(project_dir)
+    if remote is None:
+        return _skipped(name, "No GitHub remote origin found in .git/config")
+
+    owner, repo, canonical_url = remote
+
+    if not gh_token:
+        return _action_required(
+            name,
+            f"GH_TOKEN not found; cannot configure Tasks server for {canonical_url}",
+            missing_inputs=["GH_TOKEN"],
+            next_action=(
+                "Create a token at "
+                "https://github.com/settings/tokens/new?scopes=repo,read:user&description=IntelliJ+Tasks "
+                "and add GH_TOKEN=<token> to .env"
+            ),
+        )
+
+    # Write to product workspace file (what IDEA reads in 2022.1+)
+    pw_status = None
+    if product_workspace_path:
+        pw_status = _apply_github_tasks(
+            product_workspace_path, owner, repo, canonical_url, gh_token, dry_run
+        )
+
+    # Also write to .idea/workspace.xml (seed for new projects)
+    ws_status = _apply_github_tasks(workspace_path, owner, repo, canonical_url, gh_token, dry_run)
+
+    if pw_status == "skipped" and ws_status == "skipped":
+        return _skipped(name, f"GitHub server already configured for {canonical_url}")
+    if pw_status == "ok" or ws_status == "ok":
+        return _ok(
+            name,
+            f"GitHub Tasks server added for {canonical_url}",
+            url=canonical_url,
+            owner=owner,
+            repo=repo,
+        )
+
+    return _skipped(name, f"GitHub server already configured for {canonical_url}")
 
 
 # ---------------------------------------------------------------------------
@@ -444,15 +504,13 @@ def step_jdk_table(
 def step_bookmarks(
     project_dir: str,
     project_name: str,
-    jb_options_dir: str | None,
-    win_project_dir: str | None,
+    product_workspace_path: str | None,
     dry_run: bool = False,
 ) -> StepResult:
     from augint_tools.ide.bookmarks import (
         bookmarks_already_set,
         build_bookmarks_xml,
         discover_bookmarks,
-        find_product_workspace_file,
         format_bookmark_table,
         inject_bookmarks,
     )
@@ -464,8 +522,7 @@ def step_bookmarks(
         return _skipped(name, "No bookmarkable files found in project")
 
     table = format_bookmark_table(slots)
-    ws_file = find_product_workspace_file(jb_options_dir, win_project_dir, project_name)
-    if ws_file is None:
+    if product_workspace_path is None:
         result = _action_required(
             name,
             f"Found {len(slots)} files to bookmark but cannot locate product workspace file",
@@ -481,7 +538,7 @@ def step_bookmarks(
         }
         return result
 
-    if bookmarks_already_set(ws_file, slots, project_dir):
+    if bookmarks_already_set(product_workspace_path, slots, project_dir):
         return _skipped(
             name,
             f"{len(slots)} mnemonic bookmarks already configured",
@@ -489,7 +546,7 @@ def step_bookmarks(
         )
 
     component = build_bookmarks_xml(slots, project_dir, group_name=project_name)
-    inject_result = inject_bookmarks(ws_file, component, dry_run)
+    inject_result = inject_bookmarks(product_workspace_path, component, dry_run)
 
     if inject_result.get("action") == "error":
         return _error(name, inject_result.get("reason", "Failed to write bookmarks"))
@@ -499,6 +556,6 @@ def step_bookmarks(
         f"{len(slots)} mnemonic bookmarks {'would be ' if dry_run else ''}set",
         bookmarks=[{"mnemonic": s.mnemonic, "file": s.rel} for s in slots],
         table=table,
-        workspace_file=ws_file,
+        workspace_file=product_workspace_path,
         action=inject_result["action"],
     )

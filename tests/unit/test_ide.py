@@ -346,16 +346,7 @@ class TestSteps:
         res = step_github_tasks(ws, str(idea_project), "ghp_x")
         assert res.status == "skipped"
 
-    def test_github_tasks_no_token_action_required(self, idea_project: Path) -> None:
-        git = idea_project / ".git"
-        git.mkdir()
-        (git / "config").write_text('[remote "origin"]\n\turl = git@github.com:octo/hello.git\n')
-        ws = str(idea_project / ".idea" / "workspace.xml")
-        res = step_github_tasks(ws, str(idea_project), None)
-        assert res.status == "action-required"
-        assert "GH_TOKEN" in res.missing_inputs
-
-    def test_github_tasks_with_token_writes_server(self, idea_project: Path) -> None:
+    def test_github_tasks_writes_native_format(self, idea_project: Path) -> None:
         git = idea_project / ".git"
         git.mkdir()
         (git / "config").write_text('[remote "origin"]\n\turl = git@github.com:octo/hello.git\n')
@@ -363,8 +354,22 @@ class TestSteps:
         res = step_github_tasks(ws, str(idea_project), "ghp_secret")
         assert res.status == "ok"
         content = Path(ws).read_text()
-        assert "GitHubRepositoryType" in content
-        assert 'value="ghp_secret"' in content
+        # Uses native <GitHub> tag, not <server>
+        assert "<GitHub " in content
+        assert 'url="https://github.com"' in content
+        assert 'value="octo"' in content
+        assert 'value="hello"' in content
+        # Token IS stored in XML (IDEA reads it, then moves to OS keyring)
+        assert "ghp_secret" in content
+
+    def test_github_tasks_idempotent(self, idea_project: Path) -> None:
+        git = idea_project / ".git"
+        git.mkdir()
+        (git / "config").write_text('[remote "origin"]\n\turl = git@github.com:octo/hello.git\n')
+        ws = str(idea_project / ".idea" / "workspace.xml")
+        step_github_tasks(ws, str(idea_project), "ghp_secret")
+        res = step_github_tasks(ws, str(idea_project), "ghp_secret")
+        assert res.status == "skipped"
 
     def test_jdk_table_no_options_dir_action_required(self) -> None:
         res = step_jdk_table(None, "Python 3.12", "3.12.0", None, None)

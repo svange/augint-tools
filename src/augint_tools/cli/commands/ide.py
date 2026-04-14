@@ -143,6 +143,9 @@ def info(ctx: click.Context, project_dir: str, venv_path: str | None) -> None:
     help=f"Comma-separated steps to skip ({','.join(ALL_STEPS)}).",
 )
 @click.option("--dry-run", is_flag=True, default=False, help="Show planned edits without writing.")
+@click.option(
+    "-v", "--verbose", is_flag=True, default=False, help="Show debug details for each step."
+)
 @click.pass_context
 def setup(
     ctx: click.Context,
@@ -153,11 +156,12 @@ def setup(
     windows_project_dir: str | None,
     skip: str | None,
     dry_run: bool,
+    verbose: bool,
 ) -> None:
     """Configure IntelliJ IDEA for a Python project.
 
-    Applies up to six steps: terminal panel, module SDK, project structure,
-    project SDK, GitHub Tasks server, and global SDK registration.
+    Applies up to seven steps: terminal panel, module SDK, project structure,
+    project SDK, GitHub Tasks server, global SDK registration, and bookmarks.
     """
     opts = _get_output_opts(ctx)
     pdir = os.path.realpath(project_dir)
@@ -216,6 +220,44 @@ def setup(
     jb_options = find_jb_options_dir()
     product_ws = resolve_product_workspace(jb_options, workspace_path)
 
+    if verbose and human:
+        from augint_tools.ide.detect import extract_project_id
+
+        pid = extract_project_id(workspace_path)
+        click.echo(click.style("  [debug] Detection details:", fg="bright_black"))
+        click.echo(
+            click.style(
+                f"    workspace.xml  : {workspace_path} (exists={os.path.exists(workspace_path)})",
+                fg="bright_black",
+            )
+        )
+        click.echo(click.style(f"    ProjectId      : {pid or '(none)'}", fg="bright_black"))
+        if jb_options:
+            config_root = os.path.dirname(jb_options)
+            ws_dir = os.path.join(config_root, "workspace")
+            click.echo(
+                click.style(
+                    f"    workspace dir  : {ws_dir} (exists={os.path.isdir(ws_dir)})",
+                    fg="bright_black",
+                )
+            )
+            if pid:
+                candidate = os.path.join(ws_dir, f"{pid}.xml")
+                click.echo(
+                    click.style(
+                        f"    candidate file : {candidate} (exists={os.path.exists(candidate)})",
+                        fg="bright_black",
+                    )
+                )
+        click.echo(click.style(f"    product_ws     : {product_ws or '(none)'}", fg="bright_black"))
+        click.echo(
+            click.style(
+                f"    GH_TOKEN       : {'set' if env.get('GH_TOKEN') or os.environ.get('GH_TOKEN') else 'not set'}",
+                fg="bright_black",
+            )
+        )
+        click.echo("")
+
     # Always show header in human mode (not just interactive)
     if human:
         click.echo(click.style("IntelliJ IDEA Project Setup", bold=True))
@@ -242,6 +284,10 @@ def setup(
 
     results: list[StepResult] = []
 
+    def _dbg(msg: str) -> None:
+        if verbose and human:
+            click.echo(click.style(f"    [debug] {msg}", fg="bright_black"))
+
     def _run(step_name: str, fn: Callable[[], StepResult]) -> StepResult:
         if step_name in skip_set:
             res = StepResult(name=step_name, status="skipped", message="skipped via --skip")
@@ -249,6 +295,11 @@ def setup(
             return res
         res = fn()
         _echo(res, human)
+        if verbose and human and res.details:
+            for k, v in res.details.items():
+                if k == "table":
+                    continue  # shown separately
+                _dbg(f"{k}={v}")
         return res
 
     results.append(
@@ -267,26 +318,14 @@ def setup(
         _run("project_sdk", lambda: step_project_sdk(misc_path, effective_sdk_name, dry_run))
     )
 
-    # github_tasks — interactive: prompt for token on action-required and retry once
-    if "github_tasks" in skip_set:
-        tasks_res = StepResult(name="github_tasks", status="skipped", message="skipped via --skip")
-        _echo(tasks_res, human)
-    else:
-        token = env.get("GH_TOKEN") or os.environ.get("GH_TOKEN", "")
-        tasks_res = step_github_tasks(workspace_path, pdir, token, product_ws, dry_run)
-        _echo(tasks_res, human)
-        if (
-            interactive
-            and tasks_res.status == "action-required"
-            and "GH_TOKEN" in tasks_res.missing_inputs
-        ):
-            new_token = _prompt_gh_token(pdir)
-            if new_token:
-                env["GH_TOKEN"] = new_token
-                os.environ["GH_TOKEN"] = new_token
-                tasks_res = step_github_tasks(workspace_path, pdir, new_token, product_ws, dry_run)
-                _echo(tasks_res, human, retried=True)
-    results.append(tasks_res)
+    # github_tasks — token not stored in XML; IDEA uses OS keyring
+    gh_token = env.get("GH_TOKEN") or os.environ.get("GH_TOKEN", "")
+    results.append(
+        _run(
+            "github_tasks",
+            lambda: step_github_tasks(workspace_path, pdir, gh_token, product_ws, dry_run),
+        )
+    )
 
     # jdk_table — interactive: prompt for windows path on action-required and retry once
     if "jdk_table" in skip_set:

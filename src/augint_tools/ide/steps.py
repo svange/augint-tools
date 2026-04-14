@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import glob
 import os
-import uuid
 import xml.etree.ElementTree as ET  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
 from dataclasses import dataclass, field
 from typing import Any
@@ -332,11 +331,14 @@ def _apply_github_tasks(
     path: str,
     owner: str,
     repo: str,
-    canonical_url: str,
-    gh_token: str,
+    gh_token: str | None,
     dry_run: bool,
 ) -> str:
-    """Add a GitHub Tasks server entry to a workspace-like XML file.
+    """Add a GitHub Tasks server entry using IDEA's native ``<GitHub>`` format.
+
+    When ``gh_token`` is provided it is written as an ``<option>`` element.
+    IDEA reads the token on first load, then moves it to the OS keyring and
+    removes it from the XML on next save.
 
     Returns ``"ok"`` if added, ``"skipped"`` if already present.
     """
@@ -349,22 +351,30 @@ def _apply_github_tasks(
     if servers is None:
         servers = ET.SubElement(task_mgr, "servers")
 
-    for server in servers.findall("server"):
-        if server.get("url") == canonical_url:
+    # Check for existing <GitHub> entry matching this repo
+    for gh in servers.findall("GitHub"):
+        author_opt = gh.find('option[@name="repoAuthor"]')
+        name_opt = gh.find('option[@name="repoName"]')
+        if (
+            author_opt is not None
+            and name_opt is not None
+            and author_opt.get("value") == owner
+            and name_opt.get("value") == repo
+        ):
             return "skipped"
 
-    server_el = ET.SubElement(
-        servers,
-        "server",
-        id=str(uuid.uuid4()),
-        serverClass="com.intellij.tasks.github.GitHubRepositoryType",
-        url=canonical_url,
-        shared="false",
-        shouldFormatCommitMessage="false",
-    )
-    ET.SubElement(server_el, "option", name="token", value=gh_token)
-    ET.SubElement(server_el, "option", name="repoAuthor", value=owner)
-    ET.SubElement(server_el, "option", name="repoName", value=repo)
+    # Remove any old-format <server> entries for this repo
+    canonical_url = f"https://github.com/{owner}/{repo}"
+    for old_server in list(servers.findall("server")):
+        if old_server.get("url") == canonical_url:
+            servers.remove(old_server)
+
+    # Write native <GitHub> format (what IDEA generates)
+    gh_el = ET.SubElement(servers, "GitHub", url="https://github.com")
+    ET.SubElement(gh_el, "option", name="repoAuthor", value=owner)
+    ET.SubElement(gh_el, "option", name="repoName", value=repo)
+    if gh_token:
+        ET.SubElement(gh_el, "option", name="token", value=gh_token)
 
     write_xml(tree, path, dry_run)
     return "ok"
@@ -384,34 +394,24 @@ def step_github_tasks(
 
     owner, repo, canonical_url = remote
 
-    if not gh_token:
-        return _action_required(
-            name,
-            f"GH_TOKEN not found; cannot configure Tasks server for {canonical_url}",
-            missing_inputs=["GH_TOKEN"],
-            next_action=(
-                "Create a token at "
-                "https://github.com/settings/tokens/new?scopes=repo,read:user&description=IntelliJ+Tasks "
-                "and add GH_TOKEN=<token> to .env"
-            ),
-        )
-
     # Write to product workspace file (what IDEA reads in 2022.1+)
     pw_status = None
     if product_workspace_path:
-        pw_status = _apply_github_tasks(
-            product_workspace_path, owner, repo, canonical_url, gh_token, dry_run
-        )
+        pw_status = _apply_github_tasks(product_workspace_path, owner, repo, gh_token, dry_run)
 
     # Also write to .idea/workspace.xml (seed for new projects)
-    ws_status = _apply_github_tasks(workspace_path, owner, repo, canonical_url, gh_token, dry_run)
+    ws_status = _apply_github_tasks(workspace_path, owner, repo, gh_token, dry_run)
 
     if pw_status == "skipped" and ws_status == "skipped":
         return _skipped(name, f"GitHub server already configured for {canonical_url}")
+
     if pw_status == "ok" or ws_status == "ok":
+        token_note = (
+            " (with token from .env)" if gh_token else " (no token -- enter manually in IDEA)"
+        )
         return _ok(
             name,
-            f"GitHub Tasks server added for {canonical_url}",
+            f"GitHub Tasks server added for {canonical_url}{token_note}",
             url=canonical_url,
             owner=owner,
             repo=repo,
@@ -543,6 +543,7 @@ def step_bookmarks(
             name,
             f"{len(slots)} mnemonic bookmarks already configured",
             bookmarks=[{"mnemonic": s.mnemonic, "file": s.rel} for s in slots],
+            table=table,
         )
 
     component = build_bookmarks_xml(slots, project_dir, group_name=project_name)

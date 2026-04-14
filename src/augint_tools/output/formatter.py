@@ -180,6 +180,34 @@ def _format_check_run(result: dict[str, Any]) -> None:
             click.echo(f"      {failure}")
 
 
+def _format_ide_info(result: dict[str, Any]) -> None:
+    click.echo(f"  Project : {result.get('project_name', '?')}")
+    click.echo(f"  Venv    : {result.get('venv_path', '?')}")
+    click.echo(f"  Python  : {result.get('python_version', '?')}")
+    click.echo(f"  SDK name: {result.get('sdk_name', '?')}")
+    iml = result.get("iml_path")
+    click.echo(f"  IML file: {iml or click.style('(none)', fg='yellow')}")
+    click.echo(
+        f"  .idea/  : {'exists' if result.get('idea_dir_exists') else click.style('missing', fg='yellow')}"
+    )
+    win_proj = result.get("windows_project_dir")
+    if win_proj:
+        click.echo(f"  Win path: {win_proj}")
+    jb = result.get("jb_options_dir")
+    if jb:
+        click.echo(f"  JB cfg  : {jb}")
+    gh = result.get("gh_token_present")
+    click.echo(f"  GH_TOKEN: {'set' if gh else click.style('not set', fg='yellow')}")
+
+
+def _format_ide_setup(result: dict[str, Any]) -> None:
+    # Step details were already printed line-by-line during execution.
+    # Only show the SDK name hint for quick reference.
+    sdk = result.get("sdk_name")
+    if sdk:
+        click.echo(f"  SDK name to use in IDEA: {click.style(sdk, bold=True)}")
+
+
 # Command -> formatter registry
 _HUMAN_FORMATTERS: dict[str, Any] = {
     "repo status": _format_repo_status,
@@ -189,6 +217,8 @@ _HUMAN_FORMATTERS: dict[str, Any] = {
     "workspace branch": _format_branch,
     "workspace check": _format_check_run,
     "workspace foreach": _format_foreach,
+    "ide info": _format_ide_info,
+    "ide setup": _format_ide_setup,
 }
 
 

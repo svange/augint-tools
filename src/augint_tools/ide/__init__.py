@@ -3,6 +3,7 @@
 from augint_tools.ide.steps import (
     ALWAYS_EXCLUDE,
     StepResult,
+    step_bookmarks,
     step_github_tasks,
     step_jdk_table,
     step_module_sdk,
@@ -14,6 +15,7 @@ from augint_tools.ide.steps import (
 __all__ = [
     "ALWAYS_EXCLUDE",
     "StepResult",
+    "step_bookmarks",
     "step_github_tasks",
     "step_jdk_table",
     "step_module_sdk",

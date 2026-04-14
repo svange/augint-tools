@@ -12,6 +12,7 @@ import click
 
 from augint_tools.ide import (
     StepResult,
+    step_bookmarks,
     step_github_tasks,
     step_jdk_table,
     step_module_sdk,
@@ -37,6 +38,7 @@ ALL_STEPS = [
     "project_sdk",
     "github_tasks",
     "jdk_table",
+    "bookmarks",
 ]
 
 
@@ -47,6 +49,10 @@ def _get_output_opts(ctx: click.Context) -> dict[str, Any]:
         "actionable": obj.get("actionable", False),
         "summary_only": obj.get("summary_only", False),
     }
+
+
+def _is_json(ctx: click.Context) -> bool:
+    return bool((ctx.obj or {}).get("json_mode", False))
 
 
 @click.group()
@@ -178,6 +184,9 @@ def setup(
         )
         sys.exit(1)
 
+    json_mode = _is_json(ctx)
+    human = not json_mode
+
     warnings: list[str] = []
     if _idea_running():
         msg = "IntelliJ IDEA appears to be running; changes may be overwritten on exit"
@@ -205,17 +214,22 @@ def setup(
     )
     jb_options = find_jb_options_dir()
 
-    if interactive:
+    # Always show header in human mode (not just interactive)
+    if human:
         click.echo(click.style("IntelliJ IDEA Project Setup", bold=True))
         click.echo(f"  Project  : {pdir}")
         click.echo(f"  SDK name : {effective_sdk_name}")
         click.echo(f"  Python   : {full_ver}")
+        if iml_path:
+            click.echo(f"  IML file : {iml_path}")
+        else:
+            click.echo(click.style("  IML file : (none found)", fg="yellow"))
         if win_proj:
             click.echo(f"  Win path : {win_proj}")
         if jb_options:
             click.echo(f"  JB config: {jb_options}")
         if dry_run:
-            click.echo(click.style("  [dry-run — no files will be written]", fg="cyan"))
+            click.echo(click.style("  Mode     : dry-run (no files will be written)", fg="cyan"))
         click.echo("")
 
     results: list[StepResult] = []
@@ -223,10 +237,10 @@ def setup(
     def _run(step_name: str, fn: Callable[[], StepResult]) -> StepResult:
         if step_name in skip_set:
             res = StepResult(name=step_name, status="skipped", message="skipped via --skip")
-            _echo(res, interactive)
+            _echo(res, human)
             return res
         res = fn()
-        _echo(res, interactive)
+        _echo(res, human)
         return res
 
     results.append(_run("terminal", lambda: step_terminal_right(workspace_path, dry_run)))
@@ -246,11 +260,11 @@ def setup(
     # github_tasks — interactive: prompt for token on action-required and retry once
     if "github_tasks" in skip_set:
         tasks_res = StepResult(name="github_tasks", status="skipped", message="skipped via --skip")
-        _echo(tasks_res, interactive)
+        _echo(tasks_res, human)
     else:
         token = env.get("GH_TOKEN") or os.environ.get("GH_TOKEN", "")
         tasks_res = step_github_tasks(workspace_path, pdir, token, dry_run)
-        _echo(tasks_res, interactive)
+        _echo(tasks_res, human)
         if (
             interactive
             and tasks_res.status == "action-required"
@@ -261,27 +275,28 @@ def setup(
                 env["GH_TOKEN"] = new_token
                 os.environ["GH_TOKEN"] = new_token
                 tasks_res = step_github_tasks(workspace_path, pdir, new_token, dry_run)
-                _echo(tasks_res, interactive, retried=True)
+                _echo(tasks_res, human, retried=True)
     results.append(tasks_res)
 
     # jdk_table — interactive: prompt for windows path on action-required and retry once
     if "jdk_table" in skip_set:
         jdk_res = StepResult(name="jdk_table", status="skipped", message="skipped via --skip")
-        _echo(jdk_res, interactive)
+        _echo(jdk_res, human)
     else:
         jdk_res = step_jdk_table(
             jb_options, effective_sdk_name, full_ver, win_python, win_venv, dry_run
         )
-        _echo(jdk_res, interactive)
+        _echo(jdk_res, human)
         if (
             interactive
             and jdk_res.status == "action-required"
             and "windows_project_dir" in jdk_res.missing_inputs
         ):
-            new_win = click.prompt(
+            raw_win: str = click.prompt(
                 "  Windows project path (e.g. C:/Users/you/projects/foo)",
                 type=str,
-            ).strip()
+            )
+            new_win = raw_win.strip()
             if new_win:
                 win_proj, win_venv, win_python = resolve_windows_paths(
                     pdir, vpath, workspace_path, new_win
@@ -289,8 +304,22 @@ def setup(
                 jdk_res = step_jdk_table(
                     jb_options, effective_sdk_name, full_ver, win_python, win_venv, dry_run
                 )
-                _echo(jdk_res, interactive, retried=True)
+                _echo(jdk_res, human, retried=True)
     results.append(jdk_res)
+
+    # bookmarks — detect files and write to product workspace
+    bm_res = _run(
+        "bookmarks",
+        lambda: step_bookmarks(pdir, project_name, jb_options, win_proj, dry_run),
+    )
+    # Show bookmark table in human mode when files were found
+    if human and bm_res.details.get("table"):
+        for line in bm_res.details["table"]:
+            click.echo(line)
+    results.append(bm_res)
+
+    if human:
+        click.echo("")  # blank line before final summary
 
     response = _aggregate(results, warnings, pdir, effective_sdk_name, full_ver, dry_run)
     emit_response(response, **opts)
@@ -317,8 +346,9 @@ def _idea_running() -> bool:
         return False
 
 
-def _echo(result: StepResult, interactive: bool, retried: bool = False) -> None:
-    if not interactive:
+def _echo(result: StepResult, human: bool, retried: bool = False) -> None:
+    """Print a per-step progress line in human (non-JSON) mode."""
+    if not human:
         return
     prefix = "    " if retried else "  "
     if result.status == "ok":

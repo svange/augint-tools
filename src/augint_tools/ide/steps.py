@@ -134,7 +134,7 @@ def step_terminal_right(workspace_path: str, dry_run: bool = False) -> StepResul
 def step_module_sdk(iml_path: str | None, sdk_name: str, dry_run: bool = False) -> StepResult:
     name = "module_sdk"
     if iml_path is None:
-        return _error(name, "No .iml file found in project root")
+        return _error(name, "No .iml file found")
 
     tree, root = read_xml(iml_path)
     if tree is None or root is None:
@@ -144,15 +144,28 @@ def step_module_sdk(iml_path: str | None, sdk_name: str, dry_run: bool = False) 
     if comp is None:
         return _error(name, f"NewModuleRootManager not found in {iml_path}")
 
-    existing = comp.find('.//orderEntry[@type="jdk"]')
-    if existing is not None:
-        if existing.get("jdkName") == sdk_name and existing.get("jdkType") == "Python SDK":
+    # Check for explicit SDK assignment (type="jdk")
+    existing_jdk = comp.find('.//orderEntry[@type="jdk"]')
+    if existing_jdk is not None:
+        if existing_jdk.get("jdkName") == sdk_name and existing_jdk.get("jdkType") == "Python SDK":
             return _skipped(name, f"Module SDK already set to '{sdk_name}'")
-        existing.set("jdkName", sdk_name)
-        existing.set("jdkType", "Python SDK")
-    else:
-        ET.SubElement(comp, "orderEntry", type="jdk", jdkName=sdk_name, jdkType="Python SDK")
+        existing_jdk.set("jdkName", sdk_name)
+        existing_jdk.set("jdkType", "Python SDK")
+        write_xml(tree, iml_path, dry_run)
+        return _ok(name, f"Module SDK set to '{sdk_name}'", sdk_name=sdk_name)
 
+    # Check for inherited SDK (type="inheritedJdk") — module uses the project SDK.
+    # This is the default IDEA layout and is correct when the project SDK is set.
+    inherited = comp.find('.//orderEntry[@type="inheritedJdk"]')
+    if inherited is not None:
+        return _skipped(
+            name,
+            f"Module inherits project SDK (set via misc.xml to '{sdk_name}')",
+            inherited=True,
+        )
+
+    # No SDK entry at all — add one
+    ET.SubElement(comp, "orderEntry", type="jdk", jdkName=sdk_name, jdkType="Python SDK")
     write_xml(tree, iml_path, dry_run)
     return _ok(name, f"Module SDK set to '{sdk_name}'", sdk_name=sdk_name)
 
@@ -170,7 +183,7 @@ def step_project_structure(
 ) -> StepResult:
     name = "structure"
     if iml_path is None:
-        return _error(name, "No .iml file found in project root")
+        return _error(name, "No .iml file found")
 
     tree, root = read_xml(iml_path)
     if tree is None or root is None:
@@ -420,4 +433,72 @@ def step_jdk_table(
         f"SDK '{sdk_name}' registered in {jdk_table_path}",
         sdk_name=sdk_name,
         jdk_table_path=jdk_table_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Step 7: Mnemonic bookmarks (product workspace file)
+# ---------------------------------------------------------------------------
+
+
+def step_bookmarks(
+    project_dir: str,
+    project_name: str,
+    jb_options_dir: str | None,
+    win_project_dir: str | None,
+    dry_run: bool = False,
+) -> StepResult:
+    from augint_tools.ide.bookmarks import (
+        bookmarks_already_set,
+        build_bookmarks_xml,
+        discover_bookmarks,
+        find_product_workspace_file,
+        format_bookmark_table,
+        inject_bookmarks,
+    )
+
+    name = "bookmarks"
+
+    slots = discover_bookmarks(project_dir)
+    if not slots:
+        return _skipped(name, "No bookmarkable files found in project")
+
+    table = format_bookmark_table(slots)
+    ws_file = find_product_workspace_file(jb_options_dir, win_project_dir, project_name)
+    if ws_file is None:
+        result = _action_required(
+            name,
+            f"Found {len(slots)} files to bookmark but cannot locate product workspace file",
+            missing_inputs=["product_workspace_file"],
+            next_action=(
+                "Open the project in IntelliJ IDEA once, close it, then re-run. "
+                "This creates the workspace file that bookmarks are stored in."
+            ),
+        )
+        result.details = {
+            "table": table,
+            "bookmarks": [{"mnemonic": s.mnemonic, "file": s.rel} for s in slots],
+        }
+        return result
+
+    if bookmarks_already_set(ws_file, slots, project_dir):
+        return _skipped(
+            name,
+            f"{len(slots)} mnemonic bookmarks already configured",
+            bookmarks=[{"mnemonic": s.mnemonic, "file": s.rel} for s in slots],
+        )
+
+    component = build_bookmarks_xml(slots, project_dir, group_name=project_name)
+    inject_result = inject_bookmarks(ws_file, component, dry_run)
+
+    if inject_result.get("action") == "error":
+        return _error(name, inject_result.get("reason", "Failed to write bookmarks"))
+
+    return _ok(
+        name,
+        f"{len(slots)} mnemonic bookmarks {'would be ' if dry_run else ''}set",
+        bookmarks=[{"mnemonic": s.mnemonic, "file": s.rel} for s in slots],
+        table=table,
+        workspace_file=ws_file,
+        action=inject_result["action"],
     )

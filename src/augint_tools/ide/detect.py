@@ -94,9 +94,36 @@ def detect_project_name(project_dir: str) -> str:
 
 
 def find_iml_file(project_dir: str) -> str | None:
-    """Return the first *.iml file in the project root, if any."""
-    matches = glob.glob(os.path.join(project_dir, "*.iml"))
-    return matches[0] if matches else None
+    """Find the project's .iml module file.
+
+    Search order:
+    1. ``modules.xml`` — the canonical source; reads the registered module filepath.
+    2. ``.idea/*.iml`` — common when IDEA stores the module inside ``.idea/``.
+    3. ``<project_root>/*.iml`` — legacy layout with the ``.iml`` at the project root.
+    """
+    # 1. modules.xml
+    modules_xml = os.path.join(project_dir, ".idea", "modules.xml")
+    if os.path.exists(modules_xml):
+        try:
+            tree = ET.parse(
+                modules_xml
+            )  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
+            for mod in tree.findall(".//module"):
+                filepath = mod.get("filepath", "")
+                resolved = filepath.replace("$PROJECT_DIR$", project_dir)
+                if resolved.endswith(".iml") and os.path.exists(resolved):
+                    return resolved
+        except ET.ParseError:
+            pass
+
+    # 2. .idea/*.iml
+    idea_matches = glob.glob(os.path.join(project_dir, ".idea", "*.iml"))
+    if idea_matches:
+        return idea_matches[0]
+
+    # 3. root *.iml
+    root_matches = glob.glob(os.path.join(project_dir, "*.iml"))
+    return root_matches[0] if root_matches else None
 
 
 def parse_git_remote(project_dir: str) -> tuple[str, str, str] | None:

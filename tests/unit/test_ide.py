@@ -12,6 +12,7 @@ from click.testing import CliRunner
 
 from augint_tools.cli.__main__ import cli
 from augint_tools.ide import (
+    step_bookmarks,
     step_github_tasks,
     step_jdk_table,
     step_module_sdk,
@@ -100,10 +101,35 @@ class TestDetect:
         d.mkdir()
         assert detect_project_name(str(d)) == "my-repo"
 
-    def test_find_iml_file(self, tmp_path: Path) -> None:
+    def test_find_iml_file_none(self, tmp_path: Path) -> None:
         assert find_iml_file(str(tmp_path)) is None
+
+    def test_find_iml_file_root(self, tmp_path: Path) -> None:
         (tmp_path / "proj.iml").write_text("<module/>")
         assert find_iml_file(str(tmp_path)) == str(tmp_path / "proj.iml")
+
+    def test_find_iml_file_inside_idea(self, tmp_path: Path) -> None:
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        (idea / "my-proj.iml").write_text("<module/>")
+        assert find_iml_file(str(tmp_path)) == str(idea / "my-proj.iml")
+
+    def test_find_iml_file_from_modules_xml(self, tmp_path: Path) -> None:
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        (idea / "proj.iml").write_text("<module/>")
+        (idea / "modules.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<project version="4">\n'
+            '  <component name="ProjectModuleManager">\n'
+            "    <modules>\n"
+            '      <module fileurl="file://$PROJECT_DIR$/.idea/proj.iml"'
+            ' filepath="$PROJECT_DIR$/.idea/proj.iml" />\n'
+            "    </modules>\n"
+            "  </component>\n"
+            "</project>\n"
+        )
+        assert find_iml_file(str(tmp_path)) == str(idea / "proj.iml")
 
     def test_parse_git_remote_ssh(self, tmp_path: Path) -> None:
         git_dir = tmp_path / ".git"
@@ -192,7 +218,7 @@ class TestXmlHelpers:
 
 @pytest.fixture
 def idea_project(tmp_path: Path) -> Path:
-    """A tmp project with a minimal .idea/ tree and a valid .iml file."""
+    """A tmp project mirroring real IntelliJ layout: .iml inside .idea/."""
     idea = tmp_path / ".idea"
     idea.mkdir()
     (idea / "misc.xml").write_text(
@@ -201,11 +227,25 @@ def idea_project(tmp_path: Path) -> Path:
         '  <component name="ProjectRootManager" version="2" />\n'
         "</project>\n"
     )
-    (tmp_path / "proj.iml").write_text(
+    (idea / "modules.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<module type="PYTHON_MODULE" version="4">\n'
-        '  <component name="NewModuleRootManager">\n'
+        '<project version="4">\n'
+        '  <component name="ProjectModuleManager">\n'
+        "    <modules>\n"
+        '      <module fileurl="file://$PROJECT_DIR$/.idea/proj.iml"'
+        ' filepath="$PROJECT_DIR$/.idea/proj.iml" />\n'
+        "    </modules>\n"
+        "  </component>\n"
+        "</project>\n"
+    )
+    (idea / "proj.iml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<module type="JAVA_MODULE" version="4">\n'
+        '  <component name="NewModuleRootManager" inherit-compiler-output="true">\n'
+        "    <exclude-output />\n"
         '    <content url="file://$MODULE_DIR$"/>\n'
+        '    <orderEntry type="inheritedJdk" />\n'
+        '    <orderEntry type="sourceFolder" forTests="false" />\n'
         "  </component>\n"
         "</module>\n"
     )
@@ -233,21 +273,42 @@ class TestSteps:
         res = step_terminal_right(ws)
         assert res.status == "skipped"
 
-    def test_module_sdk_sets_name(self, idea_project: Path) -> None:
-        iml = str(idea_project / "proj.iml")
+    def test_module_sdk_inherited_skips(self, idea_project: Path) -> None:
+        """When the .iml uses inheritedJdk, module_sdk should skip."""
+        iml = str(idea_project / ".idea" / "proj.iml")
         res = step_module_sdk(iml, "Python 3.12 (myproj)")
+        assert res.status == "skipped"
+        assert "inherits" in res.message.lower()
+
+    def test_module_sdk_sets_explicit_jdk(self, tmp_path: Path) -> None:
+        """When no jdk or inheritedJdk entry exists, adds one."""
+        iml = tmp_path / "bare.iml"
+        iml.write_text(
+            '<module type="JAVA_MODULE" version="4">\n'
+            '  <component name="NewModuleRootManager">\n'
+            '    <content url="file://$MODULE_DIR$"/>\n'
+            "  </component>\n"
+            "</module>\n"
+        )
+        res = step_module_sdk(str(iml), "Python 3.12 (x)")
         assert res.status == "ok"
-        _, root = read_xml(iml)
+        _, root = read_xml(str(iml))
         assert root is not None
         jdk = root.find('.//orderEntry[@type="jdk"]')
         assert jdk is not None
-        assert jdk.get("jdkName") == "Python 3.12 (myproj)"
-        assert jdk.get("jdkType") == "Python SDK"
+        assert jdk.get("jdkName") == "Python 3.12 (x)"
 
-    def test_module_sdk_idempotent(self, idea_project: Path) -> None:
-        iml = str(idea_project / "proj.iml")
-        step_module_sdk(iml, "Python 3.12 (x)")
-        res = step_module_sdk(iml, "Python 3.12 (x)")
+    def test_module_sdk_idempotent_explicit(self, tmp_path: Path) -> None:
+        iml = tmp_path / "bare.iml"
+        iml.write_text(
+            '<module type="JAVA_MODULE" version="4">\n'
+            '  <component name="NewModuleRootManager">\n'
+            '    <content url="file://$MODULE_DIR$"/>\n'
+            "  </component>\n"
+            "</module>\n"
+        )
+        step_module_sdk(str(iml), "Python 3.12 (x)")
+        res = step_module_sdk(str(iml), "Python 3.12 (x)")
         assert res.status == "skipped"
 
     def test_module_sdk_no_iml_errors(self) -> None:
@@ -264,7 +325,7 @@ class TestSteps:
     def test_project_structure_adds_sources_tests_excludes(self, idea_project: Path) -> None:
         (idea_project / "src").mkdir()
         (idea_project / "tests").mkdir()
-        iml = str(idea_project / "proj.iml")
+        iml = str(idea_project / ".idea" / "proj.iml")
         res = step_project_structure(iml, str(idea_project), "proj")
         assert res.status == "ok"
         content = Path(iml).read_text()
@@ -275,7 +336,7 @@ class TestSteps:
 
     def test_project_structure_idempotent(self, idea_project: Path) -> None:
         (idea_project / "src").mkdir()
-        iml = str(idea_project / "proj.iml")
+        iml = str(idea_project / ".idea" / "proj.iml")
         step_project_structure(iml, str(idea_project), "proj")
         res = step_project_structure(iml, str(idea_project), "proj")
         assert res.status == "skipped"
@@ -336,6 +397,154 @@ class TestSteps:
         step_jdk_table(str(opts), "Python 3.12 (x)", "3.12", "C:/py.exe", "C:/.venv")
         res = step_jdk_table(str(opts), "Python 3.12 (x)", "3.12", "C:/py.exe", "C:/.venv")
         assert res.status == "skipped"
+
+
+# ---------------------------------------------------------------------------
+# bookmarks.py
+# ---------------------------------------------------------------------------
+
+
+class TestBookmarks:
+    def test_discover_bookmarks_python_project(self, tmp_path: Path) -> None:
+        from augint_tools.ide.bookmarks import discover_bookmarks
+
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n')
+        (tmp_path / ".env").write_text("SECRET=1\n")
+        (tmp_path / "CLAUDE.md").write_text("# AI context\n")
+        (tmp_path / "README.md").write_text("# Hello\n")
+
+        slots = discover_bookmarks(str(tmp_path))
+        mnemonics = {s.mnemonic for s in slots}
+        assert "DIGIT_1" in mnemonics  # pyproject.toml
+        assert "DIGIT_2" in mnemonics  # CLAUDE.md
+        assert "DIGIT_4" in mnemonics  # .env
+        assert "DIGIT_6" in mnemonics  # README.md
+
+    def test_discover_bookmarks_empty_project(self, tmp_path: Path) -> None:
+        from augint_tools.ide.bookmarks import discover_bookmarks
+
+        assert discover_bookmarks(str(tmp_path)) == []
+
+    def test_discover_bookmarks_entry_point(self, tmp_path: Path) -> None:
+        from augint_tools.ide.bookmarks import discover_bookmarks
+
+        src = tmp_path / "src" / "myapp" / "cli"
+        src.mkdir(parents=True)
+        (src / "__main__.py").write_text("def main(): pass\n")
+
+        slots = discover_bookmarks(str(tmp_path))
+        entry = next((s for s in slots if s.mnemonic == "DIGIT_3"), None)
+        assert entry is not None
+        assert "__main__.py" in entry.rel
+
+    def test_build_and_inject_bookmarks(self, tmp_path: Path) -> None:
+        from augint_tools.ide.bookmarks import (
+            BookmarkSlot,
+            build_bookmarks_xml,
+            inject_bookmarks,
+        )
+        from augint_tools.ide.xml import minimal_project_xml, write_xml
+
+        # Create a product workspace file
+        ws_path = str(tmp_path / "workspace.xml")
+        tree, root = minimal_project_xml()
+        write_xml(tree, ws_path)
+
+        slots = [
+            BookmarkSlot(
+                mnemonic="DIGIT_1",
+                label="Config",
+                path=str(tmp_path / "pyproject.toml"),
+                rel="pyproject.toml",
+            ),
+        ]
+        component = build_bookmarks_xml(slots, str(tmp_path), group_name="test")
+        result = inject_bookmarks(ws_path, component)
+        assert result["action"] == "created"
+
+        content = Path(ws_path).read_text()
+        assert "BookmarksManager" in content
+        assert "DIGIT_1" in content
+        assert "pyproject.toml" in content
+
+    def test_bookmarks_already_set(self, tmp_path: Path) -> None:
+        from augint_tools.ide.bookmarks import (
+            BookmarkSlot,
+            bookmarks_already_set,
+            build_bookmarks_xml,
+            inject_bookmarks,
+        )
+        from augint_tools.ide.xml import minimal_project_xml, write_xml
+
+        ws_path = str(tmp_path / "workspace.xml")
+        tree, root = minimal_project_xml()
+        write_xml(tree, ws_path)
+
+        (tmp_path / "pyproject.toml").write_text("")
+        slots = [
+            BookmarkSlot(
+                mnemonic="DIGIT_1",
+                label="Config",
+                path=str(tmp_path / "pyproject.toml"),
+                rel="pyproject.toml",
+            ),
+        ]
+        component = build_bookmarks_xml(slots, str(tmp_path))
+        inject_bookmarks(ws_path, component)
+
+        assert bookmarks_already_set(ws_path, slots, str(tmp_path))
+
+    def test_step_bookmarks_no_workspace_file(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
+        res = step_bookmarks(str(tmp_path), "x", None, None)
+        assert res.status == "action-required"
+        assert "product_workspace_file" in res.missing_inputs
+
+    def test_step_bookmarks_no_files(self, tmp_path: Path) -> None:
+        res = step_bookmarks(str(tmp_path), "x", None, None)
+        assert res.status == "skipped"
+
+    def test_find_product_workspace_file(self, tmp_path: Path) -> None:
+        from augint_tools.ide.bookmarks import find_product_workspace_file
+
+        config_root = tmp_path / "JetBrains" / "IntelliJIdea2026.1"
+        options = config_root / "options"
+        options.mkdir(parents=True)
+        workspace = config_root / "workspace"
+        workspace.mkdir()
+
+        # Write a product workspace file referencing the project
+        (workspace / "abc123.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<application>\n"
+            '  <component name="SomeState">\n'
+            '    <option value="C:/Users/me/projects/myproj" />\n'
+            "  </component>\n"
+            "</application>\n"
+        )
+
+        result = find_product_workspace_file(str(options), "C:/Users/me/projects/myproj")
+        assert result is not None
+        assert "abc123.xml" in result
+
+    def test_find_product_workspace_file_not_found(self, tmp_path: Path) -> None:
+        from augint_tools.ide.bookmarks import find_product_workspace_file
+
+        assert find_product_workspace_file(None, None) is None
+        assert find_product_workspace_file(str(tmp_path), "C:/nope") is None
+
+    def test_format_bookmark_table(self) -> None:
+        from augint_tools.ide.bookmarks import BookmarkSlot, format_bookmark_table
+
+        slots = [
+            BookmarkSlot("DIGIT_1", "Project config", "/a/pyproject.toml", "pyproject.toml"),
+            BookmarkSlot("DIGIT_4", "Environment", "/a/.env", ".env"),
+        ]
+        lines = format_bookmark_table(slots)
+        assert len(lines) == 2
+        assert "[1]" in lines[0]
+        assert "pyproject.toml" in lines[0]
+        assert "[4]" in lines[1]
 
 
 # ---------------------------------------------------------------------------

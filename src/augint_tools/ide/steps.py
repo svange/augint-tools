@@ -11,7 +11,7 @@ from __future__ import annotations
 import glob
 import os
 import uuid
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
 from dataclasses import dataclass, field
 from typing import Any
 

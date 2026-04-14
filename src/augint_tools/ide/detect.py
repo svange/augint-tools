@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 import sys
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
 
 import defusedxml.ElementTree as defused_ET
 

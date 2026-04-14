@@ -359,7 +359,7 @@ def setup(
     # bookmarks — detect files and write to product workspace
     bm_res = _run(
         "bookmarks",
-        lambda: step_bookmarks(pdir, project_name, product_ws, dry_run),
+        lambda: step_bookmarks(pdir, project_name, product_ws, workspace_path, dry_run),
     )
     # Show bookmark table in human mode when files were found
     if human and bm_res.details.get("table"):

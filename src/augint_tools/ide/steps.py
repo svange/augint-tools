@@ -336,9 +336,13 @@ def _apply_github_tasks(
 ) -> str:
     """Add a GitHub Tasks server entry using IDEA's native ``<GitHub>`` format.
 
-    When ``gh_token`` is provided it is written as an ``<option>`` element.
-    IDEA reads the token on first load, then moves it to the OS keyring and
-    removes it from the XML on next save.
+    When ``gh_token`` is provided it is seeded as an ``<option>`` element so
+    IDEA can pick it up on first load.  IDEA then moves the token to the OS
+    credential store and removes it from the XML.
+
+    Only writes a *new* entry. If the server already exists, returns
+    ``"skipped"`` without touching it — this avoids clobbering a token that
+    IDEA already stored in the keyring (e.g. from SSO or a different scope).
 
     Returns ``"ok"`` if added, ``"skipped"`` if already present.
     """
@@ -351,7 +355,7 @@ def _apply_github_tasks(
     if servers is None:
         servers = ET.SubElement(task_mgr, "servers")
 
-    # Check for existing <GitHub> entry matching this repo
+    # Check for existing <GitHub> entry matching this repo — never touch it
     for gh in servers.findall("GitHub"):
         author_opt = gh.find('option[@name="repoAuthor"]')
         name_opt = gh.find('option[@name="repoName"]')
@@ -394,21 +398,25 @@ def step_github_tasks(
 
     owner, repo, canonical_url = remote
 
-    # Write to product workspace file (what IDEA reads in 2022.1+)
+    # Write to product workspace file — NO token here because IDEA may
+    # already have a keyring entry (e.g. from SSO).  Token is only seeded
+    # into workspace.xml where IDEA reads it once on first import.
     pw_status = None
     if product_workspace_path:
-        pw_status = _apply_github_tasks(product_workspace_path, owner, repo, gh_token, dry_run)
+        pw_status = _apply_github_tasks(product_workspace_path, owner, repo, None, dry_run)
 
-    # Also write to .idea/workspace.xml (seed for new projects)
+    # Seed token into .idea/workspace.xml only — safe because this file is
+    # only read once (fresh project) and IDEA moves the token to keyring.
     ws_status = _apply_github_tasks(workspace_path, owner, repo, gh_token, dry_run)
 
     if pw_status == "skipped" and ws_status == "skipped":
         return _skipped(name, f"GitHub server already configured for {canonical_url}")
 
     if pw_status == "ok" or ws_status == "ok":
-        token_note = (
-            " (with token from .env)" if gh_token else " (no token -- enter manually in IDEA)"
-        )
+        if gh_token:
+            token_note = " (token seeded from .env -- IDEA will move it to keyring)"
+        else:
+            token_note = " (no token -- enter manually in IDEA Settings -> Tasks -> Servers)"
         return _ok(
             name,
             f"GitHub Tasks server added for {canonical_url}{token_note}",
@@ -505,11 +513,13 @@ def step_bookmarks(
     project_dir: str,
     project_name: str,
     product_workspace_path: str | None,
+    workspace_xml_path: str | None = None,
     dry_run: bool = False,
 ) -> StepResult:
     from augint_tools.ide.bookmarks import (
         bookmarks_already_set,
         build_bookmarks_xml,
+        build_legacy_bookmarks_xml,
         discover_bookmarks,
         format_bookmark_table,
         inject_bookmarks,
@@ -522,7 +532,32 @@ def step_bookmarks(
         return _skipped(name, "No bookmarkable files found in project")
 
     table = format_bookmark_table(slots)
-    if product_workspace_path is None:
+    bm_data = [{"mnemonic": s.mnemonic, "file": s.rel} for s in slots]
+    wrote_to: list[str] = []
+
+    # Write new format to product workspace file (IDEA 2022.1+)
+    if product_workspace_path:
+        if bookmarks_already_set(product_workspace_path, slots, project_dir):
+            return _skipped(
+                name,
+                f"{len(slots)} mnemonic bookmarks already configured",
+                bookmarks=bm_data,
+                table=table,
+            )
+        component = build_bookmarks_xml(slots, project_dir, group_name=project_name)
+        inject_result = inject_bookmarks(product_workspace_path, component, dry_run)
+        if inject_result.get("action") != "error":
+            wrote_to.append("product-workspace")
+
+    # Write old format to .idea/workspace.xml (migration fallback).
+    # IntelliJ reads old BookmarkManager on first load and migrates it to
+    # the new BookmarksManager format in the product workspace file.
+    if workspace_xml_path and os.path.exists(workspace_xml_path):
+        legacy = build_legacy_bookmarks_xml(slots, project_dir)
+        inject_bookmarks(workspace_xml_path, legacy, dry_run)
+        wrote_to.append("workspace.xml")
+
+    if not wrote_to:
         result = _action_required(
             name,
             f"Found {len(slots)} files to bookmark but cannot locate product workspace file",
@@ -532,31 +567,13 @@ def step_bookmarks(
                 "This creates the workspace file that bookmarks are stored in."
             ),
         )
-        result.details = {
-            "table": table,
-            "bookmarks": [{"mnemonic": s.mnemonic, "file": s.rel} for s in slots],
-        }
+        result.details = {"table": table, "bookmarks": bm_data}
         return result
-
-    if bookmarks_already_set(product_workspace_path, slots, project_dir):
-        return _skipped(
-            name,
-            f"{len(slots)} mnemonic bookmarks already configured",
-            bookmarks=[{"mnemonic": s.mnemonic, "file": s.rel} for s in slots],
-            table=table,
-        )
-
-    component = build_bookmarks_xml(slots, project_dir, group_name=project_name)
-    inject_result = inject_bookmarks(product_workspace_path, component, dry_run)
-
-    if inject_result.get("action") == "error":
-        return _error(name, inject_result.get("reason", "Failed to write bookmarks"))
 
     return _ok(
         name,
-        f"{len(slots)} mnemonic bookmarks {'would be ' if dry_run else ''}set",
-        bookmarks=[{"mnemonic": s.mnemonic, "file": s.rel} for s in slots],
+        f"{len(slots)} mnemonic bookmarks {'would be ' if dry_run else ''}set ({', '.join(wrote_to)})",
+        bookmarks=bm_data,
         table=table,
-        workspace_file=product_workspace_path,
-        action=inject_result["action"],
+        wrote_to=wrote_to,
     )

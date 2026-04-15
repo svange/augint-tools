@@ -475,8 +475,7 @@ class TestBookmarks:
         from augint_tools.ide.bookmarks import (
             BookmarkSlot,
             bookmarks_already_set,
-            build_bookmarks_xml,
-            inject_bookmarks,
+            inject_bookmark_group,
         )
         from augint_tools.ide.xml import minimal_project_xml, write_xml
 

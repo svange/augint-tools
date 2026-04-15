@@ -254,7 +254,9 @@ class TestDetect:
         modules_xml = (idea / "modules.xml").read_text()
         assert "$PROJECT_DIR$/.idea/proj.iml" in modules_xml
 
-    def test_ensure_iml_file_rewrites_existing_modules_xml_from_root_to_idea(self, tmp_path: Path) -> None:
+    def test_ensure_iml_file_rewrites_existing_modules_xml_from_root_to_idea(
+        self, tmp_path: Path
+    ) -> None:
         idea = tmp_path / ".idea"
         idea.mkdir()
         root_iml = tmp_path / "proj.iml"

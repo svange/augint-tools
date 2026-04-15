@@ -578,8 +578,7 @@ def _echo(result: StepResult, human: bool, retried: bool = False) -> None:
 def _prompt_gh_token(project_dir: str) -> str | None:
     """Prompt for a GitHub token and optionally save it to .env."""
     click.echo(
-        "  Create a fine-grained token at "
-        "https://github.com/settings/personal-access-tokens/new"
+        "  Create a fine-grained token at https://github.com/settings/personal-access-tokens/new"
     )
     raw: str = click.prompt(
         "  Paste GitHub token (blank to skip)",

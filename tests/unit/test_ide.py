@@ -497,6 +497,8 @@ class TestBookmarks:
         assert bookmarks_already_set(ws_path, slots, str(tmp_path), "x")
 
     def test_inject_bookmark_group_preserves_existing_groups(self, tmp_path: Path) -> None:
+        import xml.etree.ElementTree as ET
+
         from augint_tools.ide.bookmarks import BookmarkSlot, inject_bookmark_group
         from augint_tools.ide.xml import minimal_project_xml, write_xml
 
@@ -524,8 +526,9 @@ class TestBookmarks:
   </option>
 </component>
 """
-        path = Path(ws_path)
-        path.write_text(path.read_text().replace("</project>", f"{existing}\n</project>"))
+        tree, root = minimal_project_xml()
+        root.append(ET.fromstring(existing))
+        write_xml(tree, ws_path)
 
         slots = [
             BookmarkSlot(
@@ -538,7 +541,7 @@ class TestBookmarks:
         result = inject_bookmark_group(ws_path, slots, str(tmp_path), "augint-tools")
         assert result["action"] == "created"
 
-        content = path.read_text()
+        content = Path(ws_path).read_text()
         assert 'value="NEW LIST"' in content
         assert ".env.example" in content
         assert 'value="augint-tools"' in content

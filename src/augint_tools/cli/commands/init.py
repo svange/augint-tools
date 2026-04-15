@@ -28,8 +28,12 @@ from augint_tools.ide import (
     step_project_structure,
 )
 from augint_tools.ide.detect import (
+    bootstrap_github_env,
     detect_project_name,
     detect_python_version,
+    ensure_iml_file,
+    ensure_project_root_manager,
+    external_storage_enabled,
     find_iml_file,
     find_jb_options_dir,
     parse_dotenv,
@@ -68,6 +72,7 @@ class InitContext:
     jb_options: str | None
     product_ws: str | None
     gh_token: str
+    external_project_storage: bool
     warnings: list[str] = field(default_factory=list)
 
 
@@ -77,11 +82,19 @@ def _build_context(project_dir: str, verbose: bool = False) -> InitContext:
     venv_path = os.path.join(pdir, ".venv")
     workspace_path = os.path.join(pdir, ".idea", "workspace.xml")
     misc_path = os.path.join(pdir, ".idea", "misc.xml")
+    external_project_storage = external_storage_enabled(misc_path)
 
     full_ver, major_minor = detect_python_version(venv_path)
     project_name = detect_project_name(pdir)
     sdk_name = f"Python {major_minor} ({project_name})"
     iml_path = find_iml_file(pdir)
+
+    # Normalize module storage into .idea/ when this project is using local
+    # project files instead of IntelliJ's external generated-file storage.
+    if os.path.isdir(os.path.join(pdir, ".idea")) and not external_project_storage:
+        iml_path = ensure_iml_file(pdir, project_name)
+    if os.path.isdir(os.path.join(pdir, ".idea")):
+        ensure_project_root_manager(misc_path)
 
     win_proj, win_venv, win_python = resolve_windows_paths(pdir, venv_path, workspace_path, None)
     jb_options = find_jb_options_dir()
@@ -121,6 +134,7 @@ def _build_context(project_dir: str, verbose: bool = False) -> InitContext:
         jb_options=jb_options,
         product_ws=product_ws,
         gh_token=gh_token,
+        external_project_storage=external_project_storage,
         warnings=warnings,
     )
 
@@ -160,12 +174,53 @@ def _err(name: str, msg: str) -> StepResult:
 # --- Step actions ---
 
 
+def _run_dotenv_bootstrap(c: InitContext) -> StepResult:
+    """Ensure .env exists with GH_ACCOUNT and GH_REPO pre-populated."""
+    env_path = os.path.join(c.project_dir, ".env")
+    owner = c.git_remote[0] if c.git_remote else ""
+    repo = c.git_remote[1] if c.git_remote else ""
+    written = bootstrap_github_env(env_path, owner=owner, repo=repo)
+    display_written = [entry if not entry.endswith("=") else f"{entry}(blank)" for entry in written]
+
+    if not written:
+        return _skip("dotenv", "GH_ACCOUNT and GH_REPO already present in .env")
+    return _ok("dotenv", f"Wrote to {env_path}: {', '.join(display_written)}")
+
+
 def _run_gh_token(c: InitContext) -> StepResult:
     """Prompt for GH_TOKEN and save to .env."""
-    click.echo(
-        "  Create a token at https://github.com/settings/tokens/new"
-        "?scopes=repo,read:user&description=ai-tools"
-    )
+    from datetime import UTC, datetime
+
+    now = datetime.now(tz=UTC).strftime("%d/%m/%Y %H:%M:%S")
+    token_name = f"{c.project_name} init {now}"
+
+    click.echo("  Create a fine-grained personal access token:")
+    click.echo("  https://github.com/settings/personal-access-tokens/new")
+    click.echo("")
+    click.echo(f"  Token name : {token_name}")
+    click.echo("  Expiration : 1 year (maximum)")
+    if c.git_remote:
+        click.echo(f"  Repository : {c.git_remote[0]}/{c.git_remote[1]} (select this repo)")
+    else:
+        click.echo("  Repository : (select the target repo)")
+    click.echo("")
+    click.echo("  Recommended repo permissions:")
+    click.echo("    Actions              : Read and write")
+    click.echo("    Administration       : Read and write")
+    click.echo("    Discussions          : Read and write")
+    click.echo("    Metadata             : Read-only (always on)")
+    click.echo("    Pages                : Read and write")
+    click.echo("    Secrets              : Read and write")
+    click.echo("    Variables            : Read and write")
+    click.echo("    Workflows            : Read and write")
+    click.echo("")
+    click.echo("  Often useful for repo automation:")
+    click.echo("    Contents             : Read and write")
+    click.echo("    Pull requests        : Read and write")
+    click.echo("")
+    click.echo("  Optional account permissions:")
+    click.echo("    Gists                : Write")
+    click.echo("")
     raw: str = click.prompt(
         "  Paste GitHub token (blank to skip)",
         hide_input=True,
@@ -176,6 +231,11 @@ def _run_gh_token(c: InitContext) -> StepResult:
     if not token:
         return _skip("gh_token", "No token entered")
     env_path = os.path.join(c.project_dir, ".env")
+    bootstrap_github_env(
+        env_path,
+        owner=c.git_remote[0] if c.git_remote else "",
+        repo=c.git_remote[1] if c.git_remote else "",
+    )
     upsert_dotenv(env_path, "GH_TOKEN", token)
     c.gh_token = token  # update context for downstream steps
     os.environ["GH_TOKEN"] = token
@@ -231,6 +291,16 @@ def _run_reset_prompt(c: InitContext) -> StepResult:
 
 INIT_STEPS: list[InitStep] = [
     InitStep(
+        id="dotenv",
+        label="Bootstrap .env (GH_ACCOUNT, GH_REPO)",
+        description=(
+            "Create .env if missing and populate GH_ACCOUNT and GH_REPO "
+            "from the git remote origin. Values are left blank when not detectable."
+        ),
+        applicable=lambda c: (True, ""),
+        run=_run_dotenv_bootstrap,
+    ),
+    InitStep(
         id="gh_token",
         label="GitHub token (.env)",
         description=(
@@ -247,14 +317,26 @@ INIT_STEPS: list[InitStep] = [
         id="module_sdk",
         label="IDE: module SDK",
         description="Set the Python SDK reference in the .iml module file.",
-        applicable=lambda c: (False, "no .iml file found") if c.iml_path is None else (True, ""),
+        applicable=lambda c: (
+            (False, "generated module files are stored externally by IntelliJ")
+            if c.external_project_storage and c.iml_path is None
+            else (False, "no .iml file found")
+            if c.iml_path is None
+            else (True, "")
+        ),
         run=_run_module_sdk,
     ),
     InitStep(
         id="structure",
         label="IDE: project source/test/exclude roots",
         description="Mark src/, tests/ as source roots; mark dist/, .venv/, caches as excluded.",
-        applicable=lambda c: (False, "no .iml file found") if c.iml_path is None else (True, ""),
+        applicable=lambda c: (
+            (False, "generated module files are stored externally by IntelliJ")
+            if c.external_project_storage and c.iml_path is None
+            else (False, "no .iml file found")
+            if c.iml_path is None
+            else (True, "")
+        ),
         run=_run_structure,
     ),
     InitStep(
@@ -413,6 +495,7 @@ def init(ctx: click.Context, project_dir: str, yes: bool, verbose: bool) -> None
     detect existing state and skip themselves when nothing needs changing.
     """
     c = _build_context(project_dir, verbose=verbose)
+    _run_dotenv_bootstrap(c)
     _print_header(c)
 
     # IDEA-running warning

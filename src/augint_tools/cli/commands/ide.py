@@ -20,11 +20,16 @@ from augint_tools.ide import (
     step_project_structure,
 )
 from augint_tools.ide.detect import (
+    bootstrap_github_env,
     detect_project_name,
     detect_python_version,
+    ensure_iml_file,
+    ensure_project_root_manager,
+    external_storage_enabled,
     find_iml_file,
     find_jb_options_dir,
     parse_dotenv,
+    parse_git_remote,
     resolve_product_workspace,
     resolve_windows_paths,
     upsert_dotenv,
@@ -81,7 +86,16 @@ def info(ctx: click.Context, project_dir: str, venv_path: str | None) -> None:
 
     idea_dir = os.path.join(pdir, ".idea")
     workspace_path = os.path.join(idea_dir, "workspace.xml")
+    misc_path = os.path.join(idea_dir, "misc.xml")
+    external_project_storage = external_storage_enabled(misc_path)
     iml_path = find_iml_file(pdir)
+
+    # Normalize module storage into .idea/ when this project is using local
+    # project files instead of IntelliJ's external generated-file storage.
+    if os.path.isdir(idea_dir) and not external_project_storage:
+        iml_path = ensure_iml_file(pdir, project_name)
+    if os.path.isdir(idea_dir):
+        ensure_project_root_manager(misc_path)
 
     win_proj, win_venv, win_python = resolve_windows_paths(pdir, vpath, workspace_path, None)
     jb_options = find_jb_options_dir()
@@ -101,6 +115,7 @@ def info(ctx: click.Context, project_dir: str, venv_path: str | None) -> None:
                 "python_version": full_ver,
                 "sdk_name": sdk_name,
                 "iml_path": iml_path,
+                "external_project_storage": external_project_storage,
                 "idea_dir_exists": os.path.isdir(idea_dir),
                 "workspace_xml_exists": os.path.exists(workspace_path),
                 "windows_project_dir": win_proj,
@@ -280,7 +295,15 @@ def setup(
     idea_dir = os.path.join(pdir, ".idea")
     workspace_path = os.path.join(idea_dir, "workspace.xml")
     misc_path = os.path.join(idea_dir, "misc.xml")
+    external_project_storage = external_storage_enabled(misc_path)
     iml_path = find_iml_file(pdir)
+
+    # Normalize module storage into .idea/ when this project is using local
+    # project files instead of IntelliJ's external generated-file storage.
+    if os.path.isdir(idea_dir) and not external_project_storage:
+        iml_path = ensure_iml_file(pdir, project_name)
+    if os.path.isdir(idea_dir):
+        ensure_project_root_manager(misc_path, dry_run=dry_run)
 
     skip_set = {s.strip() for s in (skip.split(",") if skip else []) if s.strip()}
     unknown_skips = skip_set - set(ALL_STEPS)
@@ -339,6 +362,12 @@ def setup(
             )
         )
         click.echo(click.style(f"    ProjectId      : {pid or '(none)'}", fg="bright_black"))
+        click.echo(
+            click.style(
+                f"    ext storage   : {'enabled' if external_project_storage else 'disabled'}",
+                fg="bright_black",
+            )
+        )
         if jb_options:
             config_root = os.path.dirname(jb_options)
             ws_dir = os.path.join(config_root, "workspace")
@@ -373,6 +402,13 @@ def setup(
         click.echo(f"  Python   : {full_ver}")
         if iml_path:
             click.echo(f"  IML file : {iml_path}")
+        elif external_project_storage:
+            click.echo(
+                click.style(
+                    "  IML file : (managed externally by IntelliJ project-file storage)",
+                    fg="yellow",
+                )
+            )
         else:
             click.echo(click.style("  IML file : (none found)", fg="yellow"))
         if win_proj:
@@ -409,15 +445,37 @@ def setup(
                 _dbg(f"{k}={v}")
         return res
 
-    results.append(
-        _run("module_sdk", lambda: step_module_sdk(iml_path, effective_sdk_name, dry_run))
-    )
-    results.append(
-        _run(
-            "structure",
-            lambda: step_project_structure(iml_path, pdir, project_name, dry_run),
+    if external_project_storage and iml_path is None:
+        results.append(
+            _run(
+                "module_sdk",
+                lambda: StepResult(
+                    name="module_sdk",
+                    status="skipped",
+                    message="Generated module files are stored externally by IntelliJ",
+                ),
+            )
         )
-    )
+        results.append(
+            _run(
+                "structure",
+                lambda: StepResult(
+                    name="structure",
+                    status="skipped",
+                    message="Generated module files are stored externally by IntelliJ",
+                ),
+            )
+        )
+    else:
+        results.append(
+            _run("module_sdk", lambda: step_module_sdk(iml_path, effective_sdk_name, dry_run))
+        )
+        results.append(
+            _run(
+                "structure",
+                lambda: step_project_structure(iml_path, pdir, project_name, dry_run),
+            )
+        )
     results.append(
         _run("project_sdk", lambda: step_project_sdk(misc_path, effective_sdk_name, dry_run))
     )
@@ -520,8 +578,8 @@ def _echo(result: StepResult, human: bool, retried: bool = False) -> None:
 def _prompt_gh_token(project_dir: str) -> str | None:
     """Prompt for a GitHub token and optionally save it to .env."""
     click.echo(
-        "  Create a token at https://github.com/settings/tokens/new"
-        "?scopes=repo,read:user&description=IntelliJ+Tasks"
+        "  Create a fine-grained token at "
+        "https://github.com/settings/personal-access-tokens/new"
     )
     raw: str = click.prompt(
         "  Paste GitHub token (blank to skip)",
@@ -533,6 +591,12 @@ def _prompt_gh_token(project_dir: str) -> str | None:
     if not token:
         return None
     if click.confirm("  Save GH_TOKEN to .env?", default=True):
+        git_remote = parse_git_remote(project_dir)
+        bootstrap_github_env(
+            os.path.join(project_dir, ".env"),
+            owner=git_remote[0] if git_remote else "",
+            repo=git_remote[1] if git_remote else "",
+        )
         upsert_dotenv(os.path.join(project_dir, ".env"), "GH_TOKEN", token)
         click.echo(click.style("  [ok] saved GH_TOKEN to .env", fg="green"))
     return token

@@ -12,7 +12,13 @@ import xml.etree.ElementTree as ET  # nosemgrep: python.lang.security.use-defuse
 
 import defusedxml.ElementTree as defused_ET
 
-from augint_tools.ide.xml import find_component
+from augint_tools.ide.xml import (
+    find_component,
+    get_or_create_component,
+    minimal_project_xml,
+    read_xml,
+    write_xml,
+)
 
 
 def parse_dotenv(path: str) -> dict[str, str]:
@@ -56,6 +62,28 @@ def upsert_dotenv(path: str, key: str, value: str) -> None:
         lines.append(f"{key}={value}\n")
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(lines)
+
+
+def bootstrap_github_env(
+    path: str,
+    owner: str = "",
+    repo: str = "",
+) -> list[str]:
+    """Ensure ``GH_ACCOUNT`` and ``GH_REPO`` exist in a ``.env`` file.
+
+    Returns a list of ``KEY=value`` strings that were written. Blank values are
+    preserved when detection is not possible.
+    """
+    existing = parse_dotenv(path)
+    written: list[str] = []
+
+    if "GH_ACCOUNT" not in existing:
+        upsert_dotenv(path, "GH_ACCOUNT", owner)
+        written.append(f"GH_ACCOUNT={owner}")
+    if "GH_REPO" not in existing:
+        upsert_dotenv(path, "GH_REPO", repo)
+        written.append(f"GH_REPO={repo}")
+    return written
 
 
 def detect_python_version(venv_path: str) -> tuple[str, str]:
@@ -122,6 +150,132 @@ def find_iml_file(project_dir: str) -> str | None:
     # 3. root *.iml
     root_matches = glob.glob(os.path.join(project_dir, "*.iml"))
     return root_matches[0] if root_matches else None
+
+
+def _register_iml_file(modules_xml_path: str, rel_iml: str) -> None:
+    """Ensure ``modules.xml`` registers the given project-local ``.iml`` path."""
+    if os.path.exists(modules_xml_path):
+        tree, root = read_xml(modules_xml_path)
+        if tree is not None and root is not None:
+            modules_el = root.find(".//modules")
+            if modules_el is None:
+                proj_mod_mgr = get_or_create_component(root, "ProjectModuleManager")
+                modules_el = ET.SubElement(proj_mod_mgr, "modules")
+            for mod in modules_el.findall("module"):
+                filepath = mod.get("filepath")
+                if filepath == rel_iml:
+                    return
+                if filepath and filepath.endswith(".iml"):
+                    mod.set("fileurl", f"file://{rel_iml}")
+                    mod.set("filepath", rel_iml)
+                    write_xml(tree, modules_xml_path)
+                    return
+            ET.SubElement(
+                modules_el,
+                "module",
+                fileurl=f"file://{rel_iml}",
+                filepath=rel_iml,
+            )
+            write_xml(tree, modules_xml_path)
+            return
+
+    tree, root = minimal_project_xml()
+    proj_mod_mgr = get_or_create_component(root, "ProjectModuleManager")
+    modules_el = ET.SubElement(proj_mod_mgr, "modules")
+    ET.SubElement(
+        modules_el,
+        "module",
+        fileurl=f"file://{rel_iml}",
+        filepath=rel_iml,
+    )
+    write_xml(tree, modules_xml_path)
+
+
+def ensure_iml_file(project_dir: str, project_name: str) -> str | None:
+    """Create a minimal ``.iml`` + ``modules.xml`` when ``.idea/`` exists but no module file.
+
+    Normalizes legacy root-level ``.iml`` files into ``.idea/`` and registers
+    the final module path in ``modules.xml``.
+
+    Returns the path to the normalized or newly created ``.iml`` file, or
+    ``None`` if ``.idea/`` doesn't exist.
+    """
+    idea_dir = os.path.join(project_dir, ".idea")
+    if not os.path.isdir(idea_dir):
+        return None
+
+    # Sanitise name for filename (replace non-alphanum with hyphen)
+    safe_name = re.sub(r"[^\w.-]", "-", project_name)
+    iml_path = os.path.join(idea_dir, f"{safe_name}.iml")
+    modules_xml_path = os.path.join(idea_dir, "modules.xml")
+    rel_iml = f"$PROJECT_DIR$/.idea/{safe_name}.iml"
+
+    idea_matches = glob.glob(os.path.join(idea_dir, "*.iml"))
+    if idea_matches:
+        existing = idea_matches[0]
+        target_rel = f"$PROJECT_DIR$/.idea/{os.path.basename(existing)}"
+        _register_iml_file(modules_xml_path, target_rel)
+        return existing
+
+    root_matches = glob.glob(os.path.join(project_dir, "*.iml"))
+    if root_matches:
+        source = root_matches[0]
+        os.replace(source, iml_path)
+        _register_iml_file(modules_xml_path, rel_iml)
+        return iml_path
+
+    # Minimal Python module .iml
+    iml_content = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<module type="PYTHON_MODULE" version="4">\n'
+        '  <component name="NewModuleRootManager" inherit-compiler-output="true">\n'
+        "    <exclude-output />\n"
+        '    <content url="file://$MODULE_DIR$" />\n'
+        '    <orderEntry type="inheritedJdk" />\n'
+        '    <orderEntry type="sourceFolder" forTests="false" />\n'
+        "  </component>\n"
+        "</module>\n"
+    )
+    with open(iml_path, "w", encoding="utf-8") as f:
+        f.write(iml_content)
+    _register_iml_file(modules_xml_path, rel_iml)
+    return iml_path
+
+
+def external_storage_enabled(misc_path: str) -> bool:
+    """Return whether IntelliJ is configured to store generated files externally."""
+    tree, root = read_xml(misc_path)
+    if tree is None or root is None:
+        return False
+
+    comp = find_component(root, "ExternalStorageConfigurationManager")
+    if comp is None:
+        return False
+
+    enabled = (comp.get("enabled") or "").strip().lower()
+    return enabled in {"true", "yes", "1"}
+
+
+def ensure_project_root_manager(misc_path: str, dry_run: bool = False) -> bool:
+    """Ensure ``misc.xml`` exists and contains ``ProjectRootManager``.
+
+    Returns ``True`` when a file/component was created or added.
+    """
+    tree, root = read_xml(misc_path)
+    changed = False
+    if tree is None or root is None:
+        tree, root = minimal_project_xml()
+        changed = True
+
+    comp = find_component(root, "ProjectRootManager")
+    if comp is None:
+        comp = get_or_create_component(root, "ProjectRootManager")
+        comp.set("version", "2")
+        changed = True
+
+    if changed:
+        write_xml(tree, misc_path, dry_run=dry_run)
+    return changed
 
 
 def extract_project_id(workspace_xml_path: str) -> str | None:

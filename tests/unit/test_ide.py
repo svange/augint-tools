@@ -21,8 +21,12 @@ from augint_tools.ide import (
     step_terminal_right,
 )
 from augint_tools.ide.detect import (
+    bootstrap_github_env,
     detect_project_name,
     detect_python_version,
+    ensure_iml_file,
+    ensure_project_root_manager,
+    external_storage_enabled,
     extract_windows_project_path,
     find_iml_file,
     parse_dotenv,
@@ -78,6 +82,19 @@ class TestDetect:
         p.write_text("FOO=1")
         upsert_dotenv(str(p), "GH_TOKEN", "x")
         assert p.read_text() == "FOO=1\nGH_TOKEN=x\n"
+
+    def test_bootstrap_github_env_creates_blank_keys(self, tmp_path: Path) -> None:
+        p = tmp_path / ".env"
+        written = bootstrap_github_env(str(p))
+        assert written == ["GH_ACCOUNT=", "GH_REPO="]
+        assert p.read_text() == "GH_ACCOUNT=\nGH_REPO=\n"
+
+    def test_bootstrap_github_env_preserves_existing_values(self, tmp_path: Path) -> None:
+        p = tmp_path / ".env"
+        p.write_text("GH_ACCOUNT=octo\n")
+        written = bootstrap_github_env(str(p), owner="ignored", repo="hello")
+        assert written == ["GH_REPO=hello"]
+        assert p.read_text() == "GH_ACCOUNT=octo\nGH_REPO=hello\n"
 
     def test_detect_python_version_from_pyvenv(self, tmp_path: Path) -> None:
         venv = tmp_path / ".venv"
@@ -172,6 +189,134 @@ class TestDetect:
     def test_extract_windows_project_path_absent(self) -> None:
         root = ET.fromstring("<project version='4'/>")
         assert extract_windows_project_path(root) is None
+
+    # --- ensure_iml_file ---
+
+    def test_ensure_iml_file_no_idea_dir(self, tmp_path: Path) -> None:
+        assert ensure_iml_file(str(tmp_path), "proj") is None
+
+    def test_ensure_iml_file_already_exists(self, tmp_path: Path) -> None:
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        (idea / "proj.iml").write_text("<module/>")
+        result = ensure_iml_file(str(tmp_path), "proj")
+        assert result == str(idea / "proj.iml")
+        # Should not create a duplicate
+        assert len(list(idea.glob("*.iml"))) == 1
+
+    def test_ensure_iml_file_creates_iml_and_modules_xml(self, tmp_path: Path) -> None:
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        result = ensure_iml_file(str(tmp_path), "my-project")
+        assert result is not None
+        assert result == str(idea / "my-project.iml")
+        assert os.path.exists(result)
+
+        # Verify .iml content
+        iml_content = Path(result).read_text()
+        assert "PYTHON_MODULE" in iml_content
+        assert "NewModuleRootManager" in iml_content
+
+        # Verify modules.xml was created
+        modules_xml = idea / "modules.xml"
+        assert modules_xml.exists()
+        content = modules_xml.read_text()
+        assert "my-project.iml" in content
+
+    def test_ensure_iml_file_updates_existing_modules_xml(self, tmp_path: Path) -> None:
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        (idea / "modules.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<project version="4">\n'
+            '  <component name="ProjectModuleManager">\n'
+            "    <modules>\n"
+            "    </modules>\n"
+            "  </component>\n"
+            "</project>\n"
+        )
+        result = ensure_iml_file(str(tmp_path), "proj")
+        assert result is not None
+        content = (idea / "modules.xml").read_text()
+        assert "proj.iml" in content
+
+    def test_ensure_iml_file_moves_root_iml_into_idea(self, tmp_path: Path) -> None:
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        root_iml = tmp_path / "legacy.iml"
+        root_iml.write_text("<module/>")
+
+        result = ensure_iml_file(str(tmp_path), "proj")
+
+        assert result == str(idea / "proj.iml")
+        assert not root_iml.exists()
+        assert (idea / "proj.iml").exists()
+        modules_xml = (idea / "modules.xml").read_text()
+        assert "$PROJECT_DIR$/.idea/proj.iml" in modules_xml
+
+    def test_ensure_iml_file_rewrites_existing_modules_xml_from_root_to_idea(self, tmp_path: Path) -> None:
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        root_iml = tmp_path / "proj.iml"
+        root_iml.write_text("<module/>")
+        (idea / "modules.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<project version="4">\n'
+            '  <component name="ProjectModuleManager">\n'
+            "    <modules>\n"
+            '      <module fileurl="file://$PROJECT_DIR$/proj.iml" filepath="$PROJECT_DIR$/proj.iml" />\n'
+            "    </modules>\n"
+            "  </component>\n"
+            "</project>\n"
+        )
+
+        result = ensure_iml_file(str(tmp_path), "proj")
+
+        assert result == str(idea / "proj.iml")
+        assert not root_iml.exists()
+        content = (idea / "modules.xml").read_text()
+        assert "$PROJECT_DIR$/.idea/proj.iml" in content
+        assert "$PROJECT_DIR$/proj.iml" not in content
+
+    def test_ensure_iml_file_find_iml_file_roundtrip(self, tmp_path: Path) -> None:
+        """After ensure_iml_file, find_iml_file should locate the new file."""
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        created = ensure_iml_file(str(tmp_path), "test-proj")
+        found = find_iml_file(str(tmp_path))
+        assert created == found
+
+    def test_external_storage_enabled(self, tmp_path: Path) -> None:
+        misc = tmp_path / "misc.xml"
+        misc.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<project version="4">\n'
+            '  <component name="ExternalStorageConfigurationManager" enabled="true" />\n'
+            "</project>\n"
+        )
+        assert external_storage_enabled(str(misc)) is True
+
+    def test_ensure_project_root_manager_creates_misc(self, tmp_path: Path) -> None:
+        misc = tmp_path / ".idea" / "misc.xml"
+        changed = ensure_project_root_manager(str(misc))
+        assert changed is True
+        content = misc.read_text()
+        assert "ProjectRootManager" in content
+
+    def test_ensure_project_root_manager_adds_missing_component(self, tmp_path: Path) -> None:
+        misc = tmp_path / ".idea" / "misc.xml"
+        misc.parent.mkdir()
+        misc.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<project version="4">\n'
+            '  <component name="ExternalStorageConfigurationManager" enabled="true" />\n'
+            "</project>\n"
+        )
+        changed = ensure_project_root_manager(str(misc))
+        assert changed is True
+        content = misc.read_text()
+        assert "ExternalStorageConfigurationManager" in content
+        assert "ProjectRootManager" in content
 
 
 # ---------------------------------------------------------------------------
@@ -696,6 +841,70 @@ class TestIdeCli:
         # Even with -y, an empty dir should produce only skips
         assert result.exit_code == 0, result.output
         assert "Nothing to do" in result.output or "skip" in result.output.lower()
+        assert (tmp_path / ".env").read_text() == "GH_ACCOUNT=\nGH_REPO=\n"
+
+    def test_setup_external_storage_skips_iml_steps(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "sample"\n')
+        venv = tmp_path / ".venv"
+        venv.mkdir()
+        (venv / "pyvenv.cfg").write_text("version = 3.12.0\n")
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        (idea / "misc.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<project version="4">\n'
+            '  <component name="ExternalStorageConfigurationManager" enabled="true" />\n'
+            "</project>\n"
+        )
+        (idea / "workspace.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<project version="4"></project>\n'
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "ide", "setup", "--project-dir", str(tmp_path)],
+        )
+        assert result.exit_code in (0, 2), result.output
+        data = json.loads(result.output)
+        steps = {step["name"]: step for step in data["result"]["steps"]}
+        assert steps["module_sdk"]["status"] == "skipped"
+        assert "stored externally" in steps["module_sdk"]["message"]
+        assert steps["structure"]["status"] == "skipped"
+        assert (idea / "sample.iml").exists() is False
+        assert "ProjectRootManager" in (idea / "misc.xml").read_text()
+
+    def test_setup_moves_root_iml_into_idea(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "sample"\n')
+        venv = tmp_path / ".venv"
+        venv.mkdir()
+        (venv / "pyvenv.cfg").write_text("version = 3.12.0\n")
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        (idea / "misc.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<project version="4">\n'
+            '  <component name="ProjectRootManager" version="2" />\n'
+            "</project>\n"
+        )
+        (tmp_path / "legacy.iml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<module type="PYTHON_MODULE" version="4">\n'
+            '  <component name="NewModuleRootManager" inherit-compiler-output="true">\n'
+            '    <content url="file://$MODULE_DIR$" />\n'
+            '    <orderEntry type="inheritedJdk" />\n'
+            "  </component>\n"
+            "</module>\n"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--json", "ide", "setup", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code in (0, 2), result.output
+        assert not (tmp_path / "legacy.iml").exists()
+        assert (idea / "sample.iml").exists()
+        modules_xml = (idea / "modules.xml").read_text()
+        assert "$PROJECT_DIR$/.idea/sample.iml" in modules_xml
 
     def test_init_resilient_on_failing_step(self, tmp_path: Path, monkeypatch) -> None:
         """A step that raises should not stop the wizard."""

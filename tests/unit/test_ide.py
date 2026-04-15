@@ -445,8 +445,7 @@ class TestBookmarks:
     def test_build_and_inject_bookmarks(self, tmp_path: Path) -> None:
         from augint_tools.ide.bookmarks import (
             BookmarkSlot,
-            build_bookmarks_xml,
-            inject_bookmarks,
+            inject_bookmark_group,
         )
         from augint_tools.ide.xml import minimal_project_xml, write_xml
 
@@ -463,12 +462,12 @@ class TestBookmarks:
                 rel="pyproject.toml",
             ),
         ]
-        component = build_bookmarks_xml(slots, str(tmp_path), group_name="test")
-        result = inject_bookmarks(ws_path, component)
+        result = inject_bookmark_group(ws_path, slots, str(tmp_path), "test")
         assert result["action"] == "created"
 
         content = Path(ws_path).read_text()
         assert "BookmarksManager" in content
+        assert 'value="test"' in content
         assert "DIGIT_1" in content
         assert "pyproject.toml" in content
 
@@ -494,10 +493,57 @@ class TestBookmarks:
                 rel="pyproject.toml",
             ),
         ]
-        component = build_bookmarks_xml(slots, str(tmp_path))
-        inject_bookmarks(ws_path, component)
+        inject_bookmark_group(ws_path, slots, str(tmp_path), "x")
 
-        assert bookmarks_already_set(ws_path, slots, str(tmp_path))
+        assert bookmarks_already_set(ws_path, slots, str(tmp_path), "x")
+
+    def test_inject_bookmark_group_preserves_existing_groups(self, tmp_path: Path) -> None:
+        from augint_tools.ide.bookmarks import BookmarkSlot, inject_bookmark_group
+        from augint_tools.ide.xml import minimal_project_xml, write_xml
+
+        ws_path = str(tmp_path / "workspace.xml")
+        tree, _root = minimal_project_xml()
+        write_xml(tree, ws_path)
+
+        existing = """
+<component name="BookmarksManager">
+  <option name="groups">
+    <GroupState>
+      <option name="bookmarks">
+        <BookmarkState>
+          <attributes>
+            <entry key="url" value="file://$PROJECT_DIR$/.env.example" />
+            <entry key="line" value="0" />
+          </attributes>
+          <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          <option name="type" value="DEFAULT" />
+        </BookmarkState>
+      </option>
+      <option name="isDefault" value="false" />
+      <option name="name" value="NEW LIST" />
+    </GroupState>
+  </option>
+</component>
+"""
+        path = Path(ws_path)
+        path.write_text(path.read_text().replace("</project>", f"{existing}\n</project>"))
+
+        slots = [
+            BookmarkSlot(
+                mnemonic="DIGIT_1",
+                label="Config",
+                path=str(tmp_path / "pyproject.toml"),
+                rel="pyproject.toml",
+            ),
+        ]
+        result = inject_bookmark_group(ws_path, slots, str(tmp_path), "augint-tools")
+        assert result["action"] == "created"
+
+        content = path.read_text()
+        assert 'value="NEW LIST"' in content
+        assert ".env.example" in content
+        assert 'value="augint-tools"' in content
+        assert 'value="true"' in content
 
     def test_step_bookmarks_no_workspace_file(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
@@ -527,7 +573,11 @@ class TestBookmarks:
         assert 'mnemonic="1"' in content
         assert "pyproject.toml" in content
 
-    def test_step_bookmarks_idempotent(self, tmp_path: Path) -> None:
+    def test_step_bookmarks_writes_native_group_when_product_workspace_exists(
+        self, tmp_path: Path
+    ) -> None:
+        from augint_tools.ide.xml import minimal_project_xml, write_xml
+
         (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
         idea = tmp_path / ".idea"
         idea.mkdir()
@@ -535,8 +585,33 @@ class TestBookmarks:
         ws_path.write_text(
             '<?xml version="1.0" encoding="UTF-8"?>\n<project version="4"></project>\n'
         )
-        step_bookmarks(str(tmp_path), "x", str(ws_path))
-        res = step_bookmarks(str(tmp_path), "x", str(ws_path))
+        product_ws = tmp_path / "product-workspace.xml"
+        tree, _root = minimal_project_xml()
+        write_xml(tree, str(product_ws))
+
+        res = step_bookmarks(str(tmp_path), "x", str(ws_path), str(product_ws))
+        assert res.status == "ok"
+        content = product_ws.read_text()
+        assert "BookmarksManager" in content
+        assert 'value="x"' in content
+        assert "DIGIT_1" in content
+
+    def test_step_bookmarks_idempotent(self, tmp_path: Path) -> None:
+        from augint_tools.ide.xml import minimal_project_xml, write_xml
+
+        (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        ws_path = idea / "workspace.xml"
+        ws_path.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<project version="4"></project>\n'
+        )
+        product_ws = tmp_path / "product-workspace.xml"
+        tree, _root = minimal_project_xml()
+        write_xml(tree, str(product_ws))
+
+        step_bookmarks(str(tmp_path), "x", str(ws_path), str(product_ws))
+        res = step_bookmarks(str(tmp_path), "x", str(ws_path), str(product_ws))
         assert res.status == "skipped"
 
     def test_find_product_workspace_file(self, tmp_path: Path) -> None:

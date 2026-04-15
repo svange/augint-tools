@@ -232,6 +232,58 @@ def build_bookmarks_xml(
     return component
 
 
+def inject_bookmark_group(
+    workspace_file: str,
+    slots: list[BookmarkSlot],
+    project_dir: str,
+    group_name: str,
+    dry_run: bool = False,
+    *,
+    set_default: bool = True,
+) -> dict[str, Any]:
+    """Upsert one bookmark list inside a native ``BookmarksManager`` component.
+
+    Existing lists are preserved. If ``set_default`` is true, this group is
+    marked as default and all sibling groups are marked non-default.
+    """
+    from augint_tools.ide.xml import read_xml, write_xml
+
+    tree, root = read_xml(workspace_file)
+    if tree is None or root is None:
+        return {"action": "error", "reason": f"Could not read {workspace_file}"}
+
+    component = root.find('.//component[@name="BookmarksManager"]')
+    if component is None:
+        component = ET.SubElement(root, "component", name="BookmarksManager")
+
+    groups_option = component.find('option[@name="groups"]')
+    if groups_option is None:
+        groups_option = ET.SubElement(component, "option", name="groups")
+
+    group_component = build_bookmarks_xml(slots, project_dir, group_name=group_name)
+    new_group = group_component.find('./option[@name="groups"]/GroupState')
+    assert new_group is not None  # guaranteed by build_bookmarks_xml
+
+    replaced = False
+    for existing_group in list(groups_option.findall("GroupState")):
+        name_opt = existing_group.find('./option[@name="name"]')
+        if name_opt is not None and name_opt.get("value") == group_name:
+            groups_option.remove(existing_group)
+            replaced = True
+            break
+
+    if set_default:
+        for sibling in groups_option.findall("GroupState"):
+            default_opt = sibling.find('./option[@name="isDefault"]')
+            if default_opt is None:
+                default_opt = ET.SubElement(sibling, "option", name="isDefault")
+            default_opt.set("value", "false")
+
+    groups_option.append(new_group)
+    write_xml(tree, workspace_file, dry_run)
+    return {"action": "replaced" if replaced else "created", "file": workspace_file}
+
+
 def build_legacy_bookmarks_xml(
     slots: list[BookmarkSlot],
     project_dir: str,
@@ -288,6 +340,7 @@ def bookmarks_already_set(
     workspace_file: str,
     expected_slots: list[BookmarkSlot],
     project_dir: str,
+    group_name: str | None = None,
 ) -> bool:
     """Return True if the workspace file already has bookmarks matching ``expected_slots``."""
     from augint_tools.ide.xml import read_xml
@@ -300,19 +353,34 @@ def bookmarks_already_set(
     if mgr is None:
         return False
 
+    group_states = mgr.findall('./option[@name="groups"]/GroupState')
+    if group_name is not None:
+        target_group = None
+        for group in group_states:
+            name_opt = group.find('./option[@name="name"]')
+            if name_opt is not None and name_opt.get("value") == group_name:
+                target_group = group
+                break
+        if target_group is None:
+            return False
+        groups_to_check = [target_group]
+    else:
+        groups_to_check = group_states or [mgr]
+
     # Collect existing mnemonic -> url mappings
     existing: dict[str, str] = {}
-    for bstate in mgr.findall(".//BookmarkState"):
-        mtype = ""
-        url = ""
-        for opt in bstate.findall("option"):
-            if opt.get("name") == "type":
-                mtype = opt.get("value", "")
-        for entry in bstate.findall("attributes/entry"):
-            if entry.get("key") == "url":
-                url = entry.get("value", "")
-        if mtype and url:
-            existing[mtype] = url
+    for group in groups_to_check:
+        for bstate in group.findall('.//option[@name="bookmarks"]/BookmarkState'):
+            mtype = ""
+            url = ""
+            for opt in bstate.findall("option"):
+                if opt.get("name") == "type":
+                    mtype = opt.get("value", "")
+            for entry in bstate.findall("attributes/entry"):
+                if entry.get("key") == "url":
+                    url = entry.get("value", "")
+            if mtype and url:
+                existing[mtype] = url
 
     for slot in expected_slots:
         rel = os.path.relpath(slot.path, project_dir).replace("\\", "/")

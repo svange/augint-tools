@@ -203,7 +203,7 @@ def _run_jdk_table(c: InitContext) -> StepResult:
 
 
 def _run_bookmarks(c: InitContext) -> StepResult:
-    return step_bookmarks(c.project_dir, c.project_name, c.workspace_path)
+    return step_bookmarks(c.project_dir, c.project_name, c.workspace_path, c.product_ws)
 
 
 def _run_reset_prompt(c: InitContext) -> StepResult:

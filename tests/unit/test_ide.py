@@ -11,6 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from augint_tools.cli.__main__ import cli
+from augint_tools.cli.commands.ide import ide
 from augint_tools.ide import (
     step_bookmarks,
     step_github_tasks,
@@ -814,7 +815,7 @@ class TestBookmarks:
 class TestIdeCli:
     def test_help(self) -> None:
         runner = CliRunner()
-        result = runner.invoke(cli, ["ide", "--help"])
+        result = runner.invoke(ide, ["--help"])
         assert result.exit_code == 0
         assert "setup" in result.output
         assert "info" in result.output
@@ -823,7 +824,7 @@ class TestIdeCli:
     def test_reset_no_product_workspace(self, tmp_path: Path) -> None:
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["--json", "ide", "reset", "--project-dir", str(tmp_path), "-y"]
+            ide, ["reset", "--project-dir", str(tmp_path), "-y"], obj={"json_mode": True}
         )
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
@@ -837,10 +838,8 @@ class TestIdeCli:
         assert "wizard" in result.output.lower()
 
     def test_init_yes_on_empty_dir(self, tmp_path: Path) -> None:
-        # No .idea, no .git, no .venv -- everything should be skipped, no errors
         runner = CliRunner()
         result = runner.invoke(cli, ["init", "--project-dir", str(tmp_path), "-y"])
-        # Even with -y, an empty dir should produce only skips
         assert result.exit_code == 0, result.output
         assert "Nothing to do" in result.output or "skip" in result.output.lower()
         assert (tmp_path / ".env").read_text() == "GH_ACCOUNT=\nGH_REPO=\n"
@@ -864,8 +863,7 @@ class TestIdeCli:
 
         runner = CliRunner()
         result = runner.invoke(
-            cli,
-            ["--json", "ide", "setup", "--project-dir", str(tmp_path)],
+            ide, ["setup", "--project-dir", str(tmp_path)], obj={"json_mode": True}
         )
         assert result.exit_code in (0, 2), result.output
         data = json.loads(result.output)
@@ -900,8 +898,9 @@ class TestIdeCli:
         )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "ide", "setup", "--project-dir", str(tmp_path)])
-
+        result = runner.invoke(
+            ide, ["setup", "--project-dir", str(tmp_path)], obj={"json_mode": True}
+        )
         assert result.exit_code in (0, 2), result.output
         assert not (tmp_path / "legacy.iml").exists()
         assert (idea / "sample.iml").exists()
@@ -912,14 +911,12 @@ class TestIdeCli:
         """A step that raises should not stop the wizard."""
         from augint_tools.cli.commands import init as init_module
 
-        # Monkey-patch one step's run to raise
         original = init_module._run_module_sdk
 
         def boom(_c):
             raise RuntimeError("simulated failure")
 
         monkeypatch.setattr(init_module, "_run_module_sdk", boom)
-        # Need an applicable iml so the step runs
         idea = tmp_path / ".idea"
         idea.mkdir()
         (idea / "test.iml").write_text(
@@ -928,7 +925,6 @@ class TestIdeCli:
             '<content url="file://$MODULE_DIR$"/>'
             "</component></module>"
         )
-        # Find the step in the list and verify run is patched
         for step in init_module.INIT_STEPS:
             if step.id == "module_sdk":
                 step.run = boom
@@ -936,11 +932,9 @@ class TestIdeCli:
 
         runner = CliRunner()
         result = runner.invoke(cli, ["init", "--project-dir", str(tmp_path), "-y"])
-        # Wizard should complete despite the error
         assert result.exit_code == 0, result.output
         assert "simulated failure" in result.output
 
-        # Restore so other tests see the real function
         for step in init_module.INIT_STEPS:
             if step.id == "module_sdk":
                 step.run = original
@@ -953,7 +947,9 @@ class TestIdeCli:
         (venv / "pyvenv.cfg").write_text("version = 3.12.0\n")
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "ide", "info", "--project-dir", str(tmp_path)])
+        result = runner.invoke(
+            ide, ["info", "--project-dir", str(tmp_path)], obj={"json_mode": True}
+        )
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["command"] == "ide info"
@@ -962,7 +958,6 @@ class TestIdeCli:
         assert data["result"]["sdk_name"] == "Python 3.12 (sample)"
 
     def test_setup_dry_run_on_empty_project_partial(self, tmp_path: Path) -> None:
-        # No .idea/, no .iml — dry run should surface errors without writing.
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "empty"\n')
         venv = tmp_path / ".venv"
         venv.mkdir()
@@ -970,31 +965,22 @@ class TestIdeCli:
 
         runner = CliRunner()
         result = runner.invoke(
-            cli,
-            ["--json", "ide", "setup", "--project-dir", str(tmp_path), "--dry-run"],
+            ide,
+            ["setup", "--project-dir", str(tmp_path), "--dry-run"],
+            obj={"json_mode": True},
         )
-        # error + action-required present -> exit 4 (partial)
         assert result.exit_code in (1, 2, 4), result.output
         data = json.loads(result.output)
         assert data["command"] == "ide setup"
         assert data["result"]["dry_run"] is True
-        # No XML should have been written
         assert not (tmp_path / ".idea").exists()
 
     def test_setup_rejects_unknown_skip(self, tmp_path: Path) -> None:
         runner = CliRunner()
         result = runner.invoke(
-            cli,
-            [
-                "--json",
-                "ide",
-                "setup",
-                "--project-dir",
-                str(tmp_path),
-                "--skip",
-                "bogus",
-                "--dry-run",
-            ],
+            ide,
+            ["setup", "--project-dir", str(tmp_path), "--skip", "bogus", "--dry-run"],
+            obj={"json_mode": True},
         )
         assert result.exit_code == 1
         data = json.loads(result.output)

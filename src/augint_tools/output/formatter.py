@@ -215,7 +215,7 @@ _HUMAN_FORMATTERS: dict[str, Any] = {
     "workspace foreach": _format_foreach,
     "ide info": _format_ide_info,
     "ide setup": _format_ide_setup,
-    "env classify": _format_env_classify,
+    "gh classify": _format_env_classify,
 }
 
 

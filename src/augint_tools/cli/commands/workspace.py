@@ -30,11 +30,7 @@ from augint_tools.output import CommandResponse, emit_response
 
 def _get_output_opts(ctx: click.Context) -> dict:
     obj = ctx.obj or {}
-    return {
-        "json_mode": obj.get("json_mode", False),
-        "actionable": obj.get("actionable", False),
-        "summary_only": obj.get("summary_only", False),
-    }
+    return {"json_mode": obj.get("json_mode", False)}
 
 
 def _require_workspace(ctx: click.Context, command: str):

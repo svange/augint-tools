@@ -20,18 +20,9 @@ class TestCli:
         runner = CliRunner()
         result = runner.invoke(cli, ["--help"])
         assert "--json" in result.output
-        assert "--actionable" in result.output
-        assert "--summary" in result.output
-
-    def test_triage_command(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["triage", "--help"])
-        assert result.exit_code == 0
-        assert "--fix" in result.output
-        assert "--run-id" in result.output
+        assert "--verbose" in result.output
 
     def test_workspace_subgroups(self):
-        """Test that workspace subcommands are available."""
         runner = CliRunner()
         result = runner.invoke(cli, ["workspace", "--help"])
         assert result.exit_code == 0

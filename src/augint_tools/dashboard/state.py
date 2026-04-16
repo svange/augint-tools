@@ -15,6 +15,7 @@ from .health import RepoHealth, Severity
 if TYPE_CHECKING:
     from github.Repository import Repository
 
+    from .sysmeter import GpuStats, RamStats
     from .usage import UsageStats
 
 # Panel sizing -- mirrors v1 constraints (lesson #13).
@@ -58,6 +59,8 @@ class AppState:
     repo_teams: dict[str, RepoTeamInfo] = field(default_factory=dict)
     team_labels: dict[str, str] = field(default_factory=lambda: {UNASSIGNED_TEAM: "Unassigned"})
     usage_stats: list[UsageStats] = field(default_factory=list)
+    gpu_stats: GpuStats | None = None
+    ram_stats: RamStats | None = None
     errors: list[ErrorEntry] = field(default_factory=list)
 
     sort_mode: str = SORT_MODES[0]

@@ -990,18 +990,21 @@ class TestAppMisc:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 assert app._main is not None
-                plain = app._main._org_drawer_content().plain
-                # Headline + viz labels that should always show up.
-                assert "nerds" in plain
-                assert "3 repos" in plain
-                assert "health" in plain
-                assert "repos" in plain
-                assert "worst 5" in plain
-                # Most critical repo appears in the "worst 5" leaderboard.
-                assert "broken" in plain
-                # Weather verdict widget is present.
-                assert "weather" in plain
-                assert "usage" in plain
+                left = app._main._org_drawer_content().plain
+                middle = app._main._org_drawer_middle_content().plain
+                right = app._main._org_drawer_right_content().plain
+                # Left column: CI matrix.
+                assert "ci matrix" in left
+                # Middle column: org stats, weather, usage.
+                assert "nerds" in middle
+                assert "3 repos" in middle
+                assert "health" in middle
+                assert "repos" in middle
+                assert "weather" in middle
+                assert "usage" in middle
+                # Right column: leaderboard.
+                assert "worst 5" in right
+                assert "broken" in right
 
         asyncio.run(run())
 
@@ -1031,7 +1034,7 @@ class TestAppMisc:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 assert app._main is not None
-                plain = app._main._org_drawer_content().plain
+                plain = app._main._org_drawer_middle_content().plain
                 assert "Claude Code" in plain
                 assert "500/1000" in plain
                 # The progress bar uses full-block and light-shade characters.
@@ -1122,10 +1125,12 @@ class TestAppMisc:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 assert app._main is not None
-                plain = app._main._org_drawer_content().plain
-                # Each of the 5 new widgets labels its section.
-                for label in ("weather", "activity", "pr ages", "teams", "worst 5"):
-                    assert label in plain, f"{label!r} missing from drawer output"
+                middle = app._main._org_drawer_middle_content().plain
+                right = app._main._org_drawer_right_content().plain
+                # Widgets are spread across columns.
+                for label in ("weather", "activity", "pr ages", "teams"):
+                    assert label in middle, f"{label!r} missing from middle column"
+                assert "worst 5" in right, "'worst 5' missing from right column"
 
         asyncio.run(run())
 

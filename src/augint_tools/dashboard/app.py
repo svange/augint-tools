@@ -42,6 +42,7 @@ from .state import (
     team_accent,
     visible_healths,
 )
+from .sysmeter import probe_gpu, probe_ram
 from .themes import get_theme, list_themes
 from .usage import claude_daily_message_buckets, fetch_all_usage
 from .widgets.card_container import CardContainer
@@ -358,8 +359,19 @@ class MainScreen(Screen[None]):
         return t
 
     def _org_drawer_content(self) -> Text:
-        """Nerdy org-wide dashboard: severity, glyphs, weather, sparkline,
-        PR age histogram, team mix, leaderboard, usage."""
+        """Left column: system meters (GPU/RAM) + CI matrix."""
+        state = self._state
+        spec = get_theme(state.theme_name)
+        t = Text()
+        self._append_system_block(t, spec)
+        if not state.healths:
+            t.append("no data yet. press r to refresh.\n", style="dim")
+            return t
+        self._append_ci_matrix(t, state.healths, spec)
+        return t
+
+    def _org_drawer_middle_content(self) -> Text:
+        """Middle column: org-wide stats, weather, activity, usage."""
         from .health import Severity as _Sev
 
         state = self._state
@@ -372,7 +384,6 @@ class MainScreen(Screen[None]):
             self._append_usage_block(t, spec)
             return t
 
-        # ---- headline ----
         by_sev: dict[_Sev, int] = {}
         for h in state.healths:
             by_sev[h.worst_severity] = by_sev.get(h.worst_severity, 0) + 1
@@ -383,48 +394,23 @@ class MainScreen(Screen[None]):
         t.append(f"{self._org_name or 'Organization'} -- org dashboard", style="bold")
         t.append(f"    {total} repos  ·  {score}% green\n\n")
 
-        # ---- severity distribution bar ----
         self._append_severity_bar(t, by_sev, total, spec, width=40)
 
-        # ---- per-repo glyph strip ----
         t.append("repos    ", style="bold")
         self._append_repo_glyphs(t, spec)
         t.append("\n\n")
 
-        # ---- widget 1: weather ----
         self._append_weather(t, by_sev, state.healths, spec)
-
-        # ---- widget 2: activity sparkline (claude messages / day) ----
         self._append_activity_spark(t, spec)
-
-        # ---- widget 3: PR age histogram ----
         self._append_pr_ages(t, state.healths, spec)
-
-        # ---- widget 4: team mix ----
         self._append_team_mix(t, state, spec)
-
-        # ---- widget 5: worst-repos leaderboard ----
-        self._append_leaderboard(t, state.healths, spec)
-
-        # ---- usage meters ----
         self._append_usage_block(t, spec)
         t.append("press i or click header to close.", style="dim")
         return t
 
-    def _org_drawer_middle_content(self) -> Text:
-        """Middle column: CI pass/fail matrix (dots per repo)."""
-        state = self._state
-        spec = get_theme(state.theme_name)
-        t = Text()
-        if not state.healths:
-            t.append("--\n", style="dim")
-            return t
-        self._append_ci_matrix(t, state.healths, spec)
-        return t
-
     def _org_drawer_right_content(self) -> Text:
         """Right column: check failures, service/lib mix, score histogram,
-        recent errors."""
+        recent errors, worst-repos leaderboard."""
         state = self._state
         spec = get_theme(state.theme_name)
         t = Text()
@@ -435,6 +421,7 @@ class MainScreen(Screen[None]):
         self._append_service_lib(t, state.healths, spec)
         self._append_score_histogram(t, state.healths, spec)
         self._append_recent_errors(t, state, spec)
+        self._append_leaderboard(t, state.healths, spec)
         return t
 
     # ------------------------------------------------------------------
@@ -822,6 +809,74 @@ class MainScreen(Screen[None]):
             t.append("\n")
         t.append("\n")
 
+    def _append_system_block(self, t: Text, spec) -> None:
+        """Host-system meters: RAM (always, when /proc/meminfo is readable)
+        and GPU (only when nvidia-smi is present and returns data).
+
+        Skipped silently when neither probe produced a result — e.g.,
+        running the dashboard on a machine without an NVIDIA card and
+        without ``/proc/meminfo`` (macOS / Windows without WSL).
+        """
+        from .health import Severity as _Sev
+
+        ram = self._state.ram_stats
+        gpu = self._state.gpu_stats
+        if ram is None and gpu is None:
+            return
+
+        t.append("system\n", style="bold")
+        bar_width = 20
+
+        if ram is not None:
+            used_frac = ram.used_fraction
+            color = spec.severity_colors[_Sev.OK]
+            if used_frac >= 0.90:
+                color = spec.severity_colors[_Sev.CRITICAL]
+            elif used_frac >= 0.75:
+                color = spec.severity_colors[_Sev.HIGH]
+            elif used_frac >= 0.60:
+                color = spec.severity_colors[_Sev.MEDIUM]
+            t.append("  RAM    ")
+            t.append(_progress_bar(used_frac, bar_width), style=color)
+            pct = int(round(used_frac * 100))
+            t.append(f"  {ram.used_gb:.1f}/{ram.total_gb:.1f} GB ({pct}%)\n")
+
+        if gpu is not None:
+            t.append(f"  GPU    {gpu.name}")
+            extras: list[str] = []
+            if gpu.temp_c is not None:
+                extras.append(f"{gpu.temp_c} C")
+            if gpu.power_w is not None and gpu.power_limit_w is not None:
+                extras.append(f"{gpu.power_w:.0f}/{gpu.power_limit_w:.0f} W")
+            elif gpu.power_w is not None:
+                extras.append(f"{gpu.power_w:.0f} W")
+            if extras:
+                t.append("   " + "  ".join(extras), style="dim")
+            t.append("\n")
+
+            util_color = spec.severity_colors[_Sev.OK]
+            if gpu.util_pct >= 90:
+                util_color = spec.severity_colors[_Sev.HIGH]
+            elif gpu.util_pct >= 60:
+                util_color = spec.severity_colors[_Sev.MEDIUM]
+            t.append("  util   ")
+            t.append(_progress_bar(gpu.util_fraction, bar_width), style=util_color)
+            t.append(f"  {gpu.util_pct}%\n")
+
+            vram_frac = gpu.vram_fraction
+            vram_color = spec.severity_colors[_Sev.OK]
+            if vram_frac >= 0.90:
+                vram_color = spec.severity_colors[_Sev.CRITICAL]
+            elif vram_frac >= 0.75:
+                vram_color = spec.severity_colors[_Sev.HIGH]
+            elif vram_frac >= 0.60:
+                vram_color = spec.severity_colors[_Sev.MEDIUM]
+            t.append("  vram   ")
+            t.append(_progress_bar(vram_frac, bar_width), style=vram_color)
+            vram_pct = int(round(vram_frac * 100))
+            t.append(f"  {gpu.vram_used_gb:.1f}/{gpu.vram_total_gb:.1f} GB ({vram_pct}%)\n")
+        t.append("\n")
+
     def _usage_drawer_content(self) -> Text:
         t = Text("usage (local data only)\n\n", style="bold")
         if not self._state.usage_stats:
@@ -938,6 +993,11 @@ class DashboardApp(App[None]):
         self.set_interval(1.0, self._tick_status)
         self.set_interval(60.0, self._refresh_usage)
         self.set_interval(_FLASH_TICK_SECONDS, self._tick_flash)
+        # Probe host RAM / GPU in the background: once at startup so the
+        # first org-drawer open already shows numbers, then every 3s while
+        # the drawer is visible (see ``_tick_sysmeter``).
+        self._refresh_sysmeter()
+        self.set_interval(3.0, self._tick_sysmeter)
 
     async def action_quit(self) -> None:
         self.state.cancel_requested = True
@@ -1077,6 +1137,33 @@ class DashboardApp(App[None]):
         self.state.usage_stats = stats
         self.call_from_thread(self._rerender_usage_only)
 
+    def _tick_sysmeter(self) -> None:
+        """Re-probe host system meters only while the org drawer is open.
+
+        Skipping when the drawer is closed keeps us off the scheduler for
+        the ~99% of the session where nothing would be drawn anyway.
+        """
+        if self._main is None:
+            return
+        if not self._main._top_drawer.is_open:
+            return
+        self._refresh_sysmeter()
+
+    def _refresh_sysmeter(self) -> None:
+        """Kick a background probe of GPU + RAM."""
+        self.run_worker(self._refresh_sysmeter_sync, thread=True, exit_on_error=False)
+
+    def _refresh_sysmeter_sync(self) -> None:
+        try:
+            gpu = probe_gpu()
+            ram = probe_ram()
+        except Exception as exc:
+            self.state.log_error("sysmeter", f"{exc.__class__.__name__}: {exc}")
+            return
+        self.state.gpu_stats = gpu
+        self.state.ram_stats = ram
+        self.call_from_thread(self._rerender_usage_only)
+
     # ---- render glue ----
 
     def _rerender(self) -> None:
@@ -1178,8 +1265,13 @@ class DashboardApp(App[None]):
             self._main.toggle_usage_drawer()
 
     def action_toggle_org(self) -> None:
-        if self._main is not None:
-            self._main.toggle_org_drawer()
+        if self._main is None:
+            return
+        self._main.toggle_org_drawer()
+        # Kick a fresh probe on open so the sysmeter block isn't stale; the
+        # periodic tick takes over from here.
+        if self._main._top_drawer.is_open:
+            self._refresh_sysmeter()
 
     def action_widen_card(self) -> None:
         self._resize_card(+PANEL_WIDTH_STEP)

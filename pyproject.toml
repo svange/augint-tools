@@ -10,9 +10,13 @@ dependencies = [
     "defusedxml>=0.7.1",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
+    "loguru>=0.7.3,<0.8",
+    "rich>=13.9.4,<15.0",
+    "pygithub>=2.5.0,<3",
 ]
 
 [project.optional-dependencies]
+tui = ["textual>=1.0.0,<2"]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
@@ -27,6 +31,7 @@ dev = [
     "pytest-html>=4.0.0",
     "pdoc>=15.0.0",
     "types-defusedxml>=0.7.0",
+    "textual>=1.0.0,<2",
 ]
 
 [project.scripts]
@@ -63,6 +68,19 @@ disallow_untyped_defs = false
 [[tool.mypy.overrides]]
 module = "augint_tools.cli.__main__"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "augint_tools.dashboard.*"
+disallow_untyped_defs = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = "github.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["textual.*", "loguru", "dotenv"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -104,27 +104,6 @@ def _status_icon(status: str) -> str:
 # Each formatter receives response.result and prints command-specific detail.
 
 
-def _format_repo_status(result: dict[str, Any]) -> None:
-    repo = result.get("repo", {})
-    click.echo(f"  Branch: {click.style(repo.get('branch', 'unknown'), fg='cyan')}")
-
-    if repo.get("dirty"):
-        dirty_files = repo.get("dirty_files", [])
-        click.echo(f"  Status: {click.style('dirty', fg='yellow')} ({len(dirty_files)} files)")
-    else:
-        click.echo(f"  Status: {click.style('clean', fg='green')}")
-
-    ahead = repo.get("ahead", 0)
-    behind = repo.get("behind", 0)
-    if ahead > 0 or behind > 0:
-        click.echo(f"  Remote: ahead {ahead}, behind {behind}")
-
-    if "open_prs" in repo and repo["open_prs"]:
-        click.echo(f"  Open PRs: {len(repo['open_prs'])}")
-        for pr in repo["open_prs"]:
-            click.echo(f"    #{pr.get('number', '?')}: {pr.get('title', '')}")
-
-
 def _format_workspace_status(result: dict[str, Any]) -> None:
     workspace = result.get("workspace", {})
     repos = result.get("repos", [])
@@ -210,9 +189,6 @@ def _format_ide_setup(result: dict[str, Any]) -> None:
 
 # Command -> formatter registry
 _HUMAN_FORMATTERS: dict[str, Any] = {
-    "repo status": _format_repo_status,
-    "repo branch prepare": _format_branch,
-    "repo submit": _format_branch,
     "workspace status": _format_workspace_status,
     "workspace branch": _format_branch,
     "workspace check": _format_check_run,

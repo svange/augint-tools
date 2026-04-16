@@ -1,0 +1,31 @@
+/* nord -- cool neutral Arctic palette */
+
+Screen { background: #2e3440; color: #d8dee9; }
+Header { background: #3b4252; color: #eceff4; }
+Footer { background: #3b4252; color: #81a1c1; }
+
+#status-bar { dock: top; height: 1; background: #3b4252; color: #eceff4; padding: 0 1; }
+#status-bar .status-bar--error { background: #bf616a; color: #eceff4; }
+
+#highlight-bar { dock: top; height: 3; background: #434c5e; color: #d8dee9; padding: 0 1; border-bottom: solid #4c566a; }
+
+CardContainer { layout: grid; grid-size: 4; grid-gutter: 0 1; padding: 0 1; overflow-y: auto; }
+CardContainer.layout--list { layout: vertical; }
+CardContainer.layout--dense { grid-size: 6; }
+
+.group-header { column-span: 4; height: 1; background: #434c5e; color: #eceff4; padding: 0 1; margin-top: 1; text-style: bold; }
+
+RepoCard { height: auto; min-height: 5; border: round #4c566a; background: #3b4252; color: #d8dee9; padding: 0 1; transition: border 200ms in_out_cubic, background 150ms linear; }
+RepoCard.card--ok { border: round #a3be8c; }
+RepoCard.card--warning { border: round #ebcb8b; }
+RepoCard.card--critical { border: round #bf616a; }
+RepoCard.card--warning.card--flash-on { border: round #f5e5c5; }
+RepoCard.card--critical.card--flash-on { border: round #dfb0b4; }
+RepoCard.card--dense { min-height: 4; padding: 0; }
+RepoCard.card--list { min-height: 6; }
+
+Drawer { background: #3b4252; color: #d8dee9; border-left: solid #4c566a; }
+
+ErrorLogScreen { align: center middle; }
+ErrorLogScreen > #error-log-body { width: 80%; height: 80%; background: #3b4252; border: heavy #bf616a; padding: 1 2; }
+HelpScreen > #help-body { width: 70%; height: 80%; background: #3b4252; border: round #88c0d0; padding: 1 2; }

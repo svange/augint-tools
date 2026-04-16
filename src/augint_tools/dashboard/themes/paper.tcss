@@ -1,0 +1,129 @@
+/* paper -- calm, near-monochrome on warm dark; color only on failures */
+
+Screen {
+    background: #1c1b18;
+    color: #d7cfa5;
+}
+
+Header {
+    background: #252320;
+    color: #e8dcb1;
+}
+
+Footer {
+    background: #252320;
+    color: #9a9282;
+}
+
+#status-bar {
+    dock: top;
+    height: 1;
+    background: #2a2824;
+    color: #cbc6ad;
+    padding: 0 1;
+}
+
+#status-bar .status-bar--error {
+    background: #6a1b1b;
+    color: #ffecec;
+}
+
+#highlight-bar {
+    dock: top;
+    height: 3;
+    background: #22201d;
+    color: #d7cfa5;
+    padding: 0 1;
+    border-bottom: solid #3b382f;
+}
+
+CardContainer {
+    layout: grid;
+    grid-size: 4;
+    grid-gutter: 0 1;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+CardContainer.layout--list {
+    layout: vertical;
+}
+
+CardContainer.layout--dense {
+    grid-size: 6;
+}
+
+.group-header {
+    column-span: 4;
+    height: 1;
+    background: #2a2824;
+    color: #e8dcb1;
+    padding: 0 1;
+    margin-top: 1;
+    text-style: bold;
+}
+
+RepoCard {
+    height: auto;
+    min-height: 5;
+    border: round #4a4740;
+    background: #232220;
+    color: #d7cfa5;
+    padding: 0 1;
+    transition: border 200ms in_out_cubic, background 150ms linear;
+}
+
+RepoCard.card--ok {
+    border: round #4a4740;
+}
+
+RepoCard.card--warning {
+    border: round #b08a3e;
+}
+
+RepoCard.card--critical {
+    border: round #b04a3a;
+}
+
+RepoCard.card--warning.card--flash-on {
+    border: round #d8b97a;
+}
+
+RepoCard.card--critical.card--flash-on {
+    border: round #d8907f;
+}
+
+RepoCard.card--dense {
+    min-height: 4;
+    padding: 0;
+}
+
+RepoCard.card--list {
+    min-height: 6;
+}
+
+Drawer {
+    background: #252320;
+    color: #d7cfa5;
+    border-left: solid #4a4740;
+}
+
+ErrorLogScreen {
+    align: center middle;
+}
+
+ErrorLogScreen > #error-log-body {
+    width: 80%;
+    height: 80%;
+    background: #252320;
+    border: heavy #b04a3a;
+    padding: 1 2;
+}
+
+HelpScreen > #help-body {
+    width: 70%;
+    height: 80%;
+    background: #252320;
+    border: round #d7cfa5;
+    padding: 1 2;
+}

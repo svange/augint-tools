@@ -27,26 +27,10 @@ class TestCli:
         runner = CliRunner()
         result = runner.invoke(cli, ["repo", "--help"])
         assert result.exit_code == 0
-        assert "status" in result.output
-        assert "branch" in result.output
-        assert "submit" in result.output
         assert "ci" in result.output
-
-    def test_repo_status(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["repo", "status"])
-        assert result.exit_code == 0
-        assert "status" in result.output.lower()
-
-    def test_repo_status_json(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "repo", "status"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert data["command"] == "repo status"
-        assert data["scope"] == "repo"
-        assert "result" in data
-        assert "repo" in data["result"]
+        assert "status" not in result.output
+        assert "branch" not in result.output
+        assert "submit" not in result.output
 
     def test_workspace_subgroups(self):
         """Test that workspace subcommands are available."""

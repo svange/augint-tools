@@ -722,9 +722,10 @@ class TestBookmarks:
         assert 'mnemonic="1"' in content
         assert "pyproject.toml" in content
 
-    def test_step_bookmarks_writes_native_group_when_product_workspace_exists(
+    def test_step_bookmarks_always_uses_workspace_xml_even_when_product_workspace_exists(
         self, tmp_path: Path
     ) -> None:
+        """product_workspace_path is ignored; legacy format always goes to workspace.xml."""
         from augint_tools.ide.xml import minimal_project_xml, write_xml
 
         (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
@@ -737,17 +738,18 @@ class TestBookmarks:
         product_ws = tmp_path / "product-workspace.xml"
         tree, _root = minimal_project_xml()
         write_xml(tree, str(product_ws))
+        original_product = product_ws.read_text()
 
         res = step_bookmarks(str(tmp_path), "x", str(ws_path), str(product_ws))
         assert res.status == "ok"
-        content = product_ws.read_text()
-        assert "BookmarksManager" in content
-        assert 'value="x"' in content
-        assert "DIGIT_1" in content
+        # Bookmarks written to workspace.xml in legacy format
+        ws_content = ws_path.read_text()
+        assert '<component name="BookmarkManager">' in ws_content
+        assert 'mnemonic="1"' in ws_content
+        # Product workspace must NOT be modified
+        assert product_ws.read_text() == original_product
 
     def test_step_bookmarks_idempotent(self, tmp_path: Path) -> None:
-        from augint_tools.ide.xml import minimal_project_xml, write_xml
-
         (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
         idea = tmp_path / ".idea"
         idea.mkdir()
@@ -755,12 +757,9 @@ class TestBookmarks:
         ws_path.write_text(
             '<?xml version="1.0" encoding="UTF-8"?>\n<project version="4"></project>\n'
         )
-        product_ws = tmp_path / "product-workspace.xml"
-        tree, _root = minimal_project_xml()
-        write_xml(tree, str(product_ws))
 
-        step_bookmarks(str(tmp_path), "x", str(ws_path), str(product_ws))
-        res = step_bookmarks(str(tmp_path), "x", str(ws_path), str(product_ws))
+        step_bookmarks(str(tmp_path), "x", str(ws_path))
+        res = step_bookmarks(str(tmp_path), "x", str(ws_path))
         assert res.status == "skipped"
 
     def test_find_product_workspace_file(self, tmp_path: Path) -> None:

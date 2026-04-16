@@ -187,6 +187,26 @@ def _format_ide_setup(result: dict[str, Any]) -> None:
         click.echo(f"  SDK name to use in IDEA: {click.style(sdk, bold=True)}")
 
 
+def _format_env_classify(result: dict[str, Any]) -> None:
+    secrets = result.get("secrets", [])
+    variables = result.get("variables", [])
+    skipped = result.get("skipped", [])
+
+    if secrets:
+        click.echo(f"  {click.style('Secrets:', bold=True)}")
+        for s in secrets:
+            reasons = ", ".join(s.get("reasons", []))
+            click.echo(f"    {click.style(s['key'], fg='red')} ({reasons})")
+    if variables:
+        click.echo(f"  {click.style('Variables:', bold=True)}")
+        for v in variables:
+            click.echo(f"    {click.style(v, fg='cyan')}")
+    if skipped:
+        click.echo(f"  {click.style('Skipped:', bold=True)}")
+        for s in skipped:
+            click.echo(f"    {click.style(s, fg='yellow')}")
+
+
 # Command -> formatter registry
 _HUMAN_FORMATTERS: dict[str, Any] = {
     "workspace status": _format_workspace_status,
@@ -195,6 +215,7 @@ _HUMAN_FORMATTERS: dict[str, Any] = {
     "workspace foreach": _format_foreach,
     "ide info": _format_ide_info,
     "ide setup": _format_ide_setup,
+    "env classify": _format_env_classify,
 }
 
 

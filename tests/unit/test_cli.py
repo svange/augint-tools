@@ -15,6 +15,20 @@ class TestCli:
         assert "CLI for AI-assisted repository and workspace workflows." in result.output
         assert "gh" in result.output
         assert "workspace" in result.output
+        assert "init" in result.output
+        assert "config" in result.output
+
+    def test_init_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["init", "--help"])
+        assert result.exit_code == 0
+        assert "scaffold wizard" in result.output.lower()
+
+    def test_config_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["config", "--help"])
+        assert result.exit_code == 0
+        assert "Configure IDE settings" in result.output
 
     def test_global_flags_in_help(self):
         runner = CliRunner()

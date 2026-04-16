@@ -6,6 +6,7 @@ import sys
 import click
 
 from augint_tools import __version__
+from augint_tools.cli.commands.config import config_cmd
 from augint_tools.cli.commands.env import gh, sync
 from augint_tools.cli.commands.init import init
 from augint_tools.cli.commands.workspace import workspace
@@ -30,6 +31,7 @@ cli.add_command(gh)
 cli.add_command(sync)
 cli.add_command(workspace)
 cli.add_command(init)
+cli.add_command(config_cmd)
 cli.add_command(dashboard_command)
 
 

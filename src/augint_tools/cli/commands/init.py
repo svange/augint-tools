@@ -1,461 +1,240 @@
-"""Top-level interactive wizard.
+"""New project scaffolding wizard (ai-tools init).
 
-Walks the user through every file/setting `ai-tools` can manage. Each step is
-isolated: failures log the reason and continue to the next step rather than
-aborting the whole wizard.
-
-Adding a new step: append an :class:`InitStep` to ``INIT_STEPS``.  The wizard
-will pick it up automatically, ask the user, and handle errors uniformly.
+Guides the user through selecting a project type and setting up scaffolding
+using the appropriate tools (uv, npm, cdk, sam, npx).  After scaffolding,
+prints next-step instructions including running ``ai-tools config`` and
+``/ai-standardize`` in Claude Code.
 """
 
 from __future__ import annotations
 
 import os
-import traceback
+import shutil
+import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from pathlib import Path
 
 import click
 
-from augint_tools.ide import (
-    StepResult,
-    step_bookmarks,
-    step_github_tasks,
-    step_jdk_table,
-    step_module_sdk,
-    step_project_sdk,
-    step_project_structure,
-)
-from augint_tools.ide.detect import (
-    bootstrap_github_env,
-    detect_project_name,
-    detect_python_version,
-    ensure_iml_file,
-    ensure_project_root_manager,
-    external_storage_enabled,
-    find_iml_file,
-    find_jb_options_dir,
-    parse_dotenv,
-    parse_git_remote,
-    resolve_product_workspace,
-    resolve_windows_paths,
-    upsert_dotenv,
-)
+_DIVIDER = click.style("─" * 50, fg="bright_black")
 
 # ---------------------------------------------------------------------------
-# Context: everything the steps might need, detected up front.
+# Project type registry
 # ---------------------------------------------------------------------------
 
 
 @dataclass
-class InitContext:
-    """Detected environment passed to every step."""
-
-    project_dir: str
-    project_name: str
-    venv_path: str
-    sdk_name: str
-    full_ver: str
-    major_minor: str
-    iml_path: str | None
-    workspace_path: str
-    misc_path: str
-    has_idea: bool
-    has_git: bool
-    has_venv: bool
-    has_pyproject: bool
-    git_remote: tuple[str, str, str] | None
-    win_proj: str | None
-    win_venv: str | None
-    win_python: str | None
-    jb_options: str | None
-    product_ws: str | None
-    gh_token: str
-    external_project_storage: bool
-    warnings: list[str] = field(default_factory=list)
-
-
-def _build_context(project_dir: str, verbose: bool = False) -> InitContext:
-    """Detect everything the steps might need. Always succeeds."""
-    pdir = os.path.realpath(project_dir)
-    venv_path = os.path.join(pdir, ".venv")
-    workspace_path = os.path.join(pdir, ".idea", "workspace.xml")
-    misc_path = os.path.join(pdir, ".idea", "misc.xml")
-    external_project_storage = external_storage_enabled(misc_path)
-
-    full_ver, major_minor = detect_python_version(venv_path)
-    project_name = detect_project_name(pdir)
-    sdk_name = f"Python {major_minor} ({project_name})"
-    iml_path = find_iml_file(pdir)
-
-    # Normalize module storage into .idea/ when this project is using local
-    # project files instead of IntelliJ's external generated-file storage.
-    if os.path.isdir(os.path.join(pdir, ".idea")) and not external_project_storage:
-        iml_path = ensure_iml_file(pdir, project_name)
-    if os.path.isdir(os.path.join(pdir, ".idea")):
-        ensure_project_root_manager(misc_path)
-
-    win_proj, win_venv, win_python = resolve_windows_paths(pdir, venv_path, workspace_path, None)
-    jb_options = find_jb_options_dir()
-    product_ws = resolve_product_workspace(jb_options, workspace_path)
-
-    env = parse_dotenv(os.path.join(pdir, ".env"))
-    gh_token = env.get("GH_TOKEN") or os.environ.get("GH_TOKEN", "")
-
-    git_remote = parse_git_remote(pdir)
-
-    warnings: list[str] = []
-    if not os.path.exists(venv_path):
-        warnings.append("No .venv -- IDE SDK steps will be skipped")
-    if not os.path.isdir(os.path.join(pdir, ".idea")):
-        warnings.append("No .idea/ -- IDE steps will be skipped (open project in IDEA first)")
-    if not os.path.isdir(os.path.join(pdir, ".git")):
-        warnings.append("No .git/ -- GitHub task server step will be skipped")
-
-    return InitContext(
-        project_dir=pdir,
-        project_name=project_name,
-        venv_path=venv_path,
-        sdk_name=sdk_name,
-        full_ver=full_ver,
-        major_minor=major_minor,
-        iml_path=iml_path,
-        workspace_path=workspace_path,
-        misc_path=misc_path,
-        has_idea=os.path.isdir(os.path.join(pdir, ".idea")),
-        has_git=os.path.isdir(os.path.join(pdir, ".git")),
-        has_venv=os.path.exists(venv_path),
-        has_pyproject=os.path.exists(os.path.join(pdir, "pyproject.toml")),
-        git_remote=git_remote,
-        win_proj=win_proj,
-        win_venv=win_venv,
-        win_python=win_python,
-        jb_options=jb_options,
-        product_ws=product_ws,
-        gh_token=gh_token,
-        external_project_storage=external_project_storage,
-        warnings=warnings,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Step definitions
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class InitStep:
-    """One step in the init wizard.
-
-    To add a new step, define another instance and append it to ``INIT_STEPS``.
-    """
-
+class ProjectType:
     id: str
-    label: str
+    name: str
     description: str
-    applicable: Callable[[InitContext], tuple[bool, str]]  # (yes/no, reason if no)
-    run: Callable[[InitContext], StepResult]
-    default_yes: bool = True
+    prereqs: list[str]
+    scaffold: Callable[[str, str, Path], int]
+    # True = the scaffolding tool creates the target directory itself.
+    # False = we create it and run the tool inside it.
+    tool_creates_dir: bool = True
+    # True = the tool is interactive on its own; skip our detail prompts.
+    own_wizard: bool = False
 
 
-def _ok(name: str, msg: str, **details: Any) -> StepResult:
-    return StepResult(name=name, status="ok", message=msg, details=dict(details))
+def _run(cmd: list[str], cwd: Path | None = None) -> int:
+    """Run a command with inherited stdio so interactive tools work."""
+    return subprocess.run(cmd, cwd=str(cwd) if cwd else None).returncode
 
 
-def _skip(name: str, msg: str) -> StepResult:
-    return StepResult(name=name, status="skipped", message=msg)
+# --- Scaffolding implementations ---
 
 
-def _err(name: str, msg: str) -> StepResult:
-    return StepResult(name=name, status="error", message=msg)
+def _scaffold_python_lib(name: str, _desc: str, target: Path) -> int:
+    # uv init --lib <name> run in the parent creates target/
+    return _run(["uv", "init", "--lib", name], cwd=target.parent)
 
 
-# --- Step actions ---
+def _scaffold_npm_lib(name: str, _desc: str, target: Path) -> int:
+    target.mkdir(parents=True, exist_ok=True)
+    rc = _run(["npm", "init", "-y"], cwd=target)
+    return rc
 
 
-def _run_dotenv_bootstrap(c: InitContext) -> StepResult:
-    """Ensure .env exists with GH_ACCOUNT and GH_REPO pre-populated."""
-    env_path = os.path.join(c.project_dir, ".env")
-    owner = c.git_remote[0] if c.git_remote else ""
-    repo = c.git_remote[1] if c.git_remote else ""
-    written = bootstrap_github_env(env_path, owner=owner, repo=repo)
-    display_written = [entry if not entry.endswith("=") else f"{entry}(blank)" for entry in written]
-
-    if not written:
-        return _skip("dotenv", "GH_ACCOUNT and GH_REPO already present in .env")
-    return _ok("dotenv", f"Wrote to {env_path}: {', '.join(display_written)}")
+def _scaffold_sam(_name: str, _desc: str, target: Path) -> int:
+    # SAM has its own wizard; run it in the parent directory.
+    return _run(["sam", "init"], cwd=target.parent)
 
 
-def _run_gh_token(c: InitContext) -> StepResult:
-    """Prompt for GH_TOKEN and save to .env."""
-    from datetime import UTC, datetime
-
-    now = datetime.now(tz=UTC).strftime("%d/%m/%Y %H:%M:%S")
-    token_name = f"{c.project_name} init {now}"
-
-    click.echo("  Create a fine-grained personal access token:")
-    click.echo("  https://github.com/settings/personal-access-tokens/new")
-    click.echo("")
-    click.echo(f"  Token name : {token_name}")
-    click.echo("  Expiration : 1 year (maximum)")
-    if c.git_remote:
-        click.echo(f"  Repository : {c.git_remote[0]}/{c.git_remote[1]} (select this repo)")
-    else:
-        click.echo("  Repository : (select the target repo)")
-    click.echo("")
-    click.echo("  Recommended repo permissions:")
-    click.echo("    Actions              : Read and write")
-    click.echo("    Administration       : Read and write")
-    click.echo("    Discussions          : Read and write")
-    click.echo("    Metadata             : Read-only (always on)")
-    click.echo("    Pages                : Read and write")
-    click.echo("    Secrets              : Read and write")
-    click.echo("    Variables            : Read and write")
-    click.echo("    Workflows            : Read and write")
-    click.echo("")
-    click.echo("  Often useful for repo automation:")
-    click.echo("    Contents             : Read and write")
-    click.echo("    Pull requests        : Read and write")
-    click.echo("")
-    click.echo("  Optional account permissions:")
-    click.echo("    Gists                : Write")
-    click.echo("")
-    raw: str = click.prompt(
-        "  Paste GitHub token (blank to skip)",
-        hide_input=True,
-        default="",
-        show_default=False,
-    )
-    token = raw.strip()
-    if not token:
-        return _skip("gh_token", "No token entered")
-    env_path = os.path.join(c.project_dir, ".env")
-    bootstrap_github_env(
-        env_path,
-        owner=c.git_remote[0] if c.git_remote else "",
-        repo=c.git_remote[1] if c.git_remote else "",
-    )
-    upsert_dotenv(env_path, "GH_TOKEN", token)
-    c.gh_token = token  # update context for downstream steps
-    os.environ["GH_TOKEN"] = token
-    return _ok("gh_token", f"Saved GH_TOKEN to {env_path}")
+def _scaffold_cdk_python(_name: str, _desc: str, target: Path) -> int:
+    target.mkdir(parents=True, exist_ok=True)
+    return _run(["cdk", "init", "app", "--language", "python"], cwd=target)
 
 
-def _run_module_sdk(c: InitContext) -> StepResult:
-    return step_module_sdk(c.iml_path, c.sdk_name)
+def _scaffold_cdk_ts(_name: str, _desc: str, target: Path) -> int:
+    target.mkdir(parents=True, exist_ok=True)
+    return _run(["cdk", "init", "app", "--language", "typescript"], cwd=target)
 
 
-def _run_structure(c: InitContext) -> StepResult:
-    return step_project_structure(c.iml_path, c.project_dir, c.project_name)
+def _scaffold_react(name: str, _desc: str, target: Path) -> int:
+    return _run(["npx", "create-react-app", name], cwd=target.parent)
 
 
-def _run_project_sdk(c: InitContext) -> StepResult:
-    return step_project_sdk(c.misc_path, c.sdk_name)
+def _scaffold_nextjs(name: str, _desc: str, target: Path) -> int:
+    return _run(["npx", "create-next-app@latest", name], cwd=target.parent)
 
 
-def _run_github_tasks(c: InitContext) -> StepResult:
-    return step_github_tasks(c.workspace_path, c.project_dir, c.gh_token, c.product_ws)
-
-
-def _run_jdk_table(c: InitContext) -> StepResult:
-    return step_jdk_table(c.jb_options, c.sdk_name, c.full_ver, c.win_python, c.win_venv)
-
-
-def _run_bookmarks(c: InitContext) -> StepResult:
-    return step_bookmarks(c.project_dir, c.project_name, c.workspace_path, c.product_ws)
-
-
-def _run_reset_prompt(c: InitContext) -> StepResult:
-    """Offer to delete the product workspace file so changes take effect."""
-    if c.product_ws is None or not os.path.exists(c.product_ws):
-        return _skip("reset", "No product workspace file to reset")
-    click.echo(f"  Will delete: {c.product_ws}")
-    click.echo(
-        click.style(
-            "  IMPORTANT: close this project's IDEA window first (File -> Close Project).",
-            fg="yellow",
-        )
-    )
-    if not click.confirm("  Project window closed -- proceed?", default=False):
-        return _skip("reset", "User declined to close project window")
-    try:
-        os.remove(c.product_ws)
-    except OSError as e:
-        return _err("reset", f"Failed to delete: {e}")
-    return _ok("reset", f"Deleted {c.product_ws}")
-
-
-# --- The ordered step list ---
-
-
-INIT_STEPS: list[InitStep] = [
-    InitStep(
-        id="dotenv",
-        label="Bootstrap .env (GH_ACCOUNT, GH_REPO)",
-        description=(
-            "Create .env if missing and populate GH_ACCOUNT and GH_REPO "
-            "from the git remote origin. Values are left blank when not detectable."
-        ),
-        applicable=lambda c: (True, ""),
-        run=_run_dotenv_bootstrap,
+PROJECT_TYPES: list[ProjectType] = [
+    ProjectType(
+        id="python-lib",
+        name="Python library (PyPI)",
+        description="Installable Python package with src layout, uv toolchain",
+        prereqs=["uv"],
+        scaffold=_scaffold_python_lib,
     ),
-    InitStep(
-        id="gh_token",
-        label="GitHub token (.env)",
-        description=(
-            "Save a GitHub personal access token to .env as GH_TOKEN. "
-            "Used by IDE Tasks server, gh CLI, and semantic-release."
-        ),
-        applicable=lambda c: (
-            (False, f"GH_TOKEN already set ({c.gh_token[:6]}...)") if c.gh_token else (True, "")
-        ),
-        run=_run_gh_token,
-        default_yes=True,
+    ProjectType(
+        id="npm-lib",
+        name="npm library",
+        description="JavaScript/TypeScript package published to npm",
+        prereqs=["npm"],
+        scaffold=_scaffold_npm_lib,
+        tool_creates_dir=False,
     ),
-    InitStep(
-        id="module_sdk",
-        label="IDE: module SDK",
-        description="Set the Python SDK reference in the .iml module file.",
-        applicable=lambda c: (
-            (False, "generated module files are stored externally by IntelliJ")
-            if c.external_project_storage and c.iml_path is None
-            else (False, "no .iml file found")
-            if c.iml_path is None
-            else (True, "")
-        ),
-        run=_run_module_sdk,
+    ProjectType(
+        id="sam",
+        name="AWS SAM deployment",
+        description="Serverless Application Model -- Lambda, API Gateway, etc.",
+        prereqs=["sam"],
+        scaffold=_scaffold_sam,
+        own_wizard=True,
     ),
-    InitStep(
-        id="structure",
-        label="IDE: project source/test/exclude roots",
-        description="Mark src/, tests/ as source roots; mark dist/, .venv/, caches as excluded.",
-        applicable=lambda c: (
-            (False, "generated module files are stored externally by IntelliJ")
-            if c.external_project_storage and c.iml_path is None
-            else (False, "no .iml file found")
-            if c.iml_path is None
-            else (True, "")
-        ),
-        run=_run_structure,
+    ProjectType(
+        id="cdk-python",
+        name="AWS CDK (Python)",
+        description="Cloud Development Kit infrastructure-as-code, Python",
+        prereqs=["cdk"],
+        scaffold=_scaffold_cdk_python,
+        tool_creates_dir=False,
     ),
-    InitStep(
-        id="project_sdk",
-        label="IDE: project SDK (misc.xml)",
-        description="Set the project-level Python SDK in .idea/misc.xml.",
-        applicable=lambda c: (
-            (False, "no .idea/misc.xml found") if not os.path.exists(c.misc_path) else (True, "")
-        ),
-        run=_run_project_sdk,
+    ProjectType(
+        id="cdk-ts",
+        name="AWS CDK (TypeScript)",
+        description="Cloud Development Kit infrastructure-as-code, TypeScript",
+        prereqs=["cdk", "npm"],
+        scaffold=_scaffold_cdk_ts,
+        tool_creates_dir=False,
     ),
-    InitStep(
-        id="github_tasks",
-        label="IDE: GitHub Tasks server",
-        description="Add a <GitHub> server entry to .idea/workspace.xml. Seeds GH_TOKEN once.",
-        applicable=lambda c: (
-            (False, "no GitHub remote in .git/config") if c.git_remote is None else (True, "")
-        ),
-        run=_run_github_tasks,
+    ProjectType(
+        id="react",
+        name="React app",
+        description="React single-page application (create-react-app)",
+        prereqs=["npx"],
+        scaffold=_scaffold_react,
     ),
-    InitStep(
-        id="jdk_table",
-        label="IDE: register SDK in JetBrains config",
-        description=(
-            "Add the venv as a Python SDK entry in jdk.table.xml so IDEA can find it. "
-            "Skips silently if JB config dir is not found (e.g. running from non-Windows shell)."
-        ),
-        applicable=lambda c: (
-            (False, "JB config dir not found")
-            if c.jb_options is None
-            else (False, "Windows project path not resolved")
-            if c.win_python is None
-            else (True, "")
-        ),
-        run=_run_jdk_table,
-    ),
-    InitStep(
-        id="bookmarks",
-        label="IDE: mnemonic bookmarks",
-        description=(
-            "Auto-detect key files (pyproject.toml, README.md, CLAUDE.md, entry point, "
-            "CI workflow, .env, AGENTS.md, pre-commit) and bookmark them with mnemonics 1-9."
-        ),
-        applicable=lambda c: (
-            (False, "no .idea/workspace.xml")
-            if not os.path.exists(c.workspace_path)
-            else (True, "")
-        ),
-        run=_run_bookmarks,
-    ),
-    InitStep(
-        id="reset",
-        label="IDE: force IDEA to reload workspace.xml",
-        description=(
-            "Delete the per-project product workspace cache so IDEA re-reads "
-            ".idea/workspace.xml on next open. Required after IDE-related changes "
-            "if IDEA already had cached state."
-        ),
-        applicable=lambda c: (
-            (False, "no product workspace file to reset") if c.product_ws is None else (True, "")
-        ),
-        run=_run_reset_prompt,
-        default_yes=False,  # destructive-ish; default to no
+    ProjectType(
+        id="nextjs",
+        name="Next.js app",
+        description="Next.js full-stack React framework",
+        prereqs=["npx"],
+        scaffold=_scaffold_nextjs,
     ),
 ]
 
 
 # ---------------------------------------------------------------------------
-# Output helpers
+# Helpers
 # ---------------------------------------------------------------------------
 
 
-def _icon(status: str) -> str:
-    if status == "ok":
-        return click.style("[ok]", fg="green")
-    if status == "skipped":
-        return click.style("[skip]", fg="blue")
-    if status == "action-required":
-        return click.style("[action]", fg="yellow")
-    if status == "error":
-        return click.style("[error]", fg="red")
-    return click.style(f"[{status}]", fg="yellow")
+def _missing_prereqs(pt: ProjectType) -> list[str]:
+    return [p for p in pt.prereqs if shutil.which(p) is None]
 
 
-def _print_header(c: InitContext) -> None:
-    click.echo(click.style("ai-tools init -- interactive wizard", bold=True))
+def _slugify(name: str) -> str:
+    """Lower-case, replace spaces and underscores with hyphens."""
+    return name.strip().lower().replace(" ", "-").replace("_", "-")
+
+
+# ---------------------------------------------------------------------------
+# Wizard
+# ---------------------------------------------------------------------------
+
+
+def _print_header() -> None:
     click.echo("")
-    click.echo("Detected environment:")
-    click.echo(f"  Project       : {c.project_dir}")
-    click.echo(f"  Name          : {c.project_name}")
+    click.echo(click.style("ai-tools init", bold=True) + "  --  new project wizard")
+    click.echo(_DIVIDER)
+    click.echo("")
+
+
+def _select_project_type() -> ProjectType:
+    click.echo(click.style("Select project type:", bold=True))
+    click.echo("")
+    for i, pt in enumerate(PROJECT_TYPES, 1):
+        missing = _missing_prereqs(pt)
+        suffix = click.style(f"  (needs: {', '.join(missing)})", fg="yellow") if missing else ""
+        click.echo(f"  {click.style(str(i) + ')', bold=True)}  {pt.name}{suffix}")
+        click.echo(f"       {click.style(pt.description, fg='bright_black')}")
+    click.echo("")
+    choice: int = click.prompt("Enter number", type=click.IntRange(1, len(PROJECT_TYPES)))
+    return PROJECT_TYPES[choice - 1]
+
+
+def _collect_details(pt: ProjectType) -> tuple[str, str, Path]:
+    """Prompt for project name, description and target directory."""
+    click.echo("")
+    click.echo(click.style("Project details:", bold=True))
+    click.echo("")
+
+    raw_name = click.prompt("  Name")
+    name = _slugify(raw_name)
+    if name != raw_name:
+        click.echo(f"       (normalised to: {click.style(name, bold=True)})")
+
+    desc = click.prompt("  Description", default="")
+
+    default_target = Path.cwd() / name
+    raw_target = click.prompt("  Create in", default=str(default_target))
+    target = Path(raw_target).expanduser().resolve()
+
+    return name, desc, target
+
+
+def _confirm_plan(pt: ProjectType, name: str, target: Path) -> bool:
+    click.echo("")
+    click.echo(click.style("Ready to scaffold:", bold=True))
+    click.echo("")
+    click.echo(f"  Type     {pt.name}")
+    click.echo(f"  Name     {name}")
+    click.echo(f"  Location {target}")
+    click.echo(f"  Tools    {', '.join(pt.prereqs)}")
+    click.echo("")
+    return click.confirm("Proceed?", default=True)
+
+
+def _git_init(project_dir: Path) -> None:
+    """Init git repo and make an initial commit if one doesn't exist."""
+    git_dir = project_dir / ".git"
+    if git_dir.is_dir():
+        return
+    if not click.confirm("\nInitialize git repository?", default=True):
+        return
+    _run(["git", "init"], cwd=project_dir)
+    _run(["git", "add", "."], cwd=project_dir)
+    _run(["git", "commit", "-m", "chore: initial scaffolding"], cwd=project_dir)
+
+
+def _print_next_steps(project_dir: Path) -> None:
+    rel = os.path.relpath(project_dir)
+    click.echo("")
+    click.echo(click.style("Project created!", fg="green", bold=True))
+    click.echo("")
+    click.echo(click.style("Next steps:", bold=True))
+    click.echo(f"  1.  cd {rel}")
+    click.echo(f"  2.  {click.style('ai-tools config', bold=True)}  -- set up IDE and GitHub token")
     click.echo(
-        f"  Python (venv) : {c.full_ver if c.has_venv else click.style('(none)', fg='yellow')}"
+        f"  3.  {click.style('/ai-standardize', bold=True)}  -- apply quality gates in Claude Code"
     )
-    click.echo(f"  IDEA project  : {'yes' if c.has_idea else click.style('no', fg='yellow')}")
-    click.echo(f"  Git repo      : {'yes' if c.has_git else click.style('no', fg='yellow')}")
-    if c.git_remote:
-        click.echo(f"  GitHub remote : {c.git_remote[2]}")
-    click.echo(f"  GH_TOKEN      : {'set' if c.gh_token else click.style('not set', fg='yellow')}")
-    if c.jb_options:
-        click.echo(f"  JB config     : {c.jb_options}")
-    if c.product_ws:
-        click.echo(f"  Product WS    : {c.product_ws}")
-    if c.warnings:
-        click.echo("")
-        for w in c.warnings:
-            click.echo(click.style(f"  Warning: {w}", fg="yellow"))
+    click.echo(
+        f"  4.  {click.style('/ai-submit-work', bold=True)}  -- commit, push and open PR when ready"
+    )
     click.echo("")
-
-
-def _print_summary(results: list[tuple[str, StepResult]]) -> None:
-    click.echo("")
-    click.echo(click.style("=== Summary ===", bold=True))
-    counts: dict[str, int] = {"ok": 0, "skipped": 0, "action-required": 0, "error": 0}
-    for label, r in results:
-        counts[r.status] = counts.get(r.status, 0) + 1
-        click.echo(f"  {_icon(r.status)} {label}: {r.message}")
-    click.echo("")
-    parts = [f"{n} {s}" for s, n in counts.items() if n > 0]
-    click.echo(click.style(f"Done. {', '.join(parts)}.", bold=True))
 
 
 # ---------------------------------------------------------------------------
@@ -464,101 +243,71 @@ def _print_summary(results: list[tuple[str, StepResult]]) -> None:
 
 
 @click.command("init")
-@click.option(
-    "--project-dir",
-    default=".",
-    show_default=True,
-    type=click.Path(exists=True),
-    help="Project root to operate on.",
-)
-@click.option(
-    "-y",
-    "--yes",
-    is_flag=True,
-    default=False,
-    help="Run all applicable steps without prompting (still skips inapplicable ones).",
-)
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Print full tracebacks on step failures.",
-)
 @click.pass_context
-def init(ctx: click.Context, project_dir: str, yes: bool, verbose: bool) -> None:
-    """Interactive setup wizard.
+def init(ctx: click.Context) -> None:
+    """New project scaffold wizard.
 
-    Walks through every file `ai-tools` can create or modify, asking before
-    each one. Failures in a single step do not stop the wizard -- the step is
-    marked as errored and the next step proceeds. Run again any time; steps
-    detect existing state and skip themselves when nothing needs changing.
+    Guides you through selecting a project type (Python library, npm package,
+    SAM, CDK, React, Next.js) and running the appropriate toolchain to create
+    the project structure.  After scaffolding, prints next-step instructions.
     """
-    c = _build_context(project_dir, verbose=verbose)
-    _run_dotenv_bootstrap(c)
-    _print_header(c)
+    _print_header()
 
-    # IDEA-running warning
-    if c.has_idea:
-        click.echo(
-            click.style(
-                "Note: if IDEA is open with this project, close that project window first "
-                "(File -> Close Project) for IDE changes to stick.",
-                fg="yellow",
-            )
-        )
+    # 1. Pick project type
+    pt = _select_project_type()
+    click.echo("")
+    click.echo(f"  Selected: {click.style(pt.name, bold=True)}")
+
+    # 2. Check prereqs
+    missing = _missing_prereqs(pt)
+    if missing:
         click.echo("")
-
-    results: list[tuple[str, StepResult]] = []
-    applicable_steps: list[InitStep] = []
-    for step in INIT_STEPS:
-        ok, reason = step.applicable(c)
-        if not ok:
-            click.echo(f"{_icon('skipped')} {step.label}: {reason}")
-            results.append((step.label, _skip(step.id, reason)))
-            continue
-        applicable_steps.append(step)
-
-    if not applicable_steps:
-        click.echo("")
-        click.echo(click.style("No applicable steps detected. Nothing to do.", bold=True))
+        click.echo(click.style(f"Required tool(s) not found: {', '.join(missing)}", fg="red"))
+        click.echo("Install them and try again.")
+        ctx.exit(1)
         return
 
-    click.echo("")
-    click.echo(click.style(f"{len(applicable_steps)} step(s) applicable:", bold=True))
-    for s in applicable_steps:
-        click.echo(f"  - {s.label}")
-    click.echo("")
-
-    for i, step in enumerate(applicable_steps, start=1):
-        click.echo(click.style(f"[{i}/{len(applicable_steps)}] {step.label}", bold=True))
-        click.echo(f"  {step.description}")
-
-        if not yes and not click.confirm("  Run this step?", default=step.default_yes):
-            results.append((step.label, _skip(step.id, "User declined")))
-            click.echo(f"  {_icon('skipped')} skipped by user")
-            click.echo("")
-            continue
-
-        try:
-            result = step.run(c)
-        except Exception as exc:  # noqa: BLE001 -- intentional broad except for resilience
-            msg = f"{type(exc).__name__}: {exc}"
-            results.append((step.label, _err(step.id, msg)))
-            click.echo(f"  {_icon('error')} {msg}")
-            if verbose:
-                click.echo(click.style(traceback.format_exc(), fg="bright_black"))
-            click.echo("")
-            continue
-
-        results.append((step.label, result))
-        click.echo(f"  {_icon(result.status)} {result.message}")
-        if result.next_action and result.status == "action-required":
-            click.echo(f"    -> {result.next_action}")
-        # Show bookmark table inline
-        if step.id == "bookmarks" and result.details.get("table"):
-            for line in result.details["table"]:
-                click.echo(line)
+    # 3a. Tools with their own wizard (e.g. SAM): run directly, no detail prompts
+    if pt.own_wizard:
         click.echo("")
+        click.echo(click.style(pt.description, fg="bright_black"))
+        click.echo(
+            "\nThis tool has its own interactive wizard.  "
+            "Launching it now in the current directory.\n"
+        )
+        rc = pt.scaffold("", "", Path.cwd())
+        if rc != 0:
+            click.echo(click.style(f"\nScaffolding exited with code {rc}.", fg="yellow"))
+        return
 
-    _print_summary(results)
+    # 3b. Collect project details
+    name, desc, target = _collect_details(pt)
+
+    # 4. Confirm
+    if not _confirm_plan(pt, name, target):
+        click.echo("Aborted.")
+        return
+
+    # 5. Check target directory
+    if target.exists() and any(target.iterdir()):
+        click.echo(click.style(f"\nDirectory already exists and is not empty: {target}", fg="red"))
+        if not click.confirm("Continue anyway?", default=False):
+            return
+
+    # 6. Run scaffolding
+    click.echo("")
+    click.echo(_DIVIDER)
+    click.echo(click.style("Scaffolding...", bold=True))
+    click.echo("")
+
+    rc = pt.scaffold(name, desc, target)
+    if rc != 0:
+        click.echo(click.style(f"\nScaffolding command exited with code {rc}.", fg="red"))
+        click.echo("Check the output above for details.")
+        return
+
+    # 7. Git init (when not already handled by scaffolding tool)
+    _git_init(target)
+
+    # 8. Next steps
+    _print_next_steps(target)

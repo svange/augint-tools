@@ -837,9 +837,9 @@ class TestIdeCli:
         assert result.exit_code == 0
         assert "wizard" in result.output.lower()
 
-    def test_init_yes_on_empty_dir(self, tmp_path: Path) -> None:
+    def test_config_yes_on_empty_dir(self, tmp_path: Path) -> None:
         runner = CliRunner()
-        result = runner.invoke(cli, ["init", "--project-dir", str(tmp_path), "-y"])
+        result = runner.invoke(cli, ["config", "--project-dir", str(tmp_path), "-y"])
         assert result.exit_code == 0, result.output
         assert "Nothing to do" in result.output or "skip" in result.output.lower()
         assert (tmp_path / ".env").read_text() == "GH_ACCOUNT=\nGH_REPO=\n"
@@ -907,16 +907,16 @@ class TestIdeCli:
         modules_xml = (idea / "modules.xml").read_text()
         assert "$PROJECT_DIR$/.idea/sample.iml" in modules_xml
 
-    def test_init_resilient_on_failing_step(self, tmp_path: Path, monkeypatch) -> None:
+    def test_config_resilient_on_failing_step(self, tmp_path: Path, monkeypatch) -> None:
         """A step that raises should not stop the wizard."""
-        from augint_tools.cli.commands import init as init_module
+        from augint_tools.cli.commands import config as config_module
 
-        original = init_module._run_module_sdk
+        original = config_module._run_module_sdk
 
         def boom(_c):
             raise RuntimeError("simulated failure")
 
-        monkeypatch.setattr(init_module, "_run_module_sdk", boom)
+        monkeypatch.setattr(config_module, "_run_module_sdk", boom)
         idea = tmp_path / ".idea"
         idea.mkdir()
         (idea / "test.iml").write_text(
@@ -925,17 +925,17 @@ class TestIdeCli:
             '<content url="file://$MODULE_DIR$"/>'
             "</component></module>"
         )
-        for step in init_module.INIT_STEPS:
+        for step in config_module.CONFIG_STEPS:
             if step.id == "module_sdk":
                 step.run = boom
                 break
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["init", "--project-dir", str(tmp_path), "-y"])
+        result = runner.invoke(cli, ["config", "--project-dir", str(tmp_path), "-y"])
         assert result.exit_code == 0, result.output
         assert "simulated failure" in result.output
 
-        for step in init_module.INIT_STEPS:
+        for step in config_module.CONFIG_STEPS:
             if step.id == "module_sdk":
                 step.run = original
                 break

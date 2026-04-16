@@ -13,7 +13,7 @@ class TestCli:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         assert "CLI for AI-assisted repository and workspace workflows." in result.output
-        assert "repo" in result.output
+        assert "gh" in result.output
         assert "workspace" in result.output
 
     def test_global_flags_in_help(self):
@@ -23,14 +23,12 @@ class TestCli:
         assert "--actionable" in result.output
         assert "--summary" in result.output
 
-    def test_repo_subgroups(self):
+    def test_triage_command(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["repo", "--help"])
+        result = runner.invoke(cli, ["triage", "--help"])
         assert result.exit_code == 0
-        assert "ci" in result.output
-        assert "status" not in result.output
-        assert "branch" not in result.output
-        assert "submit" not in result.output
+        assert "--fix" in result.output
+        assert "--run-id" in result.output
 
     def test_workspace_subgroups(self):
         """Test that workspace subcommands are available."""

@@ -33,26 +33,7 @@ def _require_git(ctx: click.Context, command: str) -> Path | None:
     return cwd
 
 
-# --- Top-level group ---
-
-
-@click.group()
-@click.pass_context
-def repo(ctx):
-    """Single repository workflow commands."""
-    ctx.ensure_object(dict)
-
-
-# --- repo ci ---
-
-
-@repo.group()
-def ci():
-    """CI pipeline commands."""
-    pass
-
-
-@ci.command()
+@click.command()
 @click.option(
     "--fix", "fix_mechanical", is_flag=True, default=False, help="Attempt mechanical fixes."
 )
@@ -60,22 +41,20 @@ def ci():
 @click.pass_context
 def triage(ctx, fix_mechanical, run_id):
     """Classify CI failures and optionally apply mechanical fixes."""
-    cwd = _require_git(ctx, "repo ci triage")
+    cwd = _require_git(ctx, "triage")
     context = detect(cwd)
     opts = _get_output_opts(ctx)
 
     if not context.github.authenticated:
         emit_response(
-            CommandResponse.error("repo ci triage", "repo", "GitHub CLI not authenticated"), **opts
+            CommandResponse.error("triage", "repo", "GitHub CLI not authenticated"), **opts
         )
         sys.exit(1)
 
     branch = context.current_branch
     if not branch and not run_id:
         emit_response(
-            CommandResponse.error(
-                "repo ci triage", "repo", "Not on a branch and no --run-id provided"
-            ),
+            CommandResponse.error("triage", "repo", "Not on a branch and no --run-id provided"),
             **opts,
         )
         sys.exit(1)
@@ -101,9 +80,7 @@ def triage(ctx, fix_mechanical, run_id):
         result = run_gh(args, check=False)
         if result.returncode != 0:
             emit_response(
-                CommandResponse.error(
-                    "repo ci triage", "repo", f"gh failed: {result.stderr.strip()}"
-                ),
+                CommandResponse.error("triage", "repo", f"gh failed: {result.stderr.strip()}"),
                 **opts,
             )
             sys.exit(1)
@@ -116,7 +93,7 @@ def triage(ctx, fix_mechanical, run_id):
             if not data:
                 emit_response(
                     CommandResponse.ok(
-                        "repo ci triage", "repo", "No failed runs found", result={"failures": []}
+                        "triage", "repo", "No failed runs found", result={"failures": []}
                     ),
                     **opts,
                 )
@@ -149,7 +126,7 @@ def triage(ctx, fix_mechanical, run_id):
 
         emit_response(
             CommandResponse(
-                command="repo ci triage",
+                command="triage",
                 scope="repo",
                 status="action-required" if failures else "ok",
                 summary=summary,
@@ -159,7 +136,7 @@ def triage(ctx, fix_mechanical, run_id):
             **opts,
         )
     except Exception as e:
-        emit_response(CommandResponse.error("repo ci triage", "repo", str(e)), **opts)
+        emit_response(CommandResponse.error("triage", "repo", str(e)), **opts)
         sys.exit(1)
 
 

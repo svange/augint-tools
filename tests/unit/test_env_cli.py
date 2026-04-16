@@ -1,4 +1,4 @@
-"""Tests for env CLI command group integration."""
+"""Tests for gh CLI command group integration."""
 
 import json
 from pathlib import Path
@@ -8,26 +8,31 @@ from click.testing import CliRunner
 from augint_tools.cli.__main__ import cli
 
 
-class TestEnvGroup:
-    def test_env_in_help(self):
+class TestGhGroup:
+    def test_gh_in_help(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
-        assert "env" in result.output
+        assert "gh" in result.output
 
-    def test_env_help(self):
+    def test_gh_help(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["env", "--help"])
+        result = runner.invoke(cli, ["gh", "--help"])
         assert result.exit_code == 0
         assert "classify" in result.output
+        assert "push" in result.output
+
+    def test_sync_in_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
         assert "sync" in result.output
-        assert "chezmoi" in result.output
 
 
 class TestClassifyCommand:
     def test_classify_help(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["env", "classify", "--help"])
+        result = runner.invoke(cli, ["gh", "classify", "--help"])
         assert result.exit_code == 0
         assert "secret" in result.output.lower() or "classify" in result.output.lower()
 
@@ -37,7 +42,7 @@ class TestClassifyCommand:
             Path(".env").write_text(
                 "APP_NAME=myapp\nGH_TOKEN=ghp_abc123\nDB_HOST=localhost\nAWS_PROFILE=default\n"
             )
-            result = runner.invoke(cli, ["env", "classify"])
+            result = runner.invoke(cli, ["gh", "classify"])
         assert result.exit_code == 0
         assert "1 secrets" in result.output
         assert "2 variables" in result.output
@@ -47,7 +52,7 @@ class TestClassifyCommand:
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path(".env").write_text("APP_NAME=myapp\nGH_TOKEN=ghp_abc123\n")
-            result = runner.invoke(cli, ["--json", "env", "classify"])
+            result = runner.invoke(cli, ["--json", "gh", "classify"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["status"] == "ok"
@@ -57,27 +62,27 @@ class TestClassifyCommand:
     def test_classify_missing_file(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["env", "classify", "nonexistent.env"])
+            result = runner.invoke(cli, ["gh", "classify", "nonexistent.env"])
         assert result.exit_code != 0
 
     def test_classify_empty_file(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path(".env").write_text("")
-            result = runner.invoke(cli, ["env", "classify"])
+            result = runner.invoke(cli, ["gh", "classify"])
         assert result.exit_code == 0
         assert "0 secrets" in result.output
 
 
-class TestSyncCommand:
-    def test_sync_help(self):
+class TestPushCommand:
+    def test_push_help(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["env", "sync", "--help"])
+        result = runner.invoke(cli, ["gh", "push", "--help"])
         assert result.exit_code == 0
         assert "--dry-run" in result.output
 
-    def test_sync_missing_file(self):
+    def test_push_missing_file(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["env", "sync", "nonexistent.env"])
+            result = runner.invoke(cli, ["gh", "push", "nonexistent.env"])
         assert result.exit_code != 0

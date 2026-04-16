@@ -37,7 +37,7 @@ class TestBuildCommitMessage:
 class TestChezmoiCliHelp:
     def test_help(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["env", "chezmoi", "--help"])
+        result = runner.invoke(cli, ["sync", "--help"])
         assert result.exit_code == 0
         assert "chezmoi" in result.output.lower()
         assert "--no-sync" in result.output
@@ -50,7 +50,7 @@ class TestChezmoiCommand:
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path(".env").write_text("FOO=bar\n")
-            result = runner.invoke(cli, ["env", "chezmoi"])
+            result = runner.invoke(cli, ["sync"])
             assert result.exit_code != 0
             assert "not installed" in result.output.lower()
 
@@ -61,7 +61,7 @@ class TestChezmoiCommand:
                 "augint_tools.env.chezmoi.shutil.which",
                 return_value="/usr/bin/chezmoi",
             ):
-                result = runner.invoke(cli, ["env", "chezmoi", "nonexistent.env"])
+                result = runner.invoke(cli, ["sync", "nonexistent.env"])
                 assert result.exit_code != 0
 
     @patch("augint_tools.env.chezmoi.perform_sync")
@@ -80,7 +80,7 @@ class TestChezmoiCommand:
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path(".env").write_text("GH_REPO=test\nGH_ACCOUNT=acct\nGH_TOKEN=tok\n")
-            result = runner.invoke(cli, ["env", "chezmoi"])
+            result = runner.invoke(cli, ["sync"])
 
         assert result.exit_code == 0, result.output
 
@@ -105,7 +105,7 @@ class TestChezmoiCommand:
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path(".env").write_text("FOO=bar\n")
-            result = runner.invoke(cli, ["env", "chezmoi"])
+            result = runner.invoke(cli, ["sync"])
 
         assert result.exit_code == 0
         assert mock_run.call_count == 3
@@ -119,7 +119,7 @@ class TestChezmoiCommand:
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path(".env").write_text("FOO=bar\n")
-            result = runner.invoke(cli, ["env", "chezmoi", "--no-sync"])
+            result = runner.invoke(cli, ["sync", "--no-sync"])
 
         assert result.exit_code == 0
         mock_sync.assert_not_called()
@@ -130,7 +130,7 @@ class TestChezmoiCommand:
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path(".env").write_text("FOO=bar\n")
-            result = runner.invoke(cli, ["env", "chezmoi", "--dry-run", "--no-sync"])
+            result = runner.invoke(cli, ["sync", "--dry-run", "--no-sync"])
 
         assert result.exit_code == 0
         assert "DRY RUN" in result.output
@@ -146,6 +146,6 @@ class TestChezmoiCommand:
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path(".env").write_text("FOO=bar\n")
-            result = runner.invoke(cli, ["env", "chezmoi", "--no-sync"])
+            result = runner.invoke(cli, ["sync", "--no-sync"])
 
         assert result.exit_code != 0

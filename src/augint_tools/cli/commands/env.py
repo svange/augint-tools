@@ -1,4 +1,4 @@
-"""Environment variable management commands: classify, sync, and chezmoi backup."""
+"""GitHub and environment variable management commands."""
 
 import asyncio
 import sys
@@ -19,12 +19,12 @@ def _get_output_opts(ctx: click.Context) -> dict:
 
 @click.group()
 @click.pass_context
-def env(ctx):
-    """Environment variable management: classify, sync, backup."""
+def gh(ctx):
+    """GitHub secrets and variable management."""
     ctx.ensure_object(dict)
 
 
-@env.command()
+@gh.command()
 @click.argument("filename", type=click.Path(), default=".env")
 @click.pass_context
 def classify(ctx, filename):
@@ -36,7 +36,7 @@ def classify(ctx, filename):
     try:
         results = classify_env(filename)
     except FileNotFoundError as e:
-        emit_response(CommandResponse.error("env classify", "repo", str(e)), **opts)
+        emit_response(CommandResponse.error("gh classify", "repo", str(e)), **opts)
         sys.exit(1)
 
     secrets = [r for r in results if r.classification == Classification.SECRET]
@@ -52,19 +52,19 @@ def classify(ctx, filename):
     summary = f"{len(secrets)} secrets, {len(variables)} variables, {len(skipped)} skipped"
 
     emit_response(
-        CommandResponse.ok("env classify", "repo", summary, result=result_data),
+        CommandResponse.ok("gh classify", "repo", summary, result=result_data),
         **opts,
     )
 
 
-@env.command()
+@gh.command()
 @click.option(
     "--dry-run", "-d", is_flag=True, help="Show what would change without modifying GitHub."
 )
 @click.option("--verbose", "-v", is_flag=True, help="Print detailed output.")
 @click.argument("filename", type=click.Path(exists=True), default=".env")
 @click.pass_context
-def sync(ctx, dry_run, verbose, filename):
+def push(ctx, dry_run, verbose, filename):
     """Push .env secrets and variables to GitHub repository settings."""
     from augint_tools.env.sync import perform_sync
 
@@ -73,7 +73,7 @@ def sync(ctx, dry_run, verbose, filename):
     try:
         results = asyncio.run(perform_sync(filename, dry_run))
     except Exception as e:
-        emit_response(CommandResponse.error("env sync", "repo", str(e)), **opts)
+        emit_response(CommandResponse.error("gh push", "repo", str(e)), **opts)
         sys.exit(1)
 
     n_secrets = len(results["secrets"])
@@ -83,7 +83,7 @@ def sync(ctx, dry_run, verbose, filename):
 
     emit_response(
         CommandResponse.ok(
-            "env sync",
+            "gh push",
             "repo",
             summary,
             result={
@@ -97,7 +97,7 @@ def sync(ctx, dry_run, verbose, filename):
     )
 
 
-@env.command()
+@click.command()
 @click.option("--no-sync", is_flag=True, help="Skip pushing secrets to GitHub.")
 @click.option("--verbose", "-v", is_flag=True, help="Print detailed output.")
 @click.option(
@@ -105,7 +105,7 @@ def sync(ctx, dry_run, verbose, filename):
 )
 @click.argument("filename", type=click.Path(), default=".env")
 @click.pass_context
-def chezmoi(ctx, no_sync, verbose, dry_run, filename):
+def sync(ctx, no_sync, verbose, dry_run, filename):
     """Back up .env to chezmoi and sync secrets to GitHub."""
     from augint_tools.env.chezmoi import chezmoi_backup
 
@@ -119,10 +119,10 @@ def chezmoi(ctx, no_sync, verbose, dry_run, filename):
             dry_run=dry_run,
         )
     except click.ClickException as e:
-        emit_response(CommandResponse.error("env chezmoi", "repo", e.format_message()), **opts)
+        emit_response(CommandResponse.error("sync", "repo", e.format_message()), **opts)
         sys.exit(1)
     except Exception as e:
-        emit_response(CommandResponse.error("env chezmoi", "repo", str(e)), **opts)
+        emit_response(CommandResponse.error("sync", "repo", str(e)), **opts)
         sys.exit(1)
 
     parts = []
@@ -140,6 +140,6 @@ def chezmoi(ctx, no_sync, verbose, dry_run, filename):
     summary = f"{prefix}{'; '.join(parts)}"
 
     emit_response(
-        CommandResponse.ok("env chezmoi", "repo", summary, result=result),
+        CommandResponse.ok("sync", "repo", summary, result=result),
         **opts,
     )

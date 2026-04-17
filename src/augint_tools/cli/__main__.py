@@ -9,7 +9,6 @@ from augint_tools import __version__
 from augint_tools.cli.commands.config import config_cmd
 from augint_tools.cli.commands.env import gh, sync
 from augint_tools.cli.commands.init import init
-from augint_tools.cli.commands.workspace import workspace
 from augint_tools.dashboard.cmd import dashboard_command
 
 
@@ -19,7 +18,7 @@ from augint_tools.dashboard.cmd import dashboard_command
 @click.option("--json", "json_mode", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def cli(ctx, verbose, json_mode):
-    """CLI for AI-assisted repository and workspace workflows."""
+    """CLI for AI-assisted repository workflows."""
     ctx.ensure_object(dict)
     ctx.obj["json_mode"] = json_mode
     if verbose:
@@ -29,7 +28,6 @@ def cli(ctx, verbose, json_mode):
 
 cli.add_command(gh)
 cli.add_command(sync)
-cli.add_command(workspace)
 cli.add_command(init)
 cli.add_command(config_cmd)
 cli.add_command(dashboard_command)

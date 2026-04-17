@@ -4,15 +4,14 @@
 [![PyPI](https://img.shields.io/pypi/v/augint-tools.svg)](https://pypi.org/project/augint-tools/)
 [![Tests](https://github.com/svange/augint-tools/actions/workflows/pipeline.yaml/badge.svg)](https://github.com/svange/augint-tools/actions)
 
-CLI orchestration layer for AI-assisted repository and workspace workflows.
+CLI orchestration layer for AI-assisted repository workflows.
 
-`augint-tools` provides a stable, machine-parseable command surface for humans and AI agents to coordinate development workflows across single repositories and multi-repo workspaces. It is designed to be called directly by AI skills, replacing ad-hoc shell scripts with reliable, JSON-enabled commands.
+`augint-tools` provides a stable, machine-parseable command surface for humans and AI agents to coordinate development workflows. It is designed to be called directly by AI skills, replacing ad-hoc shell scripts with reliable, JSON-enabled commands.
 
 ## Features
 
-- **Dual-mode operation**: Commands for both single repos (`ai-tools repo`) and workspaces (`ai-tools workspace`)
 - **AI-first design**: Every command supports `--json` output for agent parsing
-- **Repo-type aware**: Understands library, service, and workspace repository patterns
+- **Repo-type aware**: Understands library and service repository patterns
 - **Safe defaults**: No destructive git operations without explicit commands
 - **GitHub integration**: Issue management, PR creation, CI status monitoring
 
@@ -53,37 +52,11 @@ ai-tools repo check run --preset full --fix
 ai-tools repo submit
 ```
 
-### Workspace Workflows
-
-```bash
-# Initialize workspace
-ai-tools init --workspace
-
-# Sync all child repositories
-ai-tools workspace sync --json
-
-# Check status across all repos
-ai-tools workspace status
-
-# Create coordinated branches
-ai-tools workspace branch --name feat/multi-repo-change
-
-# Run tests and lint across all repos
-ai-tools workspace test
-ai-tools workspace lint
-
-# Run command in all repos
-ai-tools workspace foreach -- git status
-
-# Submit PRs for all modified repos
-ai-tools workspace submit
-```
-
 ## Command Reference
 
 ### Top-Level Commands
 
-- `ai-tools init [--library|--service|--workspace]` - Initialize repository metadata
+- `ai-tools init [--library|--service]` - Initialize repository metadata
 
 ### Repository Commands (`ai-tools repo`)
 
@@ -96,54 +69,6 @@ ai-tools workspace submit
 - `submit` - Push branch and create PR with automerge
 - `ci watch` - Monitor CI run
 - `ci triage` - Classify CI failures
-
-### Workspace Commands (`ai-tools workspace`)
-
-- `inspect` - Workspace snapshot
-- `status` - Status across all child repositories
-- `sync` - Clone missing repos and update existing
-- `issues [query]` - Aggregate issues from all repos
-- `branch` - Create coordinated branches
-- `check` - Grouped validation across repos
-- `test` - Alias for check --phase tests
-- `lint` - Alias for check --phase quality
-- `foreach <command>` - Execute command in all repos
-- `submit` - Push and create PRs for modified repos
-
-## Configuration
-
-### Repository Classification
-
-`ai-shell.toml`:
-
-```toml
-[project]
-repo_type = "library"        # or "service", "workspace"
-branch_strategy = "main"     # or "dev"
-dev_branch = "dev"           # when branch_strategy = "dev"
-```
-
-### Workspace Manifest
-
-`workspace.yaml` (for workspace repos):
-
-```yaml
-workspace:
-  name: my-workspace
-  repos_dir: repos
-
-repos:
-  - name: my-lib
-    path: repos/my-lib
-    url: https://github.com/org/my-lib.git
-    repo_type: library
-    base_branch: main
-    pr_target_branch: main
-    install: uv sync --all-extras
-    test: uv run pytest -v
-    lint: uv run pre-commit run --all-files
-    depends_on: []
-```
 
 ## Development
 

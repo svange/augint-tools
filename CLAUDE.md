@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`augint-tools` is a CLI orchestration layer for AI-assisted repository and workspace development workflows. It replaces `augint-mono` by broadening scope from multi-repo coordination to general workflow automation.
+`augint-tools` is a CLI orchestration layer for AI-assisted repository development workflows. It replaces `augint-mono` by broadening scope from multi-repo coordination to general workflow automation.
 
 **Key principle**: This tool is designed for both human operators and AI agents. Every command must provide stable `--json` output for machine parsing.
 
@@ -62,16 +62,11 @@ uv run ai-tools --help                  # Entry point script
 
 ### CLI Structure
 
-Two workflow families under `ai-tools`:
-
 ```bash
 ai-tools repo ...                    # Single repository workflow
-ai-tools workspace ...               # Workspace orchestration
 ```
 
 Global output flags: `--json`, `--actionable`, `--summary`
-
-> This repo is a **library**. Use `repo` commands. Do not use `workspace` commands -- those are for workspace repos only.
 
 ### Command Surface
 
@@ -80,25 +75,6 @@ Global output flags: `--json`, `--actionable`, `--summary`
 - `repo branch prepare` -- create work branch from correct base
 - `repo submit` -- run checks, push branch, create PR, enable automerge
 - `repo ci triage` -- classify CI failures
-
-**Workspace commands** (`src/augint_tools/cli/commands/workspace.py`):
-- `workspace sync` -- clone/pull child repos
-- `workspace status` -- workspace health (--actionable, --blocked-only, --dirty-only)
-- `workspace branch` -- coordinated branch prep (--issue, --description, --name)
-- `workspace check` -- grouped validation across repos (--phase, --repos, --preset)
-- `workspace submit` -- open PRs for changed repos
-- `workspace foreach` -- arbitrary command across repos
-
-### Workspace Environment Variables
-
-Two optional environment variables support proxied/containerized environments (e.g., Claude Code Web):
-
-- **`WORKSPACE_REPOS_DIR`** -- Override directory where child repos are located. When set, `get_repo_path()` resolves repos as `$WORKSPACE_REPOS_DIR/<repo_name>` instead of using the path from workspace.yaml. Affects all workspace commands.
-- **`GIT_CLONE_URL_TEMPLATE`** -- URL template for git clone operations. Supports `{slug}` (owner/repo), `{org}`, and `{repo}` placeholders. Example: `http://local_proxy@127.0.0.1:9999/git/{org}/{repo}`. Only affects `workspace sync` clone operations.
-
-When neither env var is set, `workspace sync` also auto-detects proxy environments by inspecting the workspace root's origin remote URL. If it matches the Claude Code Web proxy pattern (`http://local_proxy@127.0.0.1:PORT/git/*`), clone URLs are automatically rewritten to use the same proxy.
-
-Additionally, `get_repo_path()` auto-detects sibling repo layouts: if the configured path has no `.git/` but a sibling path (`../repo_name`) does, it uses the sibling. This handles Claude Code Web's flat cloning layout.
 
 ### Core Infrastructure
 
@@ -136,7 +112,6 @@ Exit codes: 0=success, 1=failure, 2=action-required, 3=blocked, 4=partial
 
 ## Key Files
 
-- `workspace.yaml` - Workspace manifest for workspace repos
 - `pyproject.toml` - Python packaging, dependencies, tool config
 
 ## Testing Strategy

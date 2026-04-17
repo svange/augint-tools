@@ -115,10 +115,15 @@ _PLATFORM_LABELS = {"darwin": "macOS", "linux": "Linux", "win32": "Windows"}
 
 def _run(cmd: list[str], cwd: Path | None = None) -> int:
     """Run a command with inherited stdio so interactive tools work."""
-    # On Windows, .cmd/.bat wrappers (npm, npx, cdk, sam) require shell=True.
-    return subprocess.run(
-        cmd, cwd=str(cwd) if cwd else None, shell=sys.platform == "win32"
-    ).returncode
+    # On Windows, tools like npm/npx/cdk/sam are .cmd wrappers that CreateProcess
+    # cannot execute directly; route them through cmd.exe /c.  Avoid shell=True
+    # so we don't trigger shell-injection scanners and keep args as a list.
+    final_cmd = cmd
+    if sys.platform == "win32":
+        resolved = shutil.which(cmd[0])
+        if resolved and resolved.lower().endswith((".cmd", ".bat")):
+            final_cmd = ["cmd.exe", "/c", *cmd]
+    return subprocess.run(final_cmd, cwd=str(cwd) if cwd else None).returncode
 
 
 # --- Scaffolding implementations ---

@@ -1,6 +1,21 @@
 """Framework detection from filesystem markers."""
 
+import json
 from pathlib import Path
+
+
+def _has_next_dependency(path: Path) -> bool:
+    """Check if ``next`` is in package.json dependencies or devDependencies."""
+    pkg_path = path / "package.json"
+    if not pkg_path.exists():
+        return False
+    try:
+        data = json.loads(pkg_path.read_text())
+        deps = data.get("dependencies", {})
+        dev_deps = data.get("devDependencies", {})
+        return "next" in deps or "next" in dev_deps
+    except (json.JSONDecodeError, OSError):
+        return False
 
 
 def detect_framework(path: Path) -> str:
@@ -25,6 +40,7 @@ def detect_framework(path: Path) -> str:
         (path / "next.config.js").exists()
         or (path / "next.config.mjs").exists()
         or (path / "next.config.ts").exists()
+        or _has_next_dependency(path)
     ):
         return "nextjs"
 

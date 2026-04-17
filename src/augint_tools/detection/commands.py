@@ -16,12 +16,14 @@ class CommandPlan:
     build: str | None = None
 
 
-def resolve_command_plan(toolchain: ToolchainInfo, language: str) -> CommandPlan:
+def resolve_command_plan(
+    toolchain: ToolchainInfo, language: str, framework: str = "plain"
+) -> CommandPlan:
     """Resolve the command plan from ecosystem defaults."""
     if language == "python":
         return _python_defaults(toolchain)
     elif language in ("typescript", "mixed"):
-        return _typescript_defaults(toolchain)
+        return _typescript_defaults(toolchain, framework)
     return CommandPlan()
 
 
@@ -60,10 +62,14 @@ def _python_defaults(toolchain: ToolchainInfo) -> CommandPlan:
     )
 
 
-def _typescript_defaults(toolchain: ToolchainInfo) -> CommandPlan:
+def _typescript_defaults(toolchain: ToolchainInfo, framework: str = "plain") -> CommandPlan:
     """Default command plan for TypeScript/JavaScript projects."""
+    is_nextjs = framework == "nextjs"
+
     if toolchain.has_biome:
         quality = "npx biome check ."
+    elif is_nextjs:
+        quality = "npx next lint"
     elif toolchain.has_npm:
         quality = "npm run lint"
     else:
@@ -71,10 +77,18 @@ def _typescript_defaults(toolchain: ToolchainInfo) -> CommandPlan:
 
     tests = "npm test" if toolchain.has_npm else None
 
+    build: str | None
+    if is_nextjs:
+        build = "npx next build"
+    elif toolchain.has_npm:
+        build = "npm run build"
+    else:
+        build = None
+
     return CommandPlan(
         quality=quality,
         tests=tests,
         security="npm audit" if toolchain.has_npm else None,
         licenses=None,
-        build="npm run build" if toolchain.has_npm else None,
+        build=build,
     )

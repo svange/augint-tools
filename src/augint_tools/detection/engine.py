@@ -93,8 +93,8 @@ def detect(path: Path | None = None) -> RepoContext:
     # Toolchain
     toolchain = detect_toolchain(path)
 
-    # Command plan from ecosystem defaults only
-    command_plan = resolve_command_plan(toolchain, language)
+    # Command plan from ecosystem defaults, framework-aware
+    command_plan = resolve_command_plan(toolchain, language, framework)
 
     # Git state
     default_branch = "main"

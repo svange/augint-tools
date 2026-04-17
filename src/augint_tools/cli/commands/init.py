@@ -155,12 +155,42 @@ def _scaffold_cdk_ts(_name: str, _desc: str, target: Path) -> int:
     return _run(["cdk", "init", "app", "--language", "typescript"], cwd=target)
 
 
-def _scaffold_react(name: str, _desc: str, target: Path) -> int:
-    return _run(["npx", "create-react-app", name], cwd=target.parent)
-
-
 def _scaffold_nextjs(name: str, _desc: str, target: Path) -> int:
-    return _run(["npx", "create-next-app@latest", name], cwd=target.parent)
+    rc = _run(
+        [
+            "npx",
+            "create-next-app@latest",
+            name,
+            "--typescript",
+            "--tailwind",
+            "--eslint",
+            "--app",
+            "--src-dir",
+            "--import-alias",
+            "@/*",
+            "--use-npm",
+        ],
+        cwd=target.parent,
+    )
+    if rc != 0:
+        return rc
+    # Post-scaffold setup
+    project_dir = target if target.is_dir() else target.parent / name
+
+    # Install prettier (CI and pre-commit require it; create-next-app omits it)
+    _run(["npm", "install", "-D", "prettier"], cwd=project_dir)
+
+    # Initialize shadcn/ui component library
+    shadcn_rc = _run(["npx", "shadcn@latest", "init", "--defaults"], cwd=project_dir)
+    if shadcn_rc != 0:
+        click.echo(
+            click.style(
+                "\nshadcn/ui init failed (non-fatal). Run manually later:\n"
+                "  npx shadcn@latest init --defaults",
+                fg="yellow",
+            )
+        )
+    return 0
 
 
 PROJECT_TYPES: list[ProjectType] = [
@@ -204,16 +234,9 @@ PROJECT_TYPES: list[ProjectType] = [
         tool_creates_dir=False,
     ),
     ProjectType(
-        id="react",
-        name="React app",
-        description="React single-page application (create-react-app)",
-        prereqs=["npx"],
-        scaffold=_scaffold_react,
-    ),
-    ProjectType(
         id="nextjs",
         name="Next.js app",
-        description="Next.js full-stack React framework",
+        description="Next.js with TypeScript, Tailwind CSS, shadcn/ui, App Router",
         prereqs=["npx"],
         scaffold=_scaffold_nextjs,
     ),
@@ -247,6 +270,17 @@ def _print_install_hint(tool: str) -> None:
 def _slugify(name: str) -> str:
     """Lower-case, replace spaces and underscores with hyphens."""
     return name.strip().lower().replace(" ", "-").replace("_", "-")
+
+
+_TYPE_IDS = {pt.id for pt in PROJECT_TYPES}
+
+
+def _find_type(type_id: str) -> ProjectType | None:
+    """Look up a project type by its id string."""
+    for pt in PROJECT_TYPES:
+        if pt.id == type_id:
+            return pt
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -346,26 +380,69 @@ def _print_next_steps(project_dir: Path) -> None:
 
 @click.command("init")
 @click.argument("path", default=None, required=False)
+@click.option(
+    "--type",
+    "type_id",
+    type=click.Choice(sorted(_TYPE_IDS), case_sensitive=False),
+    default=None,
+    help="Project type (skips interactive selection).",
+)
+@click.option(
+    "--name",
+    "proj_name",
+    default=None,
+    help="Project name (skips interactive prompt).",
+)
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompts.",
+)
+@click.option(
+    "--no-git-init",
+    is_flag=True,
+    default=False,
+    help="Skip git init (useful when called from /ai-new-project).",
+)
 @click.pass_context
-def init(ctx: click.Context, path: str | None) -> None:
+def init(
+    ctx: click.Context,
+    path: str | None,
+    type_id: str | None,
+    proj_name: str | None,
+    yes: bool,
+    no_git_init: bool,
+) -> None:
     """New project scaffold wizard.
 
     Guides you through selecting a project type (Python library, npm package,
-    SAM, CDK, React, Next.js) and running the appropriate toolchain to create
+    SAM, CDK, Next.js) and running the appropriate toolchain to create
     the project structure.  After scaffolding, prints next-step instructions.
 
     Optional PATH sets the target directory (use . for the current directory).
     When omitted, you are prompted for a name and the project is created in a
     subdirectory of the current directory.
+
+    Non-interactive mode: pass --type, --name, and --yes to skip all prompts.
     """
     path_override = Path(path).expanduser().resolve() if path else None
 
     _print_header()
 
     # 1. Pick project type
-    pt = _select_project_type()
-    click.echo("")
-    click.echo(f"  Selected: {click.style(pt.name, bold=True)}")
+    if type_id:
+        pt = _find_type(type_id)
+        if pt is None:
+            click.echo(click.style(f"Unknown project type: {type_id}", fg="red"))
+            ctx.exit(1)
+            return
+        click.echo(f"  Selected: {click.style(pt.name, bold=True)}")
+    else:
+        pt = _select_project_type()
+        click.echo("")
+        click.echo(f"  Selected: {click.style(pt.name, bold=True)}")
 
     # 2. Check prereqs
     missing = _missing_prereqs(pt)
@@ -395,18 +472,23 @@ def init(ctx: click.Context, path: str | None) -> None:
             click.echo(click.style(f"\nScaffolding exited with code {rc}.", fg="yellow"))
         return
 
-    # 3b. Collect project details
-    name, desc, target = _collect_details(pt, path_override)
+    # 3b. Collect project details (or use CLI args)
+    if proj_name and (path_override or yes):
+        name = _slugify(proj_name)
+        target = path_override if path_override else Path.cwd() / name
+        desc = ""
+    else:
+        name, desc, target = _collect_details(pt, path_override)
 
     # 4. Confirm
-    if not _confirm_plan(pt, name, target):
+    if not yes and not _confirm_plan(pt, name, target):
         click.echo("Aborted.")
         return
 
     # 5. Check target directory
     if target.exists() and any(target.iterdir()):
         click.echo(click.style(f"\nDirectory already exists and is not empty: {target}", fg="red"))
-        if not click.confirm("Continue anyway?", default=False):
+        if not yes and not click.confirm("Continue anyway?", default=False):
             return
 
     # 6. Run scaffolding
@@ -422,7 +504,15 @@ def init(ctx: click.Context, path: str | None) -> None:
         return
 
     # 7. Git init (when not already handled by scaffolding tool)
-    _git_init(target)
+    if not no_git_init:
+        if yes:
+            git_dir = target / ".git"
+            if not git_dir.is_dir():
+                _run(["git", "init"], cwd=target)
+                _run(["git", "add", "."], cwd=target)
+                _run(["git", "commit", "-m", "chore: initial scaffolding"], cwd=target)
+        else:
+            _git_init(target)
 
     # 8. Next steps
     _print_next_steps(target)

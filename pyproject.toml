@@ -47,6 +47,7 @@ module-name = "augint_tools"
 [tool.uv.workspace]
 members = [
     "test-project",
+    "stuff",
 ]
 
 [tool.ruff]

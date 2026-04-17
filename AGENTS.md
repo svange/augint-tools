@@ -19,7 +19,7 @@ Use `uv` for local development.
 Follow the existing Python style: 4-space indentation, type hints on non-CLI functions, and small focused modules. Ruff enforces import ordering and common correctness rules; line length is set to 100. Use `snake_case` for modules, functions, and test names; use `PascalCase` only for classes. Keep Click command handlers in `src/augint_tools/cli/commands/` thin and push reusable behavior into domain modules.
 
 ## Testing Guidelines
-Tests use `pytest` and must follow `test_*.py` naming under `tests/`. Add or update unit tests alongside any behavior change, especially for CLI output, repo/workspace orchestration, and config parsing. Coverage is tracked from `src/`, with CLI wrappers omitted, so focus assertions on the underlying logic. For targeted runs, use commands like `uv run pytest -k workspace`.
+Tests use `pytest` and must follow `test_*.py` naming under `tests/`. Add or update unit tests alongside any behavior change, especially for CLI output and config parsing. Coverage is tracked from `src/`, with CLI wrappers omitted, so focus assertions on the underlying logic.
 
 ## Commit & Pull Request Guidelines
 Recent history follows Conventional Commits, for example `feat: ...`, `fix(security): ...`, and `chore(release): ...`. Keep commits scoped and imperative. PRs should summarize user-visible behavior, note any config or workflow impact, and link the relevant issue when one exists. Include terminal output or screenshots only when they clarify CLI behavior or CI failures.

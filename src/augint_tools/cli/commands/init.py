@@ -176,22 +176,26 @@ def _select_project_type() -> ProjectType:
     return PROJECT_TYPES[choice - 1]
 
 
-def _collect_details(pt: ProjectType) -> tuple[str, str, Path]:
+def _collect_details(pt: ProjectType, path_override: Path | None = None) -> tuple[str, str, Path]:
     """Prompt for project name, description and target directory."""
     click.echo("")
     click.echo(click.style("Project details:", bold=True))
     click.echo("")
 
-    raw_name = click.prompt("  Name")
+    name_default = path_override.name if path_override else None
+    raw_name = click.prompt("  Name", default=name_default)
     name = _slugify(raw_name)
     if name != raw_name:
         click.echo(f"       (normalised to: {click.style(name, bold=True)})")
 
     desc = click.prompt("  Description", default="")
 
-    default_target = Path.cwd() / name
-    raw_target = click.prompt("  Create in", default=str(default_target))
-    target = Path(raw_target).expanduser().resolve()
+    if path_override is not None:
+        target = path_override
+    else:
+        default_target = Path.cwd() / name
+        raw_target = click.prompt("  Create in", default=str(default_target))
+        target = Path(raw_target).expanduser().resolve()
 
     return name, desc, target
 
@@ -243,14 +247,21 @@ def _print_next_steps(project_dir: Path) -> None:
 
 
 @click.command("init")
+@click.argument("path", default=None, required=False)
 @click.pass_context
-def init(ctx: click.Context) -> None:
+def init(ctx: click.Context, path: str | None) -> None:
     """New project scaffold wizard.
 
     Guides you through selecting a project type (Python library, npm package,
     SAM, CDK, React, Next.js) and running the appropriate toolchain to create
     the project structure.  After scaffolding, prints next-step instructions.
+
+    Optional PATH sets the target directory (use . for the current directory).
+    When omitted, you are prompted for a name and the project is created in a
+    subdirectory of the current directory.
     """
+    path_override = Path(path).expanduser().resolve() if path else None
+
     _print_header()
 
     # 1. Pick project type
@@ -275,13 +286,13 @@ def init(ctx: click.Context) -> None:
             "\nThis tool has its own interactive wizard.  "
             "Launching it now in the current directory.\n"
         )
-        rc = pt.scaffold("", "", Path.cwd())
+        rc = pt.scaffold("", "", path_override or Path.cwd())
         if rc != 0:
             click.echo(click.style(f"\nScaffolding exited with code {rc}.", fg="yellow"))
         return
 
     # 3b. Collect project details
-    name, desc, target = _collect_details(pt)
+    name, desc, target = _collect_details(pt, path_override)
 
     # 4. Confirm
     if not _confirm_plan(pt, name, target):

@@ -2,12 +2,6 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
-[manifest]
-members = [
-    "augint-tools",
-    "test-project",
-]
-
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -1574,11 +1568,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/a2/6d/90764092216fa560f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/69/06/36d260a695f383345ab5bbc3fd447249594ae2fa8dfd19c533d5ae23f46b/stevedore-5.7.0-py3-none-any.whl", hash = "sha256:fd25efbb32f1abb4c9e502f385f0018632baac11f9ee5d1b70f88cc5e22ad4ed", size = 54483, upload-time = "2026-02-20T13:27:05.561Z" },
 ]
-
-[[package]]
-name = "test-project"
-version = "0.1.0"
-source = { editable = "test-project" }
 
 [[package]]
 name = "textual"

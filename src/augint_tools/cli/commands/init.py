@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,9 +39,91 @@ class ProjectType:
     own_wizard: bool = False
 
 
+@dataclass
+class InstallHint:
+    summary: str
+    docs: str
+    commands: dict[str, str]  # platform key -> one-liner install command
+
+
+_INSTALL_HINTS: dict[str, InstallHint] = {
+    "uv": InstallHint(
+        summary="Python packaging and virtualenv manager",
+        docs="https://docs.astral.sh/uv/getting-started/installation/",
+        commands={
+            "darwin": "brew install uv",
+            "linux": "curl -LsSf https://astral.sh/uv/install.sh | sh",
+            "win32": 'powershell -c "irm https://astral.sh/uv/install.ps1 | iex"',
+        },
+    ),
+    "npm": InstallHint(
+        summary="Node.js package manager (ships with Node.js)",
+        docs="https://nodejs.org/en/download",
+        commands={
+            "darwin": "brew install node",
+            "linux": "see https://nodejs.org/en/download/package-manager",
+            "win32": "winget install OpenJS.NodeJS",
+        },
+    ),
+    "npx": InstallHint(
+        summary="Node.js package runner (ships with npm / Node.js)",
+        docs="https://nodejs.org/en/download",
+        commands={
+            "darwin": "brew install node",
+            "linux": "see https://nodejs.org/en/download/package-manager",
+            "win32": "winget install OpenJS.NodeJS",
+        },
+    ),
+    "cdk": InstallHint(
+        summary="AWS Cloud Development Kit CLI (requires npm)",
+        docs="https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html",
+        commands={
+            "darwin": "npm install -g aws-cdk",
+            "linux": "npm install -g aws-cdk",
+            "win32": "npm install -g aws-cdk",
+        },
+    ),
+    "sam": InstallHint(
+        summary="AWS Serverless Application Model CLI",
+        docs=(
+            "https://docs.aws.amazon.com/serverless-application-model/"
+            "latest/developerguide/install-sam-cli.html"
+        ),
+        commands={
+            "darwin": "brew install aws-sam-cli",
+            "linux": (
+                "see https://docs.aws.amazon.com/serverless-application-model/"
+                "latest/developerguide/install-sam-cli.html"
+            ),
+            "win32": "winget install Amazon.SAM-CLI",
+        },
+    ),
+    "git": InstallHint(
+        summary="Git version control",
+        docs="https://git-scm.com/downloads",
+        commands={
+            "darwin": "brew install git",
+            "linux": "apt install git   (or: dnf install git)",
+            "win32": "winget install Git.Git",
+        },
+    ),
+}
+
+
+_PLATFORM_LABELS = {"darwin": "macOS", "linux": "Linux", "win32": "Windows"}
+
+
 def _run(cmd: list[str], cwd: Path | None = None) -> int:
     """Run a command with inherited stdio so interactive tools work."""
-    return subprocess.run(cmd, cwd=str(cwd) if cwd else None).returncode
+    # On Windows, tools like npm/npx/cdk/sam are .cmd wrappers that CreateProcess
+    # cannot execute directly; route them through cmd.exe /c.  Avoid shell=True
+    # so we don't trigger shell-injection scanners and keep args as a list.
+    final_cmd = cmd
+    if sys.platform == "win32":
+        resolved = shutil.which(cmd[0])
+        if resolved and resolved.lower().endswith((".cmd", ".bat")):
+            final_cmd = ["cmd.exe", "/c", *cmd]
+    return subprocess.run(final_cmd, cwd=str(cwd) if cwd else None).returncode
 
 
 # --- Scaffolding implementations ---
@@ -146,6 +229,21 @@ def _missing_prereqs(pt: ProjectType) -> list[str]:
     return [p for p in pt.prereqs if shutil.which(p) is None]
 
 
+def _print_install_hint(tool: str) -> None:
+    """Print an install hint for a single missing tool."""
+    hint = _INSTALL_HINTS.get(tool)
+    click.echo(f"  {click.style(tool, bold=True, fg='yellow')}")
+    if hint is None:
+        click.echo("      (no install hint available -- check the tool's documentation)")
+        return
+    click.echo(f"      {hint.summary}")
+    platform_cmd = hint.commands.get(sys.platform)
+    if platform_cmd:
+        label = _PLATFORM_LABELS.get(sys.platform, sys.platform)
+        click.echo(f"      {label}: {platform_cmd}")
+    click.echo(f"      Docs:    {hint.docs}")
+
+
 def _slugify(name: str) -> str:
     """Lower-case, replace spaces and underscores with hyphens."""
     return name.strip().lower().replace(" ", "-").replace("_", "-")
@@ -176,22 +274,26 @@ def _select_project_type() -> ProjectType:
     return PROJECT_TYPES[choice - 1]
 
 
-def _collect_details(pt: ProjectType) -> tuple[str, str, Path]:
+def _collect_details(pt: ProjectType, path_override: Path | None = None) -> tuple[str, str, Path]:
     """Prompt for project name, description and target directory."""
     click.echo("")
     click.echo(click.style("Project details:", bold=True))
     click.echo("")
 
-    raw_name = click.prompt("  Name")
+    name_default = path_override.name if path_override else None
+    raw_name = click.prompt("  Name", default=name_default)
     name = _slugify(raw_name)
     if name != raw_name:
         click.echo(f"       (normalised to: {click.style(name, bold=True)})")
 
     desc = click.prompt("  Description", default="")
 
-    default_target = Path.cwd() / name
-    raw_target = click.prompt("  Create in", default=str(default_target))
-    target = Path(raw_target).expanduser().resolve()
+    if path_override is not None:
+        target = path_override
+    else:
+        default_target = Path.cwd() / name
+        raw_target = click.prompt("  Create in", default=str(default_target))
+        target = Path(raw_target).expanduser().resolve()
 
     return name, desc, target
 
@@ -243,14 +345,21 @@ def _print_next_steps(project_dir: Path) -> None:
 
 
 @click.command("init")
+@click.argument("path", default=None, required=False)
 @click.pass_context
-def init(ctx: click.Context) -> None:
+def init(ctx: click.Context, path: str | None) -> None:
     """New project scaffold wizard.
 
     Guides you through selecting a project type (Python library, npm package,
     SAM, CDK, React, Next.js) and running the appropriate toolchain to create
     the project structure.  After scaffolding, prints next-step instructions.
+
+    Optional PATH sets the target directory (use . for the current directory).
+    When omitted, you are prompted for a name and the project is created in a
+    subdirectory of the current directory.
     """
+    path_override = Path(path).expanduser().resolve() if path else None
+
     _print_header()
 
     # 1. Pick project type
@@ -262,8 +371,14 @@ def init(ctx: click.Context) -> None:
     missing = _missing_prereqs(pt)
     if missing:
         click.echo("")
-        click.echo(click.style(f"Required tool(s) not found: {', '.join(missing)}", fg="red"))
-        click.echo("Install them and try again.")
+        click.echo(
+            click.style(f"Missing required tool(s): {', '.join(missing)}", fg="red", bold=True)
+        )
+        click.echo("")
+        for tool in missing:
+            _print_install_hint(tool)
+            click.echo("")
+        click.echo("Install the missing tool(s) and run this wizard again.")
         ctx.exit(1)
         return
 
@@ -275,13 +390,13 @@ def init(ctx: click.Context) -> None:
             "\nThis tool has its own interactive wizard.  "
             "Launching it now in the current directory.\n"
         )
-        rc = pt.scaffold("", "", Path.cwd())
+        rc = pt.scaffold("", "", path_override or Path.cwd())
         if rc != 0:
             click.echo(click.style(f"\nScaffolding exited with code {rc}.", fg="yellow"))
         return
 
     # 3b. Collect project details
-    name, desc, target = _collect_details(pt)
+    name, desc, target = _collect_details(pt, path_override)
 
     # 4. Confirm
     if not _confirm_plan(pt, name, target):

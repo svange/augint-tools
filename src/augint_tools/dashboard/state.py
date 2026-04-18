@@ -27,7 +27,14 @@ PANEL_WIDTH_STEP = 2
 UNASSIGNED_TEAM = "unassigned"
 
 SORT_MODES: tuple[str, ...] = ("health", "alpha", "problem")
-FILTER_MODES: tuple[str, ...] = ("all", "broken-ci", "no-renovate", "stale-prs", "issues")
+FILTER_MODES: tuple[str, ...] = (
+    "all",
+    "broken-ci",
+    "security",
+    "no-renovate",
+    "stale-prs",
+    "issues",
+)
 
 _TEAM_FILTER_PREFIX = "team:"
 _TEAM_PERMISSION_ORDER = {"admin": 0, "maintain": 1, "push": 2, "triage": 3, "pull": 4}
@@ -205,6 +212,14 @@ def apply_filter(
             h
             for h in healths
             if any(c.check_name == "broken_ci" and c.severity != Severity.OK for c in h.checks)
+        ]
+    if mode == "security":
+        return [
+            h
+            for h in healths
+            if any(
+                c.check_name == "security_alerts" and c.severity != Severity.OK for c in h.checks
+            )
         ]
     if mode == "no-renovate":
         return [

@@ -13,10 +13,12 @@ if TYPE_CHECKING:
 
     from ..._data import RepoStatus
 
+_RENOVATE_LOGINS = {"renovate[bot]", "renovate-bot"}
+
 
 class StalePRsCheck:
     name = "stale_prs"
-    description = "Detect PRs open longer than threshold"
+    description = "Detect PRs open longer than threshold (excludes Renovate PRs)"
 
     def evaluate(
         self,
@@ -26,7 +28,7 @@ class StalePRsCheck:
         config: dict,
         pulls: list | None = None,
     ) -> HealthCheckResult:
-        threshold_days = config.get("stale_pr_days", 5)
+        threshold_days = config.get("stale_pr_days", 7)
         now = datetime.now(UTC)
 
         if pulls is None:
@@ -34,6 +36,9 @@ class StalePRsCheck:
 
         stale = []
         for pr in pulls:
+            # Renovate PRs are covered by renovate_prs_piling check.
+            if pr.user and pr.user.login in _RENOVATE_LOGINS:
+                continue
             age = (now - pr.created_at).days
             if age >= threshold_days:
                 stale.append((pr, age))

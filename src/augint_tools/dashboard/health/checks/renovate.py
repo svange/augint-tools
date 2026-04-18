@@ -15,12 +15,12 @@ if TYPE_CHECKING:
     from ..._data import RepoStatus
 
 _CONFIG_PATHS = (
+    "renovate.json5",  # canonical path -- probe first for short-circuit
     "renovate.json",
-    "renovate.json5",
+    ".github/renovate.json5",
+    ".github/renovate.json",
     ".renovaterc",
     ".renovaterc.json",
-    ".github/renovate.json",
-    ".github/renovate.json5",
 )
 
 

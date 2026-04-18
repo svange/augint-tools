@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 class BrokenCICheck:
     name = "broken_ci"
-    description = "Detect main/dev pipeline failures"
+    description = "Detect main/dev pipeline failures and missing CI"
 
     def evaluate(
         self,
@@ -40,8 +40,17 @@ class BrokenCICheck:
             detail = f": {status.dev_error}" if status.dev_error else ""
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.CRITICAL,
+                severity=Severity.HIGH,
                 summary=f"dev pipeline failing{detail}",
+                link=actions_url,
+            )
+
+        # No workflows at all is a governance gap worth surfacing.
+        if status.main_status == "unknown" and status.dev_status is None:
+            return HealthCheckResult(
+                check_name=self.name,
+                severity=Severity.MEDIUM,
+                summary="No CI workflows detected",
                 link=actions_url,
             )
 

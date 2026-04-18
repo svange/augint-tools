@@ -188,7 +188,7 @@ class TestRegistry:
         assert "broken_ci" in names
         assert "renovate_enabled" in names
         assert "renovate_prs_piling" in names
-        assert "repo_standards" in names
+        assert "security_alerts" in names
         assert "stale_prs" in names
         assert "open_issues" in names
 
@@ -238,8 +238,17 @@ class TestBrokenCI:
             ),
             config={},
         )
-        assert result.severity == Severity.CRITICAL
+        assert result.severity == Severity.HIGH
         assert "dev pipeline failing" in result.summary
+
+    def test_no_ci_detected(self):
+        result = get_check("broken_ci").evaluate(
+            _mock_repo(),
+            _status(main_status="unknown", dev_status=None),
+            config={},
+        )
+        assert result.severity == Severity.MEDIUM
+        assert "No CI workflows" in result.summary
 
     def test_main_takes_priority_over_dev(self):
         result = get_check("broken_ci").evaluate(
@@ -337,11 +346,37 @@ class TestRenovatePRsPiling:
         assert "3 Renovate PRs" in result.summary
 
 
-class TestRepoStandards:
-    def test_stub_returns_ok(self):
-        result = get_check("repo_standards").evaluate(_mock_repo(), _status(), config={})
+class TestSecurityAlerts:
+    def test_no_alerts(self):
+        repo = _mock_repo()
+        repo.get_dependabot_alerts.return_value = []
+        result = get_check("security_alerts").evaluate(repo, _status(), config={})
         assert result.severity == Severity.OK
-        assert "not yet implemented" in result.summary
+
+    def test_critical_alerts(self):
+        repo = _mock_repo()
+        repo.get_dependabot_alerts.side_effect = lambda **kw: (
+            [MagicMock()] if kw.get("severity") == "critical" else []
+        )
+        result = get_check("security_alerts").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.CRITICAL
+        assert "1 critical" in result.summary
+
+    def test_high_alerts_only(self):
+        repo = _mock_repo()
+        repo.get_dependabot_alerts.side_effect = lambda **kw: (
+            [MagicMock(), MagicMock()] if kw.get("severity") == "high" else []
+        )
+        result = get_check("security_alerts").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.HIGH
+        assert "2 high" in result.summary
+
+    def test_api_unavailable(self):
+        repo = _mock_repo()
+        repo.get_dependabot_alerts.side_effect = GithubException(403, "forbidden", None)
+        result = get_check("security_alerts").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.OK
+        assert "unavailable" in result.summary
 
 
 class TestStalePRs:
@@ -375,21 +410,72 @@ class TestStalePRs:
         result = get_check("stale_prs").evaluate(_mock_repo(), _status(), config={}, pulls=[])
         assert result.severity == Severity.OK
 
+    def test_renovate_prs_excluded(self):
+        pulls = [
+            _mock_pr(
+                login="renovate[bot]",
+                created_at=datetime.now(UTC) - timedelta(days=30),
+            ),
+            _mock_pr(
+                login="human-user",
+                created_at=datetime.now(UTC),
+            ),
+        ]
+        result = get_check("stale_prs").evaluate(_mock_repo(), _status(), config={}, pulls=pulls)
+        assert result.severity == Severity.OK
+
+    def test_default_threshold_is_7_days(self):
+        pulls = [
+            _mock_pr(
+                created_at=datetime.now(UTC) - timedelta(days=6),
+                html_url="https://github.com/org/repo/pull/1",
+            ),
+        ]
+        result = get_check("stale_prs").evaluate(_mock_repo(), _status(), config={}, pulls=pulls)
+        assert result.severity == Severity.OK
+
+
+def _mock_issue(login="human-user", is_pr=False):
+    issue = MagicMock()
+    issue.user = MagicMock()
+    issue.user.login = login
+    issue.pull_request = MagicMock() if is_pr else None
+    return issue
+
 
 class TestOpenIssues:
     def test_below_threshold(self):
         result = get_check("open_issues").evaluate(_mock_repo(), _status(open_issues=5), config={})
         assert result.severity == Severity.OK
 
-    def test_above_threshold(self):
-        result = get_check("open_issues").evaluate(_mock_repo(), _status(open_issues=15), config={})
+    def test_above_threshold_all_human(self):
+        repo = _mock_repo()
+        repo.get_issues.return_value = [_mock_issue() for _ in range(15)]
+        result = get_check("open_issues").evaluate(repo, _status(open_issues=15), config={})
         assert result.severity == Severity.LOW
         assert "15 open issues" in result.summary
         assert result.link is not None
 
+    def test_bot_issues_excluded(self):
+        repo = _mock_repo()
+        issues = [_mock_issue() for _ in range(5)] + [
+            _mock_issue(login="renovate[bot]"),
+            _mock_issue(login="dependabot[bot]"),
+            _mock_issue(login="github-actions[bot]"),
+        ]
+        # Total is 8 but only 5 are human-filed.
+        # Even though open_issues=12 triggers the API fetch,
+        # the filtered count (5) is below the default threshold (10).
+        repo.get_issues.return_value = issues
+        result = get_check("open_issues").evaluate(repo, _status(open_issues=12), config={})
+        assert result.severity == Severity.OK
+        assert "5 open issues" in result.summary
+
     def test_custom_threshold(self):
+        repo = _mock_repo()
+        repo.get_issues.return_value = [_mock_issue() for _ in range(3)]
         result = get_check("open_issues").evaluate(
-            _mock_repo(), _status(open_issues=3), config={"open_issues_threshold": 3}
+            repo, _status(open_issues=3), config={"open_issues_threshold": 3}
         )
         assert result.severity == Severity.LOW
 

@@ -20,7 +20,7 @@ from textual.binding import Binding
 from textual.containers import Container
 from textual.message import Message
 from textual.screen import Screen
-from textual.widgets import Footer, Static
+from textual.widgets import Static
 
 from ._data import RepoStatus, fetch_repo_status_with_pulls, save_cache
 from ._helpers import list_repos, strip_dotfile_repos
@@ -48,6 +48,7 @@ from .sysmeter import probe_gpu, probe_ram
 from .themes import get_theme, list_themes
 from .usage import claude_daily_message_buckets, fetch_all_usage
 from .widgets.card_container import CardContainer
+from .widgets.dashboard_footer import DashboardFooter
 from .widgets.drawer import Drawer
 from .widgets.highlight_bar import HighlightBar
 from .widgets.repo_card import RepoCard
@@ -211,7 +212,7 @@ class MainScreen(Screen[None]):
         yield self._top_drawer
         yield Container(self._card_container)
         yield self._drawer
-        yield Footer()
+        yield DashboardFooter()
 
     def on_mount(self) -> None:
         self.rerender()
@@ -398,10 +399,10 @@ class MainScreen(Screen[None]):
         ok_count = by_sev.get(_Sev.OK, 0)
         score = int((ok_count / total) * 100) if total else 0
 
-        t.append(f"{self._org_name or 'Organization'} -- org dashboard", style="bold")
-        t.append(f"    {total} repos  ·  {score}% green\n\n")
+        t.append(f"{self._org_name or 'Organization'}\n", style="bold")
+        t.append(f"{total} repos  ·  {score}% green\n\n")
 
-        self._append_severity_bar(t, by_sev, total, spec, width=40)
+        self._append_severity_bar(t, by_sev, total, spec)
 
         t.append("repos    ", style="bold")
         self._append_repo_glyphs(t, spec)
@@ -441,8 +442,8 @@ class MainScreen(Screen[None]):
         shown = healths[:24]
         for h in shown:
             status = h.status
-            name = status.name[:18]
-            t.append(f"  {name:<18} ")
+            name = status.name[:16]
+            t.append(f"  {name:<16} ")
             if status.is_service and status.dev_status:
                 t.append("\u25cf", style=self._ci_dot_style(status.dev_status, spec))
                 t.append(" ")
@@ -482,14 +483,14 @@ class MainScreen(Screen[None]):
             return
         ordered = sorted(tally.items(), key=lambda kv: (-kv[1], kv[0]))
         total = sum(tally.values())
-        bar_width = 16
+        bar_width = 10
         for name, count in ordered[:6]:
-            label = name.replace("_", " ")[:18]
+            label = name.replace("_", " ")[:14]
             colour = spec.severity_colors.get(
                 worst_sev.get(name, _Sev.OK), spec.severity_colors[_Sev.OK]
             )
             blocks = max(1, int(round(count / total * bar_width)))
-            t.append(f"  {label:<18} ")
+            t.append(f"  {label:<14} ")
             t.append("\u2588" * blocks, style=colour)
             t.append(f" {count}\n", style="dim")
         t.append("\n")
@@ -504,22 +505,27 @@ class MainScreen(Screen[None]):
 
         def _line(label: str, bucket: list) -> None:
             if not bucket:
-                t.append(f"  {label:<9} 0\n", style="dim")
+                t.append(f"  {label:<5} 0\n", style="dim")
                 return
             ok = sum(1 for h in bucket if h.worst_severity == _Sev.OK)
             bad = len(bucket) - ok
-            t.append(f"  {label:<9} {len(bucket):>3}   ")
+            t.append(f"  {label:<5} {len(bucket):>3} ")
             if ok:
-                t.append(f"{ok} ok", style=spec.severity_colors[_Sev.OK])
+                t.append(f"{ok}ok", style=spec.severity_colors[_Sev.OK])
             if bad:
                 if ok:
-                    t.append(" · ")
-                t.append(f"{bad} issues", style=spec.severity_colors[_Sev.HIGH])
+                    t.append("/")
+                t.append(f"{bad}err", style=spec.severity_colors[_Sev.HIGH])
             t.append("\n")
 
         _line("services", services)
         _line("libs", libs)
         t.append("\n")
+
+    @staticmethod
+    def _display_score(raw_score: int) -> int:
+        """Normalize internal score (0-10000) to display range (0-100)."""
+        return min(100, max(0, raw_score // 100))
 
     def _append_score_histogram(self, t: Text, healths: list, spec) -> None:
         """Health-score histogram in 10-point buckets."""
@@ -529,23 +535,24 @@ class MainScreen(Screen[None]):
             return
         buckets = [0] * 10  # 0-9, 10-19, ..., 90-100
         for h in healths:
-            idx = min(9, max(0, h.score // 10))
+            ds = self._display_score(h.score)
+            idx = min(9, max(0, ds // 10))
             buckets[idx] += 1
         peak = max(buckets) or 1
         glyphs = " \u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"
-        t.append("score dist.\n", style="bold")
+        t.append("scores\n", style="bold")
         t.append("  0 ", style="dim")
-        for b in buckets:
-            idx = int(round((b / peak) * (len(glyphs) - 1)))
+        for bi, b in enumerate(buckets):
+            gi = int(round((b / peak) * (len(glyphs) - 1)))
             colour = (
                 spec.severity_colors[_Sev.CRITICAL]
-                if b and buckets.index(b) < 5
+                if b and bi < 5
                 else spec.severity_colors[_Sev.OK]
             )
-            t.append(glyphs[idx], style=colour)
+            t.append(glyphs[gi], style=colour)
         t.append(" 100\n", style="dim")
-        avg = sum(h.score for h in healths) / len(healths)
-        t.append(f"  avg score {avg:.0f}\n\n", style="dim")
+        avg = sum(self._display_score(h.score) for h in healths) / len(healths)
+        t.append(f"  avg {avg:.0f}\n\n", style="dim")
 
     def _append_recent_errors(self, t: Text, state, spec) -> None:
         """Last few timestamped errors from the error log."""
@@ -636,10 +643,10 @@ class MainScreen(Screen[None]):
 
         t.append("pr ages  ", style="bold")
         if total_prs == 0:
-            t.append("no open PRs across the org", style="dim")
+            t.append("none", style="dim")
             t.append("\n\n")
             return
-        bar_width = 30
+        bar_width = 18
 
         def bar(n: int, total: int, colour: str) -> None:
             if total <= 0:
@@ -651,11 +658,11 @@ class MainScreen(Screen[None]):
         bar(active, total_prs, spec.severity_colors[_Sev.OK])
         bar(stale, total_prs, spec.severity_colors[_Sev.HIGH])
         bar(drafts, total_prs, "dim")
-        t.append(f"  active {active}", style="dim")
+        t.append(f" {active}", style="dim")
         if stale:
-            t.append(f"  stale {stale}", style=spec.severity_colors[_Sev.HIGH])
+            t.append(f"/{stale}s", style=spec.severity_colors[_Sev.HIGH])
         if drafts:
-            t.append(f"  draft {drafts}", style="dim")
+            t.append(f"/{drafts}d", style="dim")
         t.append("\n\n")
 
     def _append_team_mix(self, t: Text, state, spec) -> None:
@@ -673,7 +680,7 @@ class MainScreen(Screen[None]):
         from .state import team_accent as _team_accent
 
         known_teams = list(state.team_labels)
-        bar_width = 30
+        bar_width = 18
         used = 0
         for i, (key, count) in enumerate(ordered):
             slot = int(count / total * bar_width) if total else 0
@@ -682,13 +689,13 @@ class MainScreen(Screen[None]):
             used += slot
             if slot > 0:
                 t.append("\u2588" * slot, style=_team_accent(key, known_teams))
-        t.append("  ")
+        t.append("\n  ")
         legend_bits: list[str] = []
         for key, count in ordered[:4]:
             label = state.team_labels.get(key, key)
             legend_bits.append(f"{label} {count}")
         if len(ordered) > 4:
-            legend_bits.append(f"+{len(ordered) - 4} more")
+            legend_bits.append(f"+{len(ordered) - 4}")
         t.append(" · ".join(legend_bits), style="dim")
         t.append("\n\n")
 
@@ -700,18 +707,16 @@ class MainScreen(Screen[None]):
         if not worst:
             return
         worst.sort(key=lambda h: (h.score, int(h.worst_severity), h.status.name.lower()))
-        t.append("worst 5  ", style="bold")
-        t.append("\n")
+        t.append("worst 5\n", style="bold")
         for rank, h in enumerate(worst[:5], start=1):
             colour = spec.severity_colors.get(h.worst_severity, spec.severity_colors[_Sev.OK])
             first = next((f for f in h.findings if f.severity != _Sev.OK), None)
             summary = first.summary if first else h.worst_severity.name.lower()
+            ds = self._display_score(h.score)
             t.append(f"  {rank}. ")
-            t.append(f"{h.status.name:<22}", style="bold")
-            t.append(f" {h.worst_severity.name.lower():<8}", style=colour)
-            t.append(f" score {h.score:>3}   ")
-            t.append(summary, style="dim")
-            t.append("\n")
+            t.append(f"{h.status.name[:16]:<16}", style="bold")
+            t.append(f" {ds:>3}", style=colour)
+            t.append(f" {summary[:20]}\n", style="dim")
         t.append("\n")
 
     def _append_severity_bar(
@@ -721,7 +726,7 @@ class MainScreen(Screen[None]):
         total: int,
         spec,  # ThemeSpec
         *,
-        width: int = 40,
+        width: int = 24,
     ) -> None:
         """Render a colour-segmented block bar representing severity distribution."""
         from .health import Severity as _Sev
@@ -733,7 +738,7 @@ class MainScreen(Screen[None]):
             (_Sev.LOW, "low"),
             (_Sev.OK, "ok"),
         ]
-        t.append("health  [", style="bold")
+        t.append("health [", style="bold")
         if total <= 0:
             t.append(" " * width + "]\n")
             return
@@ -776,43 +781,38 @@ class MainScreen(Screen[None]):
 
     def _append_usage_block(self, t: Text, spec) -> None:
         """Usage meters for Claude Code / OpenAI / Copilot."""
-        t.append("usage\n", style="bold")
         stats_list = self._state.usage_stats
         if not stats_list:
-            t.append("  loading…\n", style="dim")
+            t.append("usage\n", style="bold")
+            t.append("  loading...\n", style="dim")
             return
-        for stats in stats_list:
-            t.append(f"  {stats.display_name:<13}")
+        # Only show providers that are actually configured.
+        configured = [s for s in stats_list if s.status != "unconfigured"]
+        if not configured:
+            return
+        t.append("usage\n", style="bold")
+        for stats in configured:
+            t.append(f"  {stats.display_name:<12}")
             fraction = stats.usage_fraction
             if fraction is not None and stats.limit:
-                bar = _progress_bar(fraction, 20)
+                bar = _progress_bar(fraction, 14)
                 color = _usage_status_color(stats.status, spec)
-                t.append(" ")
                 t.append(bar, style=color)
                 pct = int(fraction * 100)
-                t.append(f"  {pct:>3}%   {stats.messages}/{stats.limit}")
+                t.append(f" {pct}%", style="dim")
                 if stats.tier:
-                    t.append(f"   {stats.tier}", style="dim")
-            elif stats.status == "unconfigured":
-                t.append(" —  ", style="dim")
-                t.append(stats.error or "unconfigured", style="dim")
+                    t.append(f" {stats.tier}", style="dim")
             elif stats.status == "empty":
-                t.append(" —  ", style="dim")
-                t.append("no data in window", style="dim")
-                if stats.note:
-                    t.append(f"  ({stats.note})", style="dim")
+                t.append("no data", style="dim")
             elif stats.status == "unknown":
-                t.append(" ?  ")
                 if stats.tier:
-                    t.append(f"{stats.tier}  ", style="dim")
-                if stats.note:
+                    t.append(f"{stats.tier}", style="dim")
+                elif stats.note:
                     t.append(stats.note, style="dim")
-                elif stats.error:
-                    t.append(stats.error, style="dim")
             else:
-                t.append(f"  {stats.messages} msgs")
+                t.append(f"{stats.messages} msgs", style="dim")
                 if stats.tier:
-                    t.append(f"   {stats.tier}", style="dim")
+                    t.append(f" {stats.tier}", style="dim")
             t.append("\n")
         t.append("\n")
 
@@ -832,7 +832,7 @@ class MainScreen(Screen[None]):
             return
 
         t.append("system\n", style="bold")
-        bar_width = 20
+        bar_width = 14
 
         if ram is not None:
             used_frac = ram.used_fraction
@@ -843,22 +843,20 @@ class MainScreen(Screen[None]):
                 color = spec.severity_colors[_Sev.HIGH]
             elif used_frac >= 0.60:
                 color = spec.severity_colors[_Sev.MEDIUM]
-            t.append("  RAM    ")
-            t.append(_progress_bar(used_frac, bar_width), style=color)
             pct = int(round(used_frac * 100))
-            t.append(f"  {ram.used_gb:.1f}/{ram.total_gb:.1f} GB ({pct}%)\n")
+            t.append("  RAM  ")
+            t.append(_progress_bar(used_frac, bar_width), style=color)
+            t.append(f" {pct}% {ram.used_gb:.0f}/{ram.total_gb:.0f}G\n")
 
         if gpu is not None:
-            t.append(f"  GPU    {gpu.name}")
+            t.append(f"  GPU  {gpu.name[:16]}")
             extras: list[str] = []
             if gpu.temp_c is not None:
-                extras.append(f"{gpu.temp_c} C")
-            if gpu.power_w is not None and gpu.power_limit_w is not None:
-                extras.append(f"{gpu.power_w:.0f}/{gpu.power_limit_w:.0f} W")
-            elif gpu.power_w is not None:
-                extras.append(f"{gpu.power_w:.0f} W")
+                extras.append(f"{gpu.temp_c}C")
+            if gpu.power_w is not None:
+                extras.append(f"{gpu.power_w:.0f}W")
             if extras:
-                t.append("   " + "  ".join(extras), style="dim")
+                t.append(" " + " ".join(extras), style="dim")
             t.append("\n")
 
             util_color = spec.severity_colors[_Sev.OK]
@@ -866,9 +864,9 @@ class MainScreen(Screen[None]):
                 util_color = spec.severity_colors[_Sev.HIGH]
             elif gpu.util_pct >= 60:
                 util_color = spec.severity_colors[_Sev.MEDIUM]
-            t.append("  util   ")
+            t.append("  util ")
             t.append(_progress_bar(gpu.util_fraction, bar_width), style=util_color)
-            t.append(f"  {gpu.util_pct}%\n")
+            t.append(f" {gpu.util_pct}%\n")
 
             vram_frac = gpu.vram_fraction
             vram_color = spec.severity_colors[_Sev.OK]
@@ -878,10 +876,10 @@ class MainScreen(Screen[None]):
                 vram_color = spec.severity_colors[_Sev.HIGH]
             elif vram_frac >= 0.60:
                 vram_color = spec.severity_colors[_Sev.MEDIUM]
-            t.append("  vram   ")
-            t.append(_progress_bar(vram_frac, bar_width), style=vram_color)
             vram_pct = int(round(vram_frac * 100))
-            t.append(f"  {gpu.vram_used_gb:.1f}/{gpu.vram_total_gb:.1f} GB ({vram_pct}%)\n")
+            t.append("  vram ")
+            t.append(_progress_bar(vram_frac, bar_width), style=vram_color)
+            t.append(f" {vram_pct}% {gpu.vram_used_gb:.0f}/{gpu.vram_total_gb:.0f}G\n")
         t.append("\n")
 
     def _usage_drawer_content(self) -> Text:
@@ -933,6 +931,15 @@ class DashboardApp(App[None]):
         Binding("plus", "widen_card", "Wider", show=False),
         Binding("equals_sign", "widen_card", show=False),
         Binding("minus", "narrow_card", "Narrower", show=False),
+        Binding("1", "quit", show=False),
+        Binding("2", "refresh_now", show=False),
+        Binding("3", "cycle_sort", show=False),
+        Binding("4", "open_filter_panel", show=False),
+        Binding("5", "toggle_drawer", show=False),
+        Binding("6", "toggle_usage", show=False),
+        Binding("7", "toggle_org", show=False),
+        Binding("8", "open_errors", show=False),
+        Binding("9", "show_help", show=False),
         Binding("enter", "open_selected", show=False, priority=True),
         Binding("o", "open_selected_browser", show=False, priority=True),
         Binding("down", "move_down", show=False, priority=True),

@@ -10,7 +10,9 @@ class ListLayout:
     priority = 40
 
     def apply(self, container, cards, ctx: LayoutContext) -> None:
-        container.remove_class("layout--packed", "layout--grouped", "layout--dense")
+        container.remove_class(
+            "layout--packed", "layout--grouped", "layout--dense", "layout--severity"
+        )
         container.add_class("layout--list")
         container.clear_group_headers()
         for card in cards:

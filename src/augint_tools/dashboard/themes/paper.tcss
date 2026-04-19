@@ -10,7 +10,7 @@ Header {
     color: #e8dcb1;
 }
 
-Footer {
+Footer, DashboardFooter {
     background: #252320;
     color: #9a9282;
 }

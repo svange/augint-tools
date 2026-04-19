@@ -73,6 +73,7 @@ def _register_builtins() -> None:
     from . import grouped as _grouped  # noqa: F401
     from . import list as _list  # noqa: F401
     from . import packed as _packed  # noqa: F401
+    from . import severity as _severity  # noqa: F401
 
 
 _register_builtins()

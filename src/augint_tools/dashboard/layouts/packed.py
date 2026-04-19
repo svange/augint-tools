@@ -11,7 +11,9 @@ class PackedLayout:
     priority = 10
 
     def apply(self, container, cards, ctx: LayoutContext) -> None:
-        container.remove_class("layout--grouped", "layout--dense", "layout--list")
+        container.remove_class(
+            "layout--grouped", "layout--dense", "layout--list", "layout--severity"
+        )
         container.add_class("layout--packed")
         container.clear_group_headers()
         width = ctx.state.panel_width or PANEL_WIDTH_DEFAULT

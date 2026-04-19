@@ -1234,11 +1234,12 @@ class TestAppMisc:
                 assert app._main is not None
                 plain = app._main._org_drawer_middle_content().plain
                 assert "Claude Code" in plain
-                assert "500/1000" in plain
+                assert "50%" in plain
                 # The progress bar uses full-block and light-shade characters.
                 assert "\u2588" in plain
                 assert "\u2591" in plain
-                assert "OpenAI" in plain
+                # Unconfigured providers are hidden from the usage block.
+                assert "OpenAI" not in plain
 
         asyncio.run(run())
 

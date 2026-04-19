@@ -10,7 +10,9 @@ class DenseLayout:
     priority = 30
 
     def apply(self, container, cards, ctx: LayoutContext) -> None:
-        container.remove_class("layout--packed", "layout--grouped", "layout--list")
+        container.remove_class(
+            "layout--packed", "layout--grouped", "layout--list", "layout--severity"
+        )
         container.add_class("layout--dense")
         container.clear_group_headers()
         width = 24

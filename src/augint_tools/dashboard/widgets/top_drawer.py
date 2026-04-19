@@ -24,26 +24,26 @@ class TopDrawer(Container):
     TopDrawer {
         dock: top;
         height: 0;
-        padding: 0 2;
+        padding: 0 1;
         overflow: hidden auto;
         transition: height 180ms in_out_cubic;
         layout: horizontal;
     }
     TopDrawer.open {
         height: 32;
-        padding: 1 2;
+        padding: 1 1;
     }
     TopDrawer > #top-drawer-left {
         width: 1fr;
-        padding-right: 2;
+        padding-right: 1;
     }
     TopDrawer > #top-drawer-middle {
         width: 1fr;
-        padding: 0 2;
+        padding: 0 1;
     }
     TopDrawer > #top-drawer-right {
         width: 1fr;
-        padding-left: 2;
+        padding-left: 1;
     }
     """
 

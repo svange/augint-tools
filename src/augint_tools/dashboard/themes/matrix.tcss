@@ -2,7 +2,7 @@
 
 Screen { background: #000000; color: #00ff41; }
 Header { background: #001a0a; color: #00ff41; }
-Footer { background: #001a0a; color: #2dd062; }
+Footer, DashboardFooter { background: #001a0a; color: #2dd062; }
 
 #status-bar { dock: top; height: 1; background: #001a0a; color: #00ff41; padding: 0 1; }
 #status-bar .status-bar--error { background: #ff5f56; color: #000000; }

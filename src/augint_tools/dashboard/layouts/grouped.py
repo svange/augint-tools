@@ -15,7 +15,9 @@ class GroupedLayout:
     priority = 20
 
     def apply(self, container, cards, ctx: LayoutContext) -> None:
-        container.remove_class("layout--packed", "layout--dense", "layout--list")
+        container.remove_class(
+            "layout--packed", "layout--dense", "layout--list", "layout--severity"
+        )
         container.add_class("layout--grouped")
         width = ctx.state.panel_width or PANEL_WIDTH_DEFAULT
         if ctx.available_width > 0:

@@ -22,7 +22,7 @@ Data
   w                   Toggle workspace filter
 
 Layouts and themes
-  g                   Cycle layout (packed, grouped, dense, list)
+  g                   Cycle layout (packed, grouped, severity, dense, list)
   t                   Cycle theme
   ctrl + scroll       Resize card width
 

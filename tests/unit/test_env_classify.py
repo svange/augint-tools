@@ -156,6 +156,33 @@ class TestPartitionEnv:
         assert "AWS_PROFILE" not in variables
 
 
+class TestEmptyValueSkip:
+    def test_empty_string_classified_as_skip(self):
+        r = classify_variable("STAGING_VAR", "")
+        assert r.classification == Classification.SKIP
+        assert "empty value" in r.reasons
+
+    def test_classify_env_skips_empty_values(self, tmp_path):
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            'NORMAL_VAR=hello\nSTAGING_VAR=\nEMPTY_QUOTED=""\nSECRET_TOKEN=ghp_abc123\n'
+        )
+        results = classify_env(str(env_file))
+        classifications = {r.key: r.classification for r in results}
+        assert classifications["NORMAL_VAR"] == Classification.VARIABLE
+        assert classifications.get("STAGING_VAR") == Classification.SKIP
+        assert classifications["SECRET_TOKEN"] == Classification.SECRET
+
+    def test_partition_env_excludes_empty_values(self, tmp_path):
+        env_file = tmp_path / ".env"
+        env_file.write_text("NORMAL_VAR=hello\nSTAGING_VAR=\nSECRET_TOKEN=ghp_abc123\n")
+        secrets, variables = partition_env(str(env_file))
+        assert "STAGING_VAR" not in secrets
+        assert "STAGING_VAR" not in variables
+        assert "NORMAL_VAR" in variables
+        assert "SECRET_TOKEN" in secrets
+
+
 class TestMultipleReasons:
     def test_key_and_value_match(self):
         r = classify_variable("GH_TOKEN", "ghp_abc123def456ghi789jkl012mno345pqr678stu")

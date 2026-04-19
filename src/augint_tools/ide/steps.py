@@ -513,22 +513,25 @@ def step_bookmarks(
     project_dir: str,
     project_name: str,
     workspace_xml_path: str,
-    product_workspace_path: str | None = None,
+    product_workspace_path: str | None = None,  # kept for API compat; not used
     dry_run: bool = False,
 ) -> StepResult:
-    """Write mnemonic bookmarks to the active IDEA bookmark store."""
+    """Write mnemonic bookmarks to .idea/workspace.xml using the legacy BookmarkManager format.
+
+    The newer BookmarksManager format written to the product workspace is not reliably
+    picked up by IDEA — the legacy format in workspace.xml is what IDEA 2022.1+ reads and
+    migrates on first open.  ``product_workspace_path`` is accepted for backward
+    compatibility but is intentionally ignored.
+    """
     from augint_tools.ide.bookmarks import (
-        bookmarks_already_set,
         build_legacy_bookmarks_xml,
         discover_bookmarks,
         format_bookmark_table,
-        inject_bookmark_group,
         inject_bookmarks,
     )
     from augint_tools.ide.xml import read_xml
 
     name = "bookmarks"
-    group_name = project_name
 
     slots = discover_bookmarks(project_dir)
     if not slots:
@@ -536,36 +539,6 @@ def step_bookmarks(
 
     table = format_bookmark_table(slots)
     bm_data = [{"mnemonic": s.mnemonic, "file": s.rel} for s in slots]
-
-    if product_workspace_path and os.path.exists(product_workspace_path):
-        if bookmarks_already_set(product_workspace_path, slots, project_dir, group_name):
-            return _skipped(
-                name,
-                f"{len(slots)} mnemonic bookmarks already configured in '{group_name}'",
-                bookmarks=bm_data,
-                table=table,
-                workspace_file=product_workspace_path,
-                group_name=group_name,
-            )
-
-        inject_bookmark_group(
-            product_workspace_path,
-            slots,
-            project_dir,
-            group_name,
-            dry_run,
-        )
-        return _ok(
-            name,
-            (
-                f"{len(slots)} mnemonic bookmarks "
-                f"{'would be ' if dry_run else ''}set in bookmark list '{group_name}'"
-            ),
-            bookmarks=bm_data,
-            table=table,
-            workspace_file=product_workspace_path,
-            group_name=group_name,
-        )
 
     if not os.path.exists(workspace_xml_path):
         result = _action_required(
@@ -604,7 +577,6 @@ def step_bookmarks(
         bookmarks=bm_data,
         table=table,
         workspace_file=workspace_xml_path,
-        group_name=group_name,
     )
 
 

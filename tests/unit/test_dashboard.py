@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 from github.GithubException import GithubException
 
@@ -35,6 +36,11 @@ from augint_tools.dashboard.state import (
     team_key_from_filter,
 )
 from augint_tools.dashboard.themes import get_theme, list_themes
+
+# Marker for tests that boot the Textual TUI via ``app.run_test()`` (Pilot).
+# These require a working terminal and may hang in headless CI runners.
+# Run ``pytest -m tui`` locally to exercise them.
+tui = pytest.mark.tui
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -416,6 +422,7 @@ class TestDashboardApp:
             DashboardApp(repos=[], skip_refresh=True)
             mock_fetch.assert_not_called()
 
+    @tui
     def test_app_records_usage_error_after_mount(self):
         async def run():
             with patch(
@@ -443,6 +450,7 @@ def _seed_state(app: DashboardApp, n: int = 3) -> None:
     app.state.health_by_name = {h.status.full_name: h for h in healths}
 
 
+@tui
 class TestDashboardPilot:
     def test_startup_renders_without_repos(self):
         async def run():
@@ -570,6 +578,7 @@ class TestDashboardPilot:
 # ---------------------------------------------------------------------------
 
 
+@tui
 class TestDashboardActions:
     def test_open_filter_panel(self):
         async def run():
@@ -1002,6 +1011,7 @@ class TestBootstrapCache:
 
 
 class TestAppMisc:
+    @tui
     def test_card_selected_message_updates_state(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1018,6 +1028,7 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    @tui
     def test_card_actions_opens_browser(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1035,14 +1046,16 @@ class TestAppMisc:
         asyncio.run(run())
 
     def test_run_dashboard_invokes_app_run(self):
-        from augint_tools.dashboard.app import run_dashboard
+        from augint_tools.dashboard import app as _app_mod
 
-        with patch("augint_tools.dashboard.app.DashboardApp") as mock_app_cls:
-            instance = MagicMock()
-            mock_app_cls.return_value = instance
-            run_dashboard([], skip_refresh=True)
+        instance = MagicMock()
+        instance._restart_requested = False
+        with patch.object(_app_mod, "DashboardApp", return_value=instance) as mock_cls:
+            _app_mod.run_dashboard([], skip_refresh=True)
+            mock_cls.assert_called_once()
             instance.run.assert_called_once()
 
+    @tui
     def test_drilldown_requested_pushes_screen(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1060,6 +1073,7 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    @tui
     def test_pulls_requested_opens_browser(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1076,6 +1090,7 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    @tui
     def test_go_back_closes_drawer(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1092,6 +1107,7 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    @tui
     def test_toggle_org_drawer_renders_stats(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True, org_name="testorg")
@@ -1110,6 +1126,7 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    @tui
     def test_org_drawer_with_no_data(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1121,6 +1138,7 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    @tui
     def test_ctrl_scroll_resizes_card(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1165,6 +1183,7 @@ class TestAppMisc:
         # so labelled cards don't grow taller than un-labelled ones.
         assert card.border_subtitle == " Platform "
 
+    @tui
     def test_header_click_toggles_org_drawer(self):
         async def run():
             from augint_tools.dashboard.app import OrgDrawerHeader
@@ -1180,6 +1199,7 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    @tui
     def test_org_drawer_with_data_shows_stats(self):
         async def run():
             from augint_tools.dashboard.health._models import HealthCheckResult
@@ -1215,6 +1235,7 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    @tui
     def test_usage_block_renders_meter(self):
         async def run():
             from augint_tools.dashboard.usage import UsageStats
@@ -1252,6 +1273,7 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    @tui
     def test_countdown_seeded_at_mount_with_repos(self):
         async def run():
             repo = _mock_repo(full_name="org/x")
@@ -1308,6 +1330,7 @@ class TestAppMisc:
         kept = strip_dotfile_repos(repos)
         assert [r.name for r in kept] == ["service", "lib"]
 
+    @tui
     def test_drawer_contains_five_widget_labels(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True, org_name="acme")
@@ -1504,6 +1527,7 @@ class TestPrefs:
         loaded = load_prefs()
         assert loaded.theme_name == "cyber"
 
+    @tui
     def test_app_saves_prefs_on_sort_cycle(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1517,6 +1541,7 @@ class TestPrefs:
 
         asyncio.run(run())
 
+    @tui
     def test_app_saves_prefs_on_theme_cycle(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1530,6 +1555,7 @@ class TestPrefs:
 
         asyncio.run(run())
 
+    @tui
     def test_app_restores_saved_prefs(self):
         from augint_tools.dashboard.prefs import DashboardPrefs
 

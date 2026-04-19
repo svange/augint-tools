@@ -86,7 +86,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-ra -q --strict-markers"
+addopts = "-ra -q --strict-markers --timeout=30"
+markers = [
+    "tui: tests that boot the Textual TUI via app.run_test() -- may hang in headless CI",
+]
 
 [tool.coverage.run]
 source = ["src"]
@@ -142,4 +145,5 @@ upload_to_vcs_release = false
 dev = [
     "augint-github>=1.6.0",
     "augint-shell>=0.36.0",
+    "pytest-timeout>=2.4.0",
 ]

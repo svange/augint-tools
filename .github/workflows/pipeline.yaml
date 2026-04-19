@@ -176,6 +176,7 @@ jobs:
       - name: Run unit tests
         run: |
           uv run pytest \
+            -m "not tui" \
             --cov=src --cov-report=html --cov-report=xml --cov-fail-under=50 \
             --html=test-report.html --self-contained-html \
             -v

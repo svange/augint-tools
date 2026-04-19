@@ -110,6 +110,8 @@ class RepoStatus:
     is_workspace: bool = False
     # Autodetected technology tags (e.g. "py", "sam", "tf").
     tags: tuple[str, ...] = ()
+    # Whether the repo is private on GitHub.
+    private: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +297,7 @@ def fetch_repo_status_with_pulls(
                 dev_failing_since=dev_failing_since,
                 is_workspace=is_workspace,
                 tags=tags,
+                private=getattr(repo, "private", False) or False,
             ),
             pulls_list,
         )

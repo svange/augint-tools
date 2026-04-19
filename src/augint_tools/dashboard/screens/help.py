@@ -19,6 +19,7 @@ Data
   r                   Refresh now
   s                   Cycle sort (health, alpha, problem)
   f                   Open filter panel (multi-select)
+  m                   Manage repos (enable/disable)
   w                   Toggle workspace filter
 
 Layouts and themes

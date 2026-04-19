@@ -33,6 +33,7 @@ from .prefs import DashboardPrefs, save_prefs
 from .screens.drilldown import DrillDownScreen
 from .screens.filter_panel import FilterPanel
 from .screens.help import HelpScreen
+from .screens.repo_manager import RepoManager
 from .state import (
     PANEL_WIDTH_MAX,
     PANEL_WIDTH_MIN,
@@ -950,6 +951,7 @@ class DashboardApp(App[None]):
         Binding("i", "toggle_org", "Org"),
         Binding("e", "toggle_errors", "Errors"),
         Binding("E", "clear_errors", "Clear Errors", show=False),
+        Binding("m", "manage_repos", "Repos"),
         Binding("question_mark", "show_help", "Help"),
         Binding("f5", "full_restart", "Restart", show=False),
         Binding("plus", "widen_card", "Wider", show=False),
@@ -1014,6 +1016,9 @@ class DashboardApp(App[None]):
         self._flash_enabled: bool = True
         self._restart_requested: bool = False
 
+        # Disabled repos -- excluded from refresh and all views.
+        self._disabled_repos: set[str] = set()
+
         # Apply remaining saved preferences (sort, filters, panel width, flash).
         # Theme and layout are already applied via initial_theme/initial_layout
         # which the caller resolves from saved prefs + CLI overrides.
@@ -1022,6 +1027,7 @@ class DashboardApp(App[None]):
             self.state.active_filters = set(saved_prefs.active_filters)
             self.state.panel_width = saved_prefs.panel_width
             self._flash_enabled = saved_prefs.flash_enabled
+            self._disabled_repos = set(saved_prefs.disabled_repos)
 
     # ---- preferences ----
 
@@ -1035,6 +1041,7 @@ class DashboardApp(App[None]):
                 active_filters=sorted(self.state.active_filters),
                 panel_width=self.state.panel_width,
                 flash_enabled=self._flash_enabled,
+                disabled_repos=sorted(self._disabled_repos),
             )
         )
 
@@ -1042,6 +1049,10 @@ class DashboardApp(App[None]):
 
     def on_mount(self) -> None:
         self._load_theme_css(self.state.theme_name)
+        # Exclude disabled repos from the initial repo list so they don't
+        # appear in the first paint and don't get refreshed.
+        if self._disabled_repos:
+            self._repos = [r for r in self._repos if r.full_name not in self._disabled_repos]
         # Cache-first: load before mounting so the first paint shows data.
         restrict = {r.full_name for r in self._repos} if self._repos else None
         bootstrap_from_cache(self.state, restrict_to=restrict)
@@ -1140,11 +1151,16 @@ class DashboardApp(App[None]):
             return  # Keep current list on failure.
 
         if self._auto_discover:
-            self._repos = fresh
+            self._repos = [r for r in fresh if r.full_name not in self._disabled_repos]
         else:
             # Keep only repos the user originally selected that still exist.
             fresh_names = {r.full_name for r in fresh}
-            self._repos = [r for r in fresh if r.full_name in self._original_repo_names]
+            self._repos = [
+                r
+                for r in fresh
+                if r.full_name in self._original_repo_names
+                and r.full_name not in self._disabled_repos
+            ]
             # Log removals so they're visible in the error drawer.
             gone = self._original_repo_names - fresh_names
             for name in sorted(gone):
@@ -1509,6 +1525,36 @@ class DashboardApp(App[None]):
 
     def action_show_help(self) -> None:
         self.push_screen(HelpScreen())
+
+    def action_manage_repos(self) -> None:
+        """Open the repo manager to enable/disable individual repos."""
+        # Build the full list of known repo names (including disabled ones).
+        known: set[str] = {r.full_name for r in self._repos}
+        known |= set(self.state.health_by_name.keys())
+        known |= self._disabled_repos
+        if not known:
+            self.notify("no repos known yet -- refresh first", severity="warning", timeout=3)
+            return
+
+        def _on_dismiss(disabled: set[str] | None) -> None:
+            if disabled is None:
+                return
+            self._disabled_repos = disabled
+            # Remove disabled repos from state so they vanish immediately.
+            self.state.healths = [
+                h for h in self.state.healths if h.status.full_name not in disabled
+            ]
+            self.state.health_by_name = {h.status.full_name: h for h in self.state.healths}
+            self._rerender()
+            self._save_prefs()
+            n_disabled = len(disabled)
+            label = f"{n_disabled} disabled" if n_disabled else "all enabled"
+            self.notify(f"repos: {label}", timeout=2)
+
+        self.push_screen(
+            RepoManager(sorted(known), self._disabled_repos),
+            callback=_on_dismiss,
+        )
 
     def action_move_down(self) -> None:
         move_selection(self.state, self._grid_step())

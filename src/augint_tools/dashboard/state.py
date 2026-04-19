@@ -31,6 +31,8 @@ UNASSIGNED_TEAM = "unassigned"
 SORT_MODES: tuple[str, ...] = ("health", "alpha", "problem")
 FILTER_MODES: tuple[str, ...] = (
     "all",
+    "private",
+    "public",
     "no-workspace",
     "broken-ci",
     "security",
@@ -244,6 +246,10 @@ def apply_sort(healths: list[RepoHealth], mode: str) -> list[RepoHealth]:
 
 def _matches_filter(h: RepoHealth, mode: str, repo_teams: dict[str, RepoTeamInfo]) -> bool:
     """Check whether a single health entry passes a single filter mode."""
+    if mode == "private":
+        return h.status.private
+    if mode == "public":
+        return not h.status.private
     if mode == "no-workspace":
         return not h.status.is_workspace
     if mode == "broken-ci":

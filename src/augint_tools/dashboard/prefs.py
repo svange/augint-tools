@@ -27,6 +27,7 @@ class DashboardPrefs:
     active_filters: list[str] = field(default_factory=list)
     panel_width: int = 38
     flash_enabled: bool = True
+    disabled_repos: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -55,6 +55,7 @@ def _status(
     open_prs=0,
     is_workspace=False,
     tags=(),
+    private=False,
 ) -> RepoStatus:
     return RepoStatus(
         name=name,
@@ -69,6 +70,7 @@ def _status(
         draft_prs=0,
         is_workspace=is_workspace,
         tags=tags,
+        private=private,
     )
 
 
@@ -78,9 +80,16 @@ def _health(
     checks=None,
     is_workspace=False,
     tags=(),
+    private=False,
 ) -> RepoHealth:
     return RepoHealth(
-        status=_status(name=name, full_name=full_name, is_workspace=is_workspace, tags=tags),
+        status=_status(
+            name=name,
+            full_name=full_name,
+            is_workspace=is_workspace,
+            tags=tags,
+            private=private,
+        ),
         checks=checks or [],
     )
 
@@ -1576,3 +1585,129 @@ class TestPrefs:
                 assert app._flash_enabled is False
 
         asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Visibility filters (private/public)
+# ---------------------------------------------------------------------------
+
+
+class TestVisibilityFilters:
+    def test_private_filter_matches_private_repos(self):
+        priv = _health(name="secret", full_name="org/secret", private=True)
+        pub = _health(name="oss", full_name="org/oss", private=False)
+        out = apply_filter([priv, pub], "private")
+        assert [h.status.name for h in out] == ["secret"]
+
+    def test_public_filter_matches_public_repos(self):
+        priv = _health(name="secret", full_name="org/secret", private=True)
+        pub = _health(name="oss", full_name="org/oss", private=False)
+        out = apply_filter([priv, pub], "public")
+        assert [h.status.name for h in out] == ["oss"]
+
+    def test_private_and_public_in_filter_modes(self):
+        assert "private" in FILTER_MODES
+        assert "public" in FILTER_MODES
+
+    def test_active_filters_public_hides_private(self):
+        priv = _health(name="secret", full_name="org/secret", private=True)
+        pub = _health(name="oss", full_name="org/oss", private=False)
+        out = apply_active_filters([priv, pub], {"public"})
+        assert [h.status.name for h in out] == ["oss"]
+
+    def test_combined_public_and_broken_ci(self):
+        """Public + broken-ci filters AND together."""
+        ci_check = HealthCheckResult(
+            check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
+        )
+        pub_broken = _health(
+            name="pub-broken", full_name="org/pub-broken", checks=[ci_check], private=False
+        )
+        priv_broken = _health(
+            name="priv-broken", full_name="org/priv-broken", checks=[ci_check], private=True
+        )
+        pub_ok = _health(name="pub-ok", full_name="org/pub-ok", private=False)
+        out = apply_active_filters([pub_broken, priv_broken, pub_ok], {"public", "broken-ci"})
+        assert [h.status.name for h in out] == ["pub-broken"]
+
+
+class TestRepoStatusPrivateField:
+    def test_private_field_defaults_false(self):
+        status = _status()
+        assert status.private is False
+
+    def test_private_field_set_true(self):
+        status = _status(private=True)
+        assert status.private is True
+
+    def test_cache_round_trip_preserves_private(self):
+        """Private field survives cache serialization."""
+        from dataclasses import asdict
+
+        status = _status(name="secret", full_name="org/secret", private=True)
+        data = asdict(status)
+        assert data["private"] is True
+        restored = RepoStatus(**data)
+        assert restored.private is True
+
+
+# ---------------------------------------------------------------------------
+# Disabled repos (prefs + app)
+# ---------------------------------------------------------------------------
+
+
+class TestDisabledReposPrefs:
+    def test_disabled_repos_round_trip(self, tmp_path, monkeypatch):
+        from augint_tools.dashboard.prefs import (
+            DashboardPrefs,
+            load_prefs,
+            save_prefs,
+        )
+
+        monkeypatch.setattr("augint_tools.dashboard.prefs.CACHE_DIR", tmp_path)
+        monkeypatch.setattr("augint_tools.dashboard.prefs.PREFS_FILE", tmp_path / "prefs.json")
+
+        prefs = DashboardPrefs(disabled_repos=["org/old-repo", "org/noisy"])
+        save_prefs(prefs)
+        loaded = load_prefs()
+        assert sorted(loaded.disabled_repos) == ["org/noisy", "org/old-repo"]
+
+    def test_disabled_repos_defaults_empty(self):
+        from augint_tools.dashboard.prefs import DashboardPrefs
+
+        prefs = DashboardPrefs()
+        assert prefs.disabled_repos == []
+
+
+class TestDisabledReposApp:
+    def test_app_loads_disabled_repos_from_prefs(self):
+        from augint_tools.dashboard.prefs import DashboardPrefs
+
+        prefs = DashboardPrefs(disabled_repos=["org/disabled"])
+        app = DashboardApp(repos=[], skip_refresh=True, saved_prefs=prefs)
+        assert "org/disabled" in app._disabled_repos
+
+    def test_app_saves_disabled_repos_in_prefs(self):
+        app = DashboardApp(repos=[], skip_refresh=True)
+        app._disabled_repos = {"org/disabled"}
+        with patch("augint_tools.dashboard.app.save_prefs") as mock_save:
+            app._save_prefs()
+            saved = mock_save.call_args[0][0]
+            assert "org/disabled" in saved.disabled_repos
+
+
+# ---------------------------------------------------------------------------
+# Status bar filter labels
+# ---------------------------------------------------------------------------
+
+
+class TestFilterLabels:
+    def test_describe_filter_private(self):
+        from augint_tools.dashboard.widgets.status_bar import describe_filter
+
+        assert describe_filter("private") == "Private"
+
+    def test_describe_filter_public(self):
+        from augint_tools.dashboard.widgets.status_bar import describe_filter
+
+        assert describe_filter("public") == "Public (Open source)"

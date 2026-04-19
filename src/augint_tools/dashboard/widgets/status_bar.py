@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 _FILTER_LABELS: dict[str, str] = {
     "all": "all repos",
+    "private": "Private",
+    "public": "Public (Open source)",
     "broken-ci": "broken CI",
     "security": "security alerts",
     "no-renovate": "no renovate",

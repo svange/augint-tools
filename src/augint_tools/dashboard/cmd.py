@@ -18,6 +18,7 @@ from ._helpers import (
     warn_rate_limit,
 )
 from .layouts import list_layouts
+from .prefs import load_prefs
 from .themes import list_themes
 
 
@@ -35,16 +36,14 @@ from .themes import list_themes
 @click.option(
     "--theme",
     type=str,
-    default="default",
-    show_default=True,
-    help="Dashboard theme. See available themes with --help.",
+    default=None,
+    help="Dashboard theme (restored from last session if omitted).",
 )
 @click.option(
     "--layout",
     type=str,
-    default="packed",
-    show_default=True,
-    help="Initial layout strategy (packed, grouped, dense, list).",
+    default=None,
+    help="Initial layout strategy (restored from last session if omitted).",
 )
 @click.option(
     "--stale-days",
@@ -65,13 +64,15 @@ from .themes import list_themes
     help="Render from the on-disk cache without hitting the GitHub API (fast startup for testing).",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show additional detail.")
+@click.pass_context
 def dashboard_command(
+    ctx: click.Context,
     show_all: bool,
     interactive: bool,
     refresh_seconds: int,
     org: str | None,
-    theme: str,
-    layout: str,
+    theme: str | None,
+    layout: str | None,
     stale_days: int,
     env_auth: bool,
     no_refresh: bool,
@@ -86,6 +87,13 @@ def dashboard_command(
         raise click.ClickException(
             "textual is required for dashboard. Install with: uv add 'augint-tools[tui]'"
         ) from exc
+
+    # Restore saved preferences for options the user didn't explicitly pass.
+    prefs = load_prefs()
+    if theme is None:
+        theme = prefs.theme_name
+    if layout is None:
+        layout = prefs.layout_name
 
     themes = list_themes()
     if theme not in themes:
@@ -140,6 +148,7 @@ def dashboard_command(
             skip_refresh=no_refresh,
             github_client=g,
             auto_discover=show_all,
+            saved_prefs=prefs,
         )
     except KeyboardInterrupt:
         print("\n[dim]Dashboard stopped.[/dim]")

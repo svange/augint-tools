@@ -1436,3 +1436,108 @@ class TestAppMisc:
         monkeypatch.setattr(panel_usage.Path, "home", classmethod(lambda cls: home))
         buckets = panel_usage.claude_daily_message_buckets(window_days=7)
         assert sum(buckets) == 52
+
+
+class TestPrefs:
+    def test_round_trip(self, tmp_path, monkeypatch):
+        from augint_tools.dashboard.prefs import (
+            DashboardPrefs,
+            load_prefs,
+            save_prefs,
+        )
+
+        monkeypatch.setattr("augint_tools.dashboard.prefs.CACHE_DIR", tmp_path)
+        monkeypatch.setattr("augint_tools.dashboard.prefs.PREFS_FILE", tmp_path / "prefs.json")
+
+        prefs = DashboardPrefs(
+            theme_name="nord",
+            layout_name="dense",
+            sort_mode="alpha",
+            active_filters=["broken-ci", "no-workspace"],
+            panel_width=42,
+            flash_enabled=False,
+        )
+        save_prefs(prefs)
+        loaded = load_prefs()
+        assert loaded.theme_name == "nord"
+        assert loaded.layout_name == "dense"
+        assert loaded.sort_mode == "alpha"
+        assert loaded.active_filters == ["broken-ci", "no-workspace"]
+        assert loaded.panel_width == 42
+        assert loaded.flash_enabled is False
+
+    def test_load_missing_file_returns_defaults(self, tmp_path, monkeypatch):
+        from augint_tools.dashboard.prefs import DashboardPrefs, load_prefs
+
+        monkeypatch.setattr(
+            "augint_tools.dashboard.prefs.PREFS_FILE", tmp_path / "nonexistent.json"
+        )
+        loaded = load_prefs()
+        assert loaded == DashboardPrefs()
+
+    def test_load_corrupt_file_returns_defaults(self, tmp_path, monkeypatch):
+        from augint_tools.dashboard.prefs import DashboardPrefs, load_prefs
+
+        prefs_file = tmp_path / "prefs.json"
+        prefs_file.write_text("{bad json")
+        monkeypatch.setattr("augint_tools.dashboard.prefs.PREFS_FILE", prefs_file)
+        loaded = load_prefs()
+        assert loaded == DashboardPrefs()
+
+    def test_unknown_fields_ignored(self, tmp_path, monkeypatch):
+        import json
+
+        from augint_tools.dashboard.prefs import load_prefs
+
+        prefs_file = tmp_path / "prefs.json"
+        prefs_file.write_text(json.dumps({"theme_name": "cyber", "future_field": True}))
+        monkeypatch.setattr("augint_tools.dashboard.prefs.PREFS_FILE", prefs_file)
+        loaded = load_prefs()
+        assert loaded.theme_name == "cyber"
+
+    def test_app_saves_prefs_on_sort_cycle(self):
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                with patch("augint_tools.dashboard.app.save_prefs") as mock_save:
+                    app.action_cycle_sort()
+                    assert mock_save.called
+                    saved = mock_save.call_args[0][0]
+                    assert saved.sort_mode == "alpha"
+
+        asyncio.run(run())
+
+    def test_app_saves_prefs_on_theme_cycle(self):
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                with patch("augint_tools.dashboard.app.save_prefs") as mock_save:
+                    app.action_cycle_theme()
+                    assert mock_save.called
+                    saved = mock_save.call_args[0][0]
+                    assert saved.theme_name != "default"
+
+        asyncio.run(run())
+
+    def test_app_restores_saved_prefs(self):
+        from augint_tools.dashboard.prefs import DashboardPrefs
+
+        prefs = DashboardPrefs(
+            sort_mode="problem",
+            active_filters=["broken-ci"],
+            panel_width=50,
+            flash_enabled=False,
+        )
+
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True, saved_prefs=prefs)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app.state.sort_mode == "problem"
+                assert app.state.active_filters == {"broken-ci"}
+                assert app.state.panel_width == 50
+                assert app._flash_enabled is False
+
+        asyncio.run(run())

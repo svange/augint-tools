@@ -26,6 +26,7 @@ from ._data import RepoStatus, fetch_repo_status_with_pulls, save_cache
 from ._helpers import list_repos, strip_dotfile_repos
 from .health import FetchContext, RepoHealth, run_health_checks
 from .layouts import list_layouts
+from .prefs import DashboardPrefs, save_prefs
 from .screens.drilldown import DrillDownScreen
 from .screens.error_log import ErrorLogScreen
 from .screens.filter_panel import FilterPanel
@@ -964,6 +965,7 @@ class DashboardApp(App[None]):
         skip_refresh: bool = False,
         github_client: Github | None = None,
         auto_discover: bool = False,
+        saved_prefs: DashboardPrefs | None = None,
     ) -> None:
         super().__init__()
         self._repos = list(repos or [])
@@ -987,6 +989,30 @@ class DashboardApp(App[None]):
         # colour and a lighter shade defined in each theme's .tcss.
         self._flash_phase: bool = False
         self._flash_enabled: bool = True
+
+        # Apply remaining saved preferences (sort, filters, panel width, flash).
+        # Theme and layout are already applied via initial_theme/initial_layout
+        # which the caller resolves from saved prefs + CLI overrides.
+        if saved_prefs is not None:
+            self.state.sort_mode = saved_prefs.sort_mode
+            self.state.active_filters = set(saved_prefs.active_filters)
+            self.state.panel_width = saved_prefs.panel_width
+            self._flash_enabled = saved_prefs.flash_enabled
+
+    # ---- preferences ----
+
+    def _save_prefs(self) -> None:
+        """Persist the current UI preferences to disk."""
+        save_prefs(
+            DashboardPrefs(
+                theme_name=self.state.theme_name,
+                layout_name=self.state.layout_name,
+                sort_mode=self.state.sort_mode,
+                active_filters=sorted(self.state.active_filters),
+                panel_width=self.state.panel_width,
+                flash_enabled=self._flash_enabled,
+            )
+        )
 
     # ---- lifecycle ----
 
@@ -1294,6 +1320,7 @@ class DashboardApp(App[None]):
         idx = SORT_MODES.index(self.state.sort_mode) if self.state.sort_mode in SORT_MODES else 0
         self.state.sort_mode = SORT_MODES[(idx + 1) % len(SORT_MODES)]
         self._rerender()
+        self._save_prefs()
         self.notify(f"sort: {self.state.sort_mode}", timeout=2)
 
     def action_open_filter_panel(self) -> None:
@@ -1302,6 +1329,7 @@ class DashboardApp(App[None]):
                 return
             self.state.active_filters = selected
             self._rerender()
+            self._save_prefs()
             count = len(visible_healths(self.state))
             n = len(selected)
             label = "all repos" if n == 0 else f"{n} filter{'s' if n != 1 else ''}"
@@ -1318,6 +1346,7 @@ class DashboardApp(App[None]):
             self.state.active_filters.add(mode)
             self.notify("hiding workspaces", timeout=2)
         self._rerender()
+        self._save_prefs()
 
     def action_cycle_layout(self) -> None:
         layouts = list_layouts()
@@ -1327,6 +1356,7 @@ class DashboardApp(App[None]):
             idx = -1
         self.state.layout_name = layouts[(idx + 1) % len(layouts)]
         self._rerender()
+        self._save_prefs()
         self.notify(f"layout: {self.state.layout_name}", timeout=2)
 
     def action_cycle_theme(self) -> None:
@@ -1339,6 +1369,7 @@ class DashboardApp(App[None]):
         self.state.theme_name = new_theme
         self._load_theme_css(new_theme)
         self._rerender()
+        self._save_prefs()
         self.notify(f"theme: {new_theme}", timeout=2)
 
     def action_toggle_flash(self) -> None:
@@ -1347,6 +1378,7 @@ class DashboardApp(App[None]):
         if not self._flash_enabled and self._main is not None:
             # Clear the flash phase class immediately so nothing stays lit.
             self._main.apply_flash_phase(False, window_seconds=FLASH_WINDOW_SECONDS)
+        self._save_prefs()
         state = "on" if self._flash_enabled else "off"
         self.notify(f"flash: {state}", timeout=2)
 
@@ -1381,6 +1413,7 @@ class DashboardApp(App[None]):
         # Layout-only reflow -- do not rebuild card widgets.
         if self._main is not None:
             self._main._apply_layout()
+        self._save_prefs()
 
     def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
         if event.ctrl:
@@ -1521,6 +1554,7 @@ def run_dashboard(
     skip_refresh: bool = False,
     github_client: Github | None = None,
     auto_discover: bool = False,
+    saved_prefs: DashboardPrefs | None = None,
 ) -> None:
     """Launch the v2 interactive dashboard."""
     app = DashboardApp(
@@ -1533,5 +1567,6 @@ def run_dashboard(
         skip_refresh=skip_refresh,
         github_client=github_client,
         auto_discover=auto_discover,
+        saved_prefs=saved_prefs,
     )
     app.run()

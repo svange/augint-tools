@@ -103,6 +103,9 @@ def classify_variable(key: str, value: str) -> ClassificationResult:
     if key in KEY_SKIP_PREFIXES:
         return ClassificationResult(key, value, Classification.SKIP, ["skip-list key"])
 
+    if not value:
+        return ClassificationResult(key, value, Classification.SKIP, ["empty value"])
+
     lower_key = key.casefold()
     for kw in KEY_SECRET_KEYWORDS:
         if kw in lower_key:

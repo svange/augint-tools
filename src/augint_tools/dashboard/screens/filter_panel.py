@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from textual import events
 from textual.binding import Binding
 from textual.containers import Container
 from textual.screen import ModalScreen
@@ -59,6 +60,10 @@ class FilterPanel(ModalScreen[set[str]]):
             if mode != "all"
         ]
         yield Container(SelectionList[str](*selections, id="filter-list"))
+
+    def on_click(self, event: events.Click) -> None:
+        if event.button == 3:
+            self.action_dismiss_panel()
 
     def action_dismiss_panel(self) -> None:
         sel_list = self.query_one("#filter-list", SelectionList)

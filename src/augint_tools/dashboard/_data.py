@@ -32,6 +32,64 @@ def has_dev_branch(repo: Repository) -> bool:
         return False
 
 
+_LANG_MAP: dict[str, str] = {
+    "Python": "py",
+    "TypeScript": "ts",
+    "JavaScript": "js",
+    "Go": "go",
+    "Rust": "rs",
+    "Ruby": "rb",
+    "Java": "java",
+    "C#": "cs",
+    "Shell": "sh",
+    "HCL": "hcl",
+    "Kotlin": "kt",
+    "Swift": "swift",
+}
+
+
+def detect_repo_metadata(repo: Repository) -> tuple[bool, tuple[str, ...]]:
+    """Detect workspace status and technology tags from repo metadata.
+
+    Uses ``repo.language`` (free) and a single ``repo.get_contents("")`` call
+    to scan root-level marker files for framework and IaC detection.
+
+    Returns ``(is_workspace, tags)`` tuple.
+    """
+    tags: list[str] = []
+
+    # Language from GitHub's auto-detection (no extra API call).
+    lang = getattr(repo, "language", None) or ""
+    lang_tag = _LANG_MAP.get(lang)
+    if lang_tag:
+        tags.append(lang_tag)
+
+    # Scan root directory for marker files (1 API call).
+    try:
+        contents = repo.get_contents("")
+        names = {c.name for c in contents} if isinstance(contents, list) else {contents.name}
+    except GithubException:
+        return False, tuple(tags)
+
+    is_workspace = "workspace.yaml" in names
+
+    # Framework detection.
+    if "cdk.json" in names:
+        tags.append("cdk")
+    if "template.yaml" in names or "samconfig.toml" in names:
+        tags.append("sam")
+    if any(n.startswith("next.config") for n in names):
+        tags.append("next")
+    elif any(n.startswith("vite.config") for n in names):
+        tags.append("vite")
+
+    # IaC detection (terraform lives alongside frameworks, not elif).
+    if "main.tf" in names or "terraform" in names:
+        tags.append("tf")
+
+    return is_workspace, tuple(tags)
+
+
 @dataclass
 class RepoStatus:
     name: str
@@ -48,6 +106,10 @@ class RepoStatus:
     # Used to drive the "recently broken" border flash in the TUI (< 12h old).
     main_failing_since: str | None = None
     dev_failing_since: str | None = None
+    # Workspace meta-repo (contains workspace.yaml).
+    is_workspace: bool = False
+    # Autodetected technology tags (e.g. "py", "sam", "tf").
+    tags: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +126,14 @@ def load_cache() -> dict[str, RepoStatus]:
         # Keep the loader tolerant of cache files written by older versions
         # that don't know about newer optional fields (e.g. *_failing_since).
         allowed = {f.name for f in fields(RepoStatus)}
-        return {
-            key: RepoStatus(**{k: v for k, v in val.items() if k in allowed})
-            for key, val in data.get("repos", {}).items()
-        }
+        result = {}
+        for key, val in data.get("repos", {}).items():
+            filtered = {k: v for k, v in val.items() if k in allowed}
+            # tags is stored as a JSON array but the dataclass expects a tuple.
+            if "tags" in filtered and isinstance(filtered["tags"], list):
+                filtered["tags"] = tuple(filtered["tags"])
+            result[key] = RepoStatus(**filtered)
+        return result
     except (json.JSONDecodeError, TypeError, KeyError):
         return {}
 
@@ -185,6 +251,7 @@ def fetch_repo_status(
     """
     try:
         service = has_dev_branch(repo)
+        is_workspace, tags = detect_repo_metadata(repo)
         main_status, main_error, main_failing_since = get_run_status(repo, repo.default_branch)
         if service:
             dev_status, dev_error, dev_failing_since = get_run_status(repo, "dev")
@@ -211,6 +278,8 @@ def fetch_repo_status(
             draft_prs=draft_prs,
             main_failing_since=main_failing_since,
             dev_failing_since=dev_failing_since,
+            is_workspace=is_workspace,
+            tags=tags,
         )
     except Exception:
         logger.debug(f"fetch failed for {repo.full_name}: {traceback.format_exc()}")

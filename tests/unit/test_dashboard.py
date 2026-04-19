@@ -6,6 +6,7 @@ import asyncio
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
+from github.GithubException import GithubException
 
 from augint_tools.cli.__main__ import cli as main
 from augint_tools.dashboard import state
@@ -23,6 +24,7 @@ from augint_tools.dashboard.state import (
     SORT_MODES,
     AppState,
     RepoTeamInfo,
+    apply_active_filters,
     apply_filter,
     apply_sort,
     available_filter_modes,
@@ -45,6 +47,8 @@ def _status(
     main_status="success",
     open_issues=0,
     open_prs=0,
+    is_workspace=False,
+    tags=(),
 ) -> RepoStatus:
     return RepoStatus(
         name=name,
@@ -57,12 +61,20 @@ def _status(
         open_issues=open_issues,
         open_prs=open_prs,
         draft_prs=0,
+        is_workspace=is_workspace,
+        tags=tags,
     )
 
 
-def _health(name="myrepo", full_name="org/myrepo", checks=None) -> RepoHealth:
+def _health(
+    name="myrepo",
+    full_name="org/myrepo",
+    checks=None,
+    is_workspace=False,
+    tags=(),
+) -> RepoHealth:
     return RepoHealth(
-        status=_status(name=name, full_name=full_name),
+        status=_status(name=name, full_name=full_name, is_workspace=is_workspace, tags=tags),
         checks=checks or [],
     )
 
@@ -268,6 +280,74 @@ class TestApplyFilter:
             "org/b": RepoTeamInfo(primary="teamy", all=("teamy",)),
         }
         out = apply_filter([a, b], team_filter_mode("teamx"), repo_teams)
+        assert [h.status.name for h in out] == ["a"]
+
+
+class TestApplyActiveFilters:
+    def test_empty_set_returns_all(self):
+        healths = [_health(name=n, full_name=f"org/{n}") for n in ("a", "b", "c")]
+        assert len(apply_active_filters(healths, set())) == 3
+
+    def test_single_filter(self):
+        broken = _health(
+            name="broken",
+            full_name="org/broken",
+            checks=[
+                HealthCheckResult(check_name="broken_ci", severity=Severity.CRITICAL, summary="x")
+            ],
+        )
+        fine = _health(name="fine", full_name="org/fine")
+        out = apply_active_filters([broken, fine], {"broken-ci"})
+        assert [h.status.name for h in out] == ["broken"]
+
+    def test_combined_filters_and_logic(self):
+        """Non-team filters combine with AND: repo must match ALL."""
+        ci_check = HealthCheckResult(
+            check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
+        )
+        ws_broken = _health(
+            name="ws-broken", full_name="org/ws-broken", checks=[ci_check], is_workspace=True
+        )
+        repo_broken = _health(
+            name="repo-broken", full_name="org/repo-broken", checks=[ci_check], is_workspace=False
+        )
+        repo_ok = _health(name="repo-ok", full_name="org/repo-ok", is_workspace=False)
+        out = apply_active_filters([ws_broken, repo_broken, repo_ok], {"broken-ci", "no-workspace"})
+        assert [h.status.name for h in out] == ["repo-broken"]
+
+    def test_team_filters_or_logic(self):
+        """Multiple team filters combine with OR: repo in ANY selected team passes."""
+        a = _health(name="a", full_name="org/a")
+        b = _health(name="b", full_name="org/b")
+        c = _health(name="c", full_name="org/c")
+        repo_teams = {
+            "org/a": RepoTeamInfo(primary="alpha", all=("alpha",)),
+            "org/b": RepoTeamInfo(primary="beta", all=("beta",)),
+            "org/c": RepoTeamInfo(primary="gamma", all=("gamma",)),
+        }
+        out = apply_active_filters(
+            [a, b, c],
+            {team_filter_mode("alpha"), team_filter_mode("beta")},
+            repo_teams,
+        )
+        assert {h.status.name for h in out} == {"a", "b"}
+
+    def test_team_and_health_combined(self):
+        """Team OR + health AND: only team members matching the health filter."""
+        ci_check = HealthCheckResult(
+            check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
+        )
+        a_broken = _health(name="a", full_name="org/a", checks=[ci_check])
+        b_ok = _health(name="b", full_name="org/b")
+        repo_teams = {
+            "org/a": RepoTeamInfo(primary="alpha", all=("alpha",)),
+            "org/b": RepoTeamInfo(primary="alpha", all=("alpha",)),
+        }
+        out = apply_active_filters(
+            [a_broken, b_ok],
+            {"broken-ci", team_filter_mode("alpha")},
+            repo_teams,
+        )
         assert [h.status.name for h in out] == ["a"]
 
 
@@ -487,16 +567,34 @@ class TestDashboardPilot:
 
 
 class TestDashboardActions:
-    def test_cycle_filter(self):
+    def test_open_filter_panel(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
             _seed_state(app)
             async with app.run_test() as pilot:
                 await pilot.pause()
-                start = app.state.filter_mode
+                assert not app.state.active_filters
                 await pilot.press("f")
                 await pilot.pause()
-                assert app.state.filter_mode != start
+                # Panel is now open -- dismiss it
+                await pilot.press("escape")
+                await pilot.pause()
+
+        asyncio.run(run())
+
+    def test_toggle_workspace(self):
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True)
+            _seed_state(app)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert "no-workspace" not in app.state.active_filters
+                await pilot.press("w")
+                await pilot.pause()
+                assert "no-workspace" in app.state.active_filters
+                await pilot.press("w")
+                await pilot.pause()
+                assert "no-workspace" not in app.state.active_filters
 
         asyncio.run(run())
 
@@ -632,6 +730,21 @@ class TestRepoCardRender:
         card = RepoCard(_health(), theme_spec=spec)
         assert card.has_class("card--ok")
 
+    def test_render_tags_visible(self):
+        RepoCard, spec = self._spec()
+        health = _health(tags=("py", "sam"))
+        card = RepoCard(health, theme_spec=spec)
+        out = card.render()
+        assert "py" in out.plain
+        assert "sam" in out.plain
+
+    def test_render_workspace_tag(self):
+        RepoCard, spec = self._spec()
+        health = _health(is_workspace=True)
+        card = RepoCard(health, theme_spec=spec)
+        out = card.render()
+        assert "ws" in out.plain
+
     def test_apply_theme(self):
         RepoCard, spec = self._spec()
         card = RepoCard(_health(), theme_spec=spec)
@@ -745,6 +858,18 @@ class TestStateHelpers:
         out = apply_filter([iss, _health(name="ok", full_name="org/ok")], "issues")
         assert [h.status.name for h in out] == ["i"]
 
+    def test_apply_filter_no_workspace(self):
+        ws = _health(name="ws", full_name="org/ws", is_workspace=True)
+        repo = _health(name="repo", full_name="org/repo", is_workspace=False)
+        out = apply_filter([ws, repo], "no-workspace")
+        assert [h.status.name for h in out] == ["repo"]
+
+    def test_apply_filter_no_workspace_all_regular(self):
+        a = _health(name="a", full_name="org/a")
+        b = _health(name="b", full_name="org/b")
+        out = apply_filter([a, b], "no-workspace")
+        assert len(out) == 2
+
     def test_apply_sort_problem(self):
         critical = HealthCheckResult(
             check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
@@ -754,6 +879,79 @@ class TestStateHelpers:
         out = apply_sort([good, bad], "problem")
         # CRITICAL sorts first (lower int -> worst).
         assert out[0].status.name == "bad"
+
+
+class TestDetectRepoMetadata:
+    def test_detect_language_tag(self):
+        from augint_tools.dashboard._data import detect_repo_metadata
+
+        repo = _mock_repo()
+        repo.language = "Python"
+        repo.get_contents.return_value = []
+        is_ws, tags = detect_repo_metadata(repo)
+        assert not is_ws
+        assert "py" in tags
+
+    def test_detect_workspace(self):
+        from augint_tools.dashboard._data import detect_repo_metadata
+
+        repo = _mock_repo()
+        repo.language = None
+        item = MagicMock()
+        item.name = "workspace.yaml"
+        repo.get_contents.return_value = [item]
+        is_ws, tags = detect_repo_metadata(repo)
+        assert is_ws
+
+    def test_detect_framework_and_iac(self):
+        from augint_tools.dashboard._data import detect_repo_metadata
+
+        repo = _mock_repo()
+        repo.language = "TypeScript"
+        items = [MagicMock(name=n) for n in ("cdk.json", "main.tf", "src")]
+        for item, n in zip(items, ("cdk.json", "main.tf", "src"), strict=True):
+            item.name = n
+        repo.get_contents.return_value = items
+        is_ws, tags = detect_repo_metadata(repo)
+        assert not is_ws
+        assert "ts" in tags
+        assert "cdk" in tags
+        assert "tf" in tags
+
+    def test_detect_sam_framework(self):
+        from augint_tools.dashboard._data import detect_repo_metadata
+
+        repo = _mock_repo()
+        repo.language = "Python"
+        items = [MagicMock(), MagicMock()]
+        items[0].name = "template.yaml"
+        items[1].name = "samconfig.toml"
+        repo.get_contents.return_value = items
+        is_ws, tags = detect_repo_metadata(repo)
+        assert "py" in tags
+        assert "sam" in tags
+
+    def test_detect_api_failure_graceful(self):
+        from augint_tools.dashboard._data import detect_repo_metadata
+
+        repo = _mock_repo()
+        repo.language = "Go"
+        repo.get_contents.side_effect = GithubException(500, "error", None)
+        is_ws, tags = detect_repo_metadata(repo)
+        assert not is_ws
+        assert tags == ("go",)
+
+    def test_detect_next_framework(self):
+        from augint_tools.dashboard._data import detect_repo_metadata
+
+        repo = _mock_repo()
+        repo.language = "TypeScript"
+        item = MagicMock()
+        item.name = "next.config.mjs"
+        repo.get_contents.return_value = [item]
+        is_ws, tags = detect_repo_metadata(repo)
+        assert "ts" in tags
+        assert "next" in tags
 
 
 class TestBootstrapCache:

@@ -222,6 +222,10 @@ class RepoCard(Widget):
         line.append(health.status.name, style="bold")
         if health.status.is_service:
             line.append("  svc", style="dim")
+        if health.status.is_workspace:
+            line.append("  ws", style="dim")
+        for tag in health.status.tags:
+            line.append(f"  {tag}", style="dim italic")
         return line
 
     def _ci_line(self, health: RepoHealth) -> Text:

@@ -18,7 +18,8 @@ Navigation
 Data
   r                   Refresh now
   s                   Cycle sort (health, alpha, problem)
-  f                   Cycle filter (all, broken-ci, no-renovate, ...)
+  f                   Open filter panel (multi-select)
+  w                   Toggle workspace filter
 
 Layouts and themes
   g                   Cycle layout (packed, grouped, dense, list)

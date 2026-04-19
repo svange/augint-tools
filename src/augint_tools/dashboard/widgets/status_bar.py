@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 _FILTER_LABELS: dict[str, str] = {
     "all": "all repos",
     "broken-ci": "broken CI",
+    "security": "security alerts",
     "no-renovate": "no renovate",
+    "no-workspace": "no workspace",
     "stale-prs": "stale PRs",
     "issues": "has issues",
 }
@@ -34,6 +36,17 @@ def describe_filter(mode: str, team_labels: dict[str, str] | None = None) -> str
             return f"team: {team_labels[key]}"
         return f"team: {key}"
     return mode
+
+
+def _describe_active_filters(active: set[str], team_labels: dict[str, str] | None = None) -> str:
+    """Summarise the active filter set for the status bar."""
+    if not active:
+        return "all repos"
+    labels = [describe_filter(m, team_labels) for m in sorted(active)]
+    joined = " + ".join(labels)
+    if len(joined) <= 40:
+        return joined
+    return f"{len(active)} filters"
 
 
 class StatusBar(Static):
@@ -63,7 +76,7 @@ class StatusBar(Static):
             return
         t = Text()
         t.append(f" {self._org_name or 'no-org'} ", style="bold")
-        filter_label = describe_filter(state.filter_mode, state.team_labels)
+        filter_label = _describe_active_filters(state.active_filters, state.team_labels)
         t.append(
             f"| sort: {state.sort_mode} "
             f"| filter: {filter_label} "

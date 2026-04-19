@@ -29,6 +29,7 @@ UNASSIGNED_TEAM = "unassigned"
 SORT_MODES: tuple[str, ...] = ("health", "alpha", "problem")
 FILTER_MODES: tuple[str, ...] = (
     "all",
+    "no-workspace",
     "broken-ci",
     "security",
     "no-renovate",
@@ -71,7 +72,7 @@ class AppState:
     errors: list[ErrorEntry] = field(default_factory=list)
 
     sort_mode: str = SORT_MODES[0]
-    filter_mode: str = FILTER_MODES[0]
+    active_filters: set[str] = field(default_factory=set)
     layout_name: str = "packed"
     theme_name: str = "default"
     panel_width: int = PANEL_WIDTH_DEFAULT
@@ -199,60 +200,62 @@ def apply_sort(healths: list[RepoHealth], mode: str) -> list[RepoHealth]:
     return sorted(healths, key=lambda h: h.score)
 
 
+def _matches_filter(h: RepoHealth, mode: str, repo_teams: dict[str, RepoTeamInfo]) -> bool:
+    """Check whether a single health entry passes a single filter mode."""
+    if mode == "no-workspace":
+        return not h.status.is_workspace
+    if mode == "broken-ci":
+        return any(c.check_name == "broken_ci" and c.severity != Severity.OK for c in h.checks)
+    if mode == "security":
+        return any(
+            c.check_name == "security_alerts" and c.severity != Severity.OK for c in h.checks
+        )
+    if mode == "no-renovate":
+        return any(
+            c.check_name == "renovate_enabled" and c.severity != Severity.OK for c in h.checks
+        )
+    if mode == "stale-prs":
+        return any(c.check_name == "stale_prs" and c.severity != Severity.OK for c in h.checks)
+    if mode == "issues":
+        return any(c.check_name == "open_issues" and c.severity != Severity.OK for c in h.checks)
+    team_key = team_key_from_filter(mode)
+    if team_key is not None:
+        if team_key == UNASSIGNED_TEAM:
+            return repo_teams.get(h.status.full_name, RepoTeamInfo()).primary == UNASSIGNED_TEAM
+        return team_key in repo_teams.get(h.status.full_name, RepoTeamInfo()).all
+    return True
+
+
 def apply_filter(
     healths: list[RepoHealth],
     mode: str,
     repo_teams: dict[str, RepoTeamInfo] | None = None,
 ) -> list[RepoHealth]:
-    repo_teams = repo_teams or {}
     if mode == "all":
         return list(healths)
-    if mode == "broken-ci":
-        return [
-            h
-            for h in healths
-            if any(c.check_name == "broken_ci" and c.severity != Severity.OK for c in h.checks)
-        ]
-    if mode == "security":
-        return [
-            h
-            for h in healths
-            if any(
-                c.check_name == "security_alerts" and c.severity != Severity.OK for c in h.checks
-            )
-        ]
-    if mode == "no-renovate":
-        return [
-            h
-            for h in healths
-            if any(
-                c.check_name == "renovate_enabled" and c.severity != Severity.OK for c in h.checks
-            )
-        ]
-    if mode == "stale-prs":
-        return [
-            h
-            for h in healths
-            if any(c.check_name == "stale_prs" and c.severity != Severity.OK for c in h.checks)
-        ]
-    if mode == "issues":
-        return [
-            h
-            for h in healths
-            if any(c.check_name == "open_issues" and c.severity != Severity.OK for c in h.checks)
-        ]
-    team_key = team_key_from_filter(mode)
-    if team_key is not None:
-        if team_key == UNASSIGNED_TEAM:
-            return [
-                h
-                for h in healths
-                if repo_teams.get(h.status.full_name, RepoTeamInfo()).primary == UNASSIGNED_TEAM
-            ]
-        return [
-            h for h in healths if team_key in repo_teams.get(h.status.full_name, RepoTeamInfo()).all
-        ]
-    return list(healths)
+    teams = repo_teams or {}
+    return [h for h in healths if _matches_filter(h, mode, teams)]
+
+
+def apply_active_filters(
+    healths: list[RepoHealth],
+    active: set[str],
+    repo_teams: dict[str, RepoTeamInfo] | None = None,
+) -> list[RepoHealth]:
+    """Apply multiple filters. Non-team filters AND together; team filters OR together."""
+    if not active:
+        return list(healths)
+    teams = repo_teams or {}
+    non_team = sorted(m for m in active if not m.startswith(_TEAM_FILTER_PREFIX))
+    team_modes = sorted(m for m in active if m.startswith(_TEAM_FILTER_PREFIX))
+    result: list[RepoHealth] = []
+    for h in healths:
+        if not all(_matches_filter(h, mode, teams) for mode in non_team):
+            continue
+        if team_modes and not any(_matches_filter(h, mode, teams) for mode in team_modes):
+            continue
+        result.append(h)
+    return result
 
 
 def available_filter_modes(
@@ -270,7 +273,8 @@ def available_filter_modes(
 
 def visible_healths(state: AppState) -> list[RepoHealth]:
     return apply_sort(
-        apply_filter(state.healths, state.filter_mode, state.repo_teams), state.sort_mode
+        apply_active_filters(state.healths, state.active_filters, state.repo_teams),
+        state.sort_mode,
     )
 
 

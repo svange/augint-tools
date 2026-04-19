@@ -26,6 +26,7 @@ from .health import FetchContext, RepoHealth, run_health_checks
 from .layouts import list_layouts
 from .screens.drilldown import DrillDownScreen
 from .screens.error_log import ErrorLogScreen
+from .screens.filter_panel import FilterPanel
 from .screens.help import HelpScreen
 from .state import (
     PANEL_WIDTH_MAX,
@@ -33,7 +34,6 @@ from .state import (
     PANEL_WIDTH_STEP,
     SORT_MODES,
     AppState,
-    available_filter_modes,
     bootstrap_from_cache,
     ensure_selection,
     move_selection,
@@ -913,7 +913,8 @@ class DashboardApp(App[None]):
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh_now", "Refresh"),
         Binding("s", "cycle_sort", "Sort"),
-        Binding("f", "cycle_filter", "Filter"),
+        Binding("f", "open_filter_panel", "Filter"),
+        Binding("w", "toggle_workspace", "Workspace", show=False),
         Binding("g", "cycle_layout", "Layout"),
         Binding("t", "cycle_theme", "Theme"),
         Binding("b", "toggle_flash", "Blink"),
@@ -1211,19 +1212,28 @@ class DashboardApp(App[None]):
         self._rerender()
         self.notify(f"sort: {self.state.sort_mode}", timeout=2)
 
-    def action_cycle_filter(self) -> None:
-        from .widgets.status_bar import describe_filter
+    def action_open_filter_panel(self) -> None:
+        def _on_dismiss(selected: set[str] | None) -> None:
+            if selected is None:
+                return
+            self.state.active_filters = selected
+            self._rerender()
+            count = len(visible_healths(self.state))
+            n = len(selected)
+            label = "all repos" if n == 0 else f"{n} filter{'s' if n != 1 else ''}"
+            self.notify(f"filter: {label} -- {count} repos", timeout=2)
 
-        modes = available_filter_modes(self.state.team_labels, self.state.repo_teams)
-        try:
-            idx = modes.index(self.state.filter_mode)
-        except ValueError:
-            idx = -1
-        self.state.filter_mode = modes[(idx + 1) % len(modes)]
+        self.push_screen(FilterPanel(self.state), callback=_on_dismiss)
+
+    def action_toggle_workspace(self) -> None:
+        mode = "no-workspace"
+        if mode in self.state.active_filters:
+            self.state.active_filters.discard(mode)
+            self.notify("showing workspaces", timeout=2)
+        else:
+            self.state.active_filters.add(mode)
+            self.notify("hiding workspaces", timeout=2)
         self._rerender()
-        label = describe_filter(self.state.filter_mode, self.state.team_labels)
-        count = len(visible_healths(self.state))
-        self.notify(f"filter: {label} -- {count} repos", timeout=2)
 
     def action_cycle_layout(self) -> None:
         layouts = list_layouts()

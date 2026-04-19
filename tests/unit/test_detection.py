@@ -45,9 +45,27 @@ class TestFrameworkDetection:
         (tmp_path / "next.config.js").touch()
         assert detect_framework(tmp_path) == "nextjs"
 
+    def test_nextjs_via_config_ts(self, tmp_path):
+        (tmp_path / "next.config.ts").touch()
+        assert detect_framework(tmp_path) == "nextjs"
+
+    def test_nextjs_via_package_json(self, tmp_path):
+        (tmp_path / "package.json").write_text('{"dependencies":{"next":"16.0.0"}}')
+        assert detect_framework(tmp_path) == "nextjs"
+
+    def test_nextjs_via_dev_dependency(self, tmp_path):
+        (tmp_path / "package.json").write_text('{"devDependencies":{"next":"16.0.0"}}')
+        assert detect_framework(tmp_path) == "nextjs"
+
     def test_vite(self, tmp_path):
         (tmp_path / "vite.config.ts").touch()
         assert detect_framework(tmp_path) == "vite"
+
+    def test_nextjs_before_vite(self, tmp_path):
+        """Next.js should win when both markers exist."""
+        (tmp_path / "next.config.ts").touch()
+        (tmp_path / "vite.config.ts").touch()
+        assert detect_framework(tmp_path) == "nextjs"
 
     def test_plain(self, tmp_path):
         assert detect_framework(tmp_path) == "plain"
@@ -87,3 +105,10 @@ class TestCommandPlanResolution:
         assert plan.quality == "npm run lint"
         assert plan.tests == "npm test"
         assert plan.build == "npm run build"
+
+    def test_nextjs_defaults(self):
+        toolchain = ToolchainInfo(package_manager="npm", has_npm=True)
+        plan = resolve_command_plan(toolchain, "typescript", "nextjs")
+        assert plan.quality == "npx next lint"
+        assert plan.tests == "npm test"
+        assert plan.build == "npx next build"

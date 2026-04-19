@@ -249,6 +249,19 @@ def fetch_repo_status(
     On any unexpected error returns *previous* (stale data) when available,
     or a degraded placeholder so the dashboard never crashes.
     """
+    status, _pulls = fetch_repo_status_with_pulls(repo, previous)
+    return status
+
+
+def fetch_repo_status_with_pulls(
+    repo: Repository,
+    previous: RepoStatus | None = None,
+) -> tuple[RepoStatus, list]:
+    """Fetch status and raw PR list for a single repository.
+
+    Returns ``(status, pulls)`` so callers can pass the pulls list to
+    health checks without re-fetching.
+    """
     try:
         service = has_dev_branch(repo)
         is_workspace, tags = detect_repo_metadata(repo)
@@ -258,43 +271,50 @@ def fetch_repo_status(
         else:
             dev_status, dev_error, dev_failing_since = None, None, None
 
-        pulls = repo.get_pulls(state="open")
-        open_prs = pulls.totalCount
-        draft_prs = sum(1 for pr in pulls if pr.draft)
+        pulls_paged = repo.get_pulls(state="open")
+        open_prs = pulls_paged.totalCount
+        pulls_list = list(pulls_paged)
+        draft_prs = sum(1 for pr in pulls_list if pr.draft)
 
         # open_issues_count includes PRs in GitHub's API
         open_issues = max(0, repo.open_issues_count - open_prs)
 
-        return RepoStatus(
-            name=repo.name,
-            full_name=repo.full_name,
-            is_service=service,
-            main_status=main_status,
-            main_error=main_error,
-            dev_status=dev_status,
-            dev_error=dev_error,
-            open_issues=open_issues,
-            open_prs=open_prs,
-            draft_prs=draft_prs,
-            main_failing_since=main_failing_since,
-            dev_failing_since=dev_failing_since,
-            is_workspace=is_workspace,
-            tags=tags,
+        return (
+            RepoStatus(
+                name=repo.name,
+                full_name=repo.full_name,
+                is_service=service,
+                main_status=main_status,
+                main_error=main_error,
+                dev_status=dev_status,
+                dev_error=dev_error,
+                open_issues=open_issues,
+                open_prs=open_prs,
+                draft_prs=draft_prs,
+                main_failing_since=main_failing_since,
+                dev_failing_since=dev_failing_since,
+                is_workspace=is_workspace,
+                tags=tags,
+            ),
+            pulls_list,
         )
     except Exception:
         logger.debug(f"fetch failed for {repo.full_name}: {traceback.format_exc()}")
         if previous is not None:
-            return previous
+            return previous, []
         # Degraded placeholder -- keeps the dashboard alive
-        return RepoStatus(
-            name=repo.name,
-            full_name=repo.full_name,
-            is_service=False,
-            main_status="unknown",
-            main_error="fetch error",
-            dev_status=None,
-            dev_error=None,
-            open_issues=0,
-            open_prs=0,
-            draft_prs=0,
+        return (
+            RepoStatus(
+                name=repo.name,
+                full_name=repo.full_name,
+                is_service=False,
+                main_status="unknown",
+                main_error="fetch error",
+                dev_status=None,
+                dev_error=None,
+                open_issues=0,
+                open_prs=0,
+                draft_prs=0,
+            ),
+            [],
         )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -21,7 +22,7 @@ from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import Footer, Static
 
-from ._data import RepoStatus, fetch_repo_status, save_cache
+from ._data import RepoStatus, fetch_repo_status_with_pulls, save_cache
 from .health import FetchContext, RepoHealth, run_health_checks
 from .layouts import list_layouts
 from .screens.drilldown import DrillDownScreen
@@ -1039,22 +1040,33 @@ class DashboardApp(App[None]):
             self.call_from_thread(self._rerender)
 
     def _do_refresh_inner(self) -> None:
-        statuses: list[RepoStatus] = []
-        for repo in self._repos:
-            if self.state.cancel_requested:
-                return
+        # Phase 1: fetch statuses + pulls in parallel across repos.
+        workers = min(8, len(self._repos) or 1)
+        status_by_name: dict[str, RepoStatus] = {}
+        pulls_by_name: dict[str, list] = {}
+        ordered_names: list[str] = [r.full_name for r in self._repos]
+
+        def _fetch_one(repo):
             remember_repo_teams(self.state, repo)
-            try:
-                statuses.append(fetch_repo_status(repo))
-            except Exception as exc:
-                self.state.log_error(
-                    "refresh",
-                    f"{repo.full_name}: {exc.__class__.__name__}: {exc}",
-                )
-                statuses.append(
-                    RepoStatus(
+            return repo.full_name, fetch_repo_status_with_pulls(repo)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_fetch_one, repo): repo for repo in self._repos}
+            for future in as_completed(futures):
+                if self.state.cancel_requested:
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    return
+                repo = futures[future]
+                try:
+                    name, (status, pulls) = future.result()
+                    status_by_name[name] = status
+                    pulls_by_name[name] = pulls
+                except Exception as exc:
+                    name = getattr(repo, "full_name", "?")
+                    self.state.log_error("refresh", f"{name}: {exc.__class__.__name__}: {exc}")
+                    status_by_name[name] = RepoStatus(
                         name=getattr(repo, "name", "?"),
-                        full_name=getattr(repo, "full_name", "?"),
+                        full_name=name,
                         is_service=False,
                         main_status="unknown",
                         main_error=None,
@@ -1064,14 +1076,18 @@ class DashboardApp(App[None]):
                         open_prs=0,
                         draft_prs=0,
                     )
-                )
+                    pulls_by_name[name] = []
 
+        # Preserve original repo ordering.
+        statuses = [status_by_name[n] for n in ordered_names]
+
+        # Phase 2: run health checks (reuse pre-fetched pulls -- no extra API call).
         healths: list[RepoHealth] = []
         for repo, status in zip(self._repos, statuses, strict=True):
             if self.state.cancel_requested:
                 return
             try:
-                ctx = FetchContext.build(repo)
+                ctx = FetchContext(pulls=pulls_by_name.get(status.full_name, []))
                 healths.append(
                     run_health_checks(repo, status, config=self._health_config, context=ctx)
                 )

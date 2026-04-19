@@ -54,7 +54,7 @@ class StatusBar(Static):
     """Single-line status bar docked at the top of the main screen."""
 
     DEFAULT_CSS = """
-    StatusBar { height: 1; }
+    StatusBar { height: 1; overflow: hidden; }
     """
 
     def __init__(self, id: str = "status-bar") -> None:

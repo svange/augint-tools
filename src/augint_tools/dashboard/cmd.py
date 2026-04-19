@@ -14,20 +14,11 @@ from ._helpers import (
     list_repos,
     select_org_interactive,
     select_repos_interactive,
+    strip_dotfile_repos,
     warn_rate_limit,
 )
 from .layouts import list_layouts
 from .themes import list_themes
-
-
-def _strip_dotfile_repos(repos: list) -> list:
-    """Drop repos whose short name starts with '.' (e.g. .github, .discussions).
-
-    These are GitHub's special community-health repos; they never contain
-    application code and muddy the dashboard. Filter is applied unconditionally
-    so interactive and --all paths both benefit.
-    """
-    return [r for r in repos if not getattr(r, "name", "").startswith(".")]
 
 
 @click.command("dashboard")
@@ -111,7 +102,7 @@ def dashboard_command(
 
     if interactive:
         owner = org if org else select_org_interactive(g)
-        all_repos = _strip_dotfile_repos(list_repos(g, owner))
+        all_repos = strip_dotfile_repos(list_repos(g, owner))
         repos = select_repos_interactive(all_repos)
     elif show_all:
         owner = org if org else gh_account
@@ -119,7 +110,7 @@ def dashboard_command(
             raise click.ClickException(
                 "GH_ACCOUNT must be set in .env or environment, or use --org."
             )
-        repos = _strip_dotfile_repos(list_repos(g, owner))
+        repos = strip_dotfile_repos(list_repos(g, owner))
         if not repos:
             raise click.ClickException(f"No repositories found for {owner}.")
     else:
@@ -147,6 +138,8 @@ def dashboard_command(
             health_config=health_config,
             org_name=org_name,
             skip_refresh=no_refresh,
+            github_client=g,
+            auto_discover=show_all,
         )
     except KeyboardInterrupt:
         print("\n[dim]Dashboard stopped.[/dim]")

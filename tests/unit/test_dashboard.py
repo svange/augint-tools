@@ -1288,14 +1288,14 @@ class TestAppMisc:
         assert _sparkline([]) == ""
 
     def test_strip_dotfile_repos_filters_leading_dot(self):
-        from augint_tools.dashboard.cmd import _strip_dotfile_repos
+        from augint_tools.dashboard._helpers import strip_dotfile_repos
 
         class _R:
             def __init__(self, name):
                 self.name = name
 
         repos = [_R(".github"), _R("service"), _R(".auto"), _R("lib")]
-        kept = _strip_dotfile_repos(repos)
+        kept = strip_dotfile_repos(repos)
         assert [r.name for r in kept] == ["service", "lib"]
 
     def test_drawer_contains_five_widget_labels(self):

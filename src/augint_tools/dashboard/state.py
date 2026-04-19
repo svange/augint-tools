@@ -162,14 +162,16 @@ def _team_sort_key(team: object) -> tuple[int, str]:
 
 
 def remember_repo_teams(state: AppState, repo: Repository) -> None:
-    """Populate state.repo_teams for a repo. Safe on API failure."""
+    """Refresh team ownership for a repo. Safe on API failure."""
     full_name = getattr(repo, "full_name", "")
-    if not full_name or full_name in state.repo_teams:
+    if not full_name:
         return
     try:
         teams = sorted(repo.get_teams(), key=_team_sort_key)
     except Exception:
-        state.repo_teams[full_name] = RepoTeamInfo()
+        # On failure, keep previous data if we have it; otherwise mark empty.
+        if full_name not in state.repo_teams:
+            state.repo_teams[full_name] = RepoTeamInfo()
         return
 
     team_keys: list[str] = []
@@ -179,7 +181,7 @@ def remember_repo_teams(state: AppState, repo: Repository) -> None:
             continue
         name = getattr(team, "name", "") or slug
         team_keys.append(slug)
-        state.team_labels.setdefault(slug, name)
+        state.team_labels[slug] = name
 
     if not team_keys:
         state.repo_teams[full_name] = RepoTeamInfo()

@@ -23,6 +23,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Static
 
 from ._data import RepoStatus, fetch_repo_status_with_pulls, save_cache
+from ._helpers import list_repos, strip_dotfile_repos
 from .health import FetchContext, RepoHealth, run_health_checks
 from .layouts import list_layouts
 from .screens.drilldown import DrillDownScreen
@@ -54,6 +55,7 @@ from .widgets.status_bar import StatusBar
 from .widgets.top_drawer import TopDrawer
 
 if TYPE_CHECKING:
+    from github import Github
     from github.Repository import Repository
 
 
@@ -141,16 +143,20 @@ class OrgDrawerHeader(Container):
         height: 1;
         layout: horizontal;
         background: #1a1a22;
+        overflow: hidden;
     }
     OrgDrawerHeader > #hdr-title {
         width: 1fr;
         content-align: center middle;
         text-style: bold;
+        overflow: hidden;
     }
     OrgDrawerHeader > #hdr-countdown {
         width: auto;
+        max-width: 20;
         padding: 0 1;
         color: #8b8b9a;
+        overflow: hidden;
     }
     """
 
@@ -949,6 +955,8 @@ class DashboardApp(App[None]):
         health_config: dict | None = None,
         org_name: str = "",
         skip_refresh: bool = False,
+        github_client: Github | None = None,
+        auto_discover: bool = False,
     ) -> None:
         super().__init__()
         self._repos = list(repos or [])
@@ -956,6 +964,10 @@ class DashboardApp(App[None]):
         self._health_config = health_config or {}
         self._org_name = org_name
         self._skip_refresh = skip_refresh
+        self._github_client = github_client
+        self._auto_discover = auto_discover
+        # Original repo names -- used to scope re-listing in non-discover mode.
+        self._original_repo_names: set[str] = {r.full_name for r in self._repos}
 
         self.state = AppState()
         self.state.theme_name = initial_theme
@@ -1016,6 +1028,8 @@ class DashboardApp(App[None]):
     # ---- refresh workers ----
 
     def _trigger_refresh(self) -> None:
+        if self.state.is_refreshing:
+            return  # Previous refresh still running.
         self.state.is_refreshing = True
         self.state.next_refresh_at = datetime.now(UTC) + timedelta(seconds=self._refresh_seconds)
         self.run_worker(self._do_refresh_sync, thread=True, exit_on_error=False)
@@ -1039,7 +1053,54 @@ class DashboardApp(App[None]):
             )
             self.call_from_thread(self._rerender)
 
+    def _refresh_repo_list(self) -> None:
+        """Re-list repos from the org to pick up additions and removals.
+
+        Called at the start of each refresh cycle.  When ``auto_discover``
+        is True (``--all`` mode) the full current org listing replaces the
+        internal repo list so new repos appear automatically.  In other
+        modes (``--interactive``, single-repo) only repos from the original
+        selection that still exist are kept -- deleted repos are dropped
+        but new repos are not added.
+        """
+        if self._github_client is None or not self._org_name:
+            return
+        try:
+            fresh = strip_dotfile_repos(list_repos(self._github_client, self._org_name))
+        except Exception as exc:
+            self.state.log_error("refresh", f"repo list refresh: {exc.__class__.__name__}: {exc}")
+            return  # Keep current list on failure.
+
+        if self._auto_discover:
+            self._repos = fresh
+        else:
+            # Keep only repos the user originally selected that still exist.
+            fresh_names = {r.full_name for r in fresh}
+            self._repos = [r for r in fresh if r.full_name in self._original_repo_names]
+            # Log removals so they're visible in the error drawer.
+            gone = self._original_repo_names - fresh_names
+            for name in sorted(gone):
+                self.state.log_error("refresh", f"{name}: removed (deleted or archived)")
+            # Shrink the original set so we stop warning on every cycle.
+            self._original_repo_names -= gone
+
+        # Clean up state for repos no longer in the list.
+        current_names = {r.full_name for r in self._repos}
+        removed = set(self.state.health_by_name.keys()) - current_names
+        if removed:
+            self.state.healths = [
+                h for h in self.state.healths if h.status.full_name not in removed
+            ]
+            for name in removed:
+                self.state.health_by_name.pop(name, None)
+                self.state.repo_teams.pop(name, None)
+
     def _do_refresh_inner(self) -> None:
+        # Phase 0: reconcile the repo list against the live org listing.
+        self._refresh_repo_list()
+        if not self._repos:
+            return
+
         # Phase 1: fetch statuses + pulls in parallel across repos.
         workers = min(8, len(self._repos) or 1)
         status_by_name: dict[str, RepoStatus] = {}
@@ -1451,6 +1512,8 @@ def run_dashboard(
     health_config: dict | None = None,
     org_name: str = "",
     skip_refresh: bool = False,
+    github_client: Github | None = None,
+    auto_discover: bool = False,
 ) -> None:
     """Launch the v2 interactive dashboard."""
     app = DashboardApp(
@@ -1461,5 +1524,7 @@ def run_dashboard(
         health_config=health_config,
         org_name=org_name,
         skip_refresh=skip_refresh,
+        github_client=github_client,
+        auto_discover=auto_discover,
     )
     app.run()

@@ -11,6 +11,15 @@ from rich import print
 from rich.text import Text
 
 
+def strip_dotfile_repos(repos: list[Repository]) -> list[Repository]:
+    """Drop repos whose short name starts with '.' (e.g. .github, .discussions).
+
+    These are GitHub's special community-health repos; they never contain
+    application code and muddy the dashboard.
+    """
+    return [r for r in repos if not getattr(r, "name", "").startswith(".")]
+
+
 def list_repos(g: Github, owner: str) -> list[Repository]:
     """List non-archived repos for a user or organization.
 

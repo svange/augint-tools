@@ -796,8 +796,8 @@
 </span><span id="detect-94"><a href="#detect-94"><span class="linenos"> 94</span></a>    <span class="c1"># Toolchain</span>
 </span><span id="detect-95"><a href="#detect-95"><span class="linenos"> 95</span></a>    <span class="n">toolchain</span> <span class="o">=</span> <span class="n">detect_toolchain</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
 </span><span id="detect-96"><a href="#detect-96"><span class="linenos"> 96</span></a>
-</span><span id="detect-97"><a href="#detect-97"><span class="linenos"> 97</span></a>    <span class="c1"># Command plan from ecosystem defaults only</span>
-</span><span id="detect-98"><a href="#detect-98"><span class="linenos"> 98</span></a>    <span class="n">command_plan</span> <span class="o">=</span> <span class="n">resolve_command_plan</span><span class="p">(</span><span class="n">toolchain</span><span class="p">,</span> <span class="n">language</span><span class="p">)</span>
+</span><span id="detect-97"><a href="#detect-97"><span class="linenos"> 97</span></a>    <span class="c1"># Command plan from ecosystem defaults, framework-aware</span>
+</span><span id="detect-98"><a href="#detect-98"><span class="linenos"> 98</span></a>    <span class="n">command_plan</span> <span class="o">=</span> <span class="n">resolve_command_plan</span><span class="p">(</span><span class="n">toolchain</span><span class="p">,</span> <span class="n">language</span><span class="p">,</span> <span class="n">framework</span><span class="p">)</span>
 </span><span id="detect-99"><a href="#detect-99"><span class="linenos"> 99</span></a>
 </span><span id="detect-100"><a href="#detect-100"><span class="linenos">100</span></a>    <span class="c1"># Git state</span>
 </span><span id="detect-101"><a href="#detect-101"><span class="linenos">101</span></a>    <span class="n">default_branch</span> <span class="o">=</span> <span class="s2">&quot;main&quot;</span>

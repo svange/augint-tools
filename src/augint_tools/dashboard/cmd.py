@@ -64,6 +64,13 @@ from .themes import list_themes
     help="Render from the on-disk cache without hitting the GitHub API (fast startup for testing).",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show additional detail.")
+@click.option(
+    "--log",
+    "log_file",
+    type=click.Path(),
+    default=None,
+    help="Write debug logs to a file (tail -f alongside the TUI).",
+)
 @click.pass_context
 def dashboard_command(
     ctx: click.Context,
@@ -77,9 +84,10 @@ def dashboard_command(
     env_auth: bool,
     no_refresh: bool,
     verbose: bool,
+    log_file: str | None,
 ) -> None:
     """Interactive Textual health dashboard for GitHub repositories."""
-    configure_logging(verbose)
+    configure_logging(verbose, log_file=log_file)
 
     try:
         from .app import run_dashboard

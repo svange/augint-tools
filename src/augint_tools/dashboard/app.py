@@ -8,11 +8,14 @@ the app translates user actions into state mutations and calls
 from __future__ import annotations
 
 import asyncio
+import importlib
+import sys
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from loguru import logger
 from rich.text import Text
 from textual import events
 from textual.app import App
@@ -28,7 +31,6 @@ from .health import FetchContext, RepoHealth, run_health_checks
 from .layouts import list_layouts
 from .prefs import DashboardPrefs, save_prefs
 from .screens.drilldown import DrillDownScreen
-from .screens.error_log import ErrorLogScreen
 from .screens.filter_panel import FilterPanel
 from .screens.help import HelpScreen
 from .state import (
@@ -37,10 +39,12 @@ from .state import (
     PANEL_WIDTH_STEP,
     SORT_MODES,
     AppState,
+    CollectedTeamData,
     bootstrap_from_cache,
+    collect_repo_teams,
     ensure_selection,
+    merge_team_data,
     move_selection,
-    remember_repo_teams,
     selected_health,
     team_accent,
     visible_healths,
@@ -51,6 +55,7 @@ from .usage import claude_daily_message_buckets, fetch_all_usage
 from .widgets.card_container import CardContainer
 from .widgets.dashboard_footer import DashboardFooter
 from .widgets.drawer import Drawer
+from .widgets.error_drawer import ErrorDrawer
 from .widgets.highlight_bar import HighlightBar
 from .widgets.repo_card import RepoCard
 from .widgets.status_bar import StatusBar
@@ -202,6 +207,7 @@ class MainScreen(Screen[None]):
         self._card_container = CardContainer()
         self._drawer = Drawer()
         self._top_drawer = TopDrawer()
+        self._error_drawer = ErrorDrawer()
         self._cards_by_name: dict[str, RepoCard] = {}
 
     def compose(self):
@@ -213,6 +219,7 @@ class MainScreen(Screen[None]):
         yield self._top_drawer
         yield Container(self._card_container)
         yield self._drawer
+        yield self._error_drawer
         yield DashboardFooter()
 
     def on_mount(self) -> None:
@@ -328,6 +335,20 @@ class MainScreen(Screen[None]):
             card.selected = full_name == self._state.selected_full_name
 
     # ---- drawer ----
+
+    def refresh_error_drawer(self, state: AppState) -> None:
+        """Re-render the error drawer and auto-open if new errors appeared."""
+        has_new = self._error_drawer.refresh_content(state)
+        if has_new:
+            self._error_drawer.open()
+
+    def toggle_error_drawer(self) -> None:
+        self._error_drawer.toggle()
+
+    def clear_errors(self, state: AppState) -> None:
+        state.clear_errors()
+        self._error_drawer.refresh_content(state)
+        self._error_drawer.close()
 
     def toggle_detail_drawer(self) -> None:
         health = selected_health(self._state)
@@ -927,8 +948,10 @@ class DashboardApp(App[None]):
         Binding("d", "toggle_drawer", "Detail"),
         Binding("u", "toggle_usage", "Usage"),
         Binding("i", "toggle_org", "Org"),
-        Binding("e", "open_errors", "Errors"),
+        Binding("e", "toggle_errors", "Errors"),
+        Binding("E", "clear_errors", "Clear Errors", show=False),
         Binding("question_mark", "show_help", "Help"),
+        Binding("f5", "full_restart", "Restart", show=False),
         Binding("plus", "widen_card", "Wider", show=False),
         Binding("equals_sign", "widen_card", show=False),
         Binding("minus", "narrow_card", "Narrower", show=False),
@@ -939,7 +962,7 @@ class DashboardApp(App[None]):
         Binding("5", "toggle_drawer", show=False),
         Binding("6", "toggle_usage", show=False),
         Binding("7", "toggle_org", show=False),
-        Binding("8", "open_errors", show=False),
+        Binding("8", "toggle_errors", show=False),
         Binding("9", "show_help", show=False),
         Binding("enter", "open_selected", show=False, priority=True),
         Binding("o", "open_selected_browser", show=False, priority=True),
@@ -989,6 +1012,7 @@ class DashboardApp(App[None]):
         # colour and a lighter shade defined in each theme's .tcss.
         self._flash_phase: bool = False
         self._flash_enabled: bool = True
+        self._restart_requested: bool = False
 
         # Apply remaining saved preferences (sort, filters, panel width, flash).
         # Theme and layout are already applied via initial_theme/initial_layout
@@ -1058,6 +1082,17 @@ class DashboardApp(App[None]):
             pass
         self.exit()
 
+    async def action_full_restart(self) -> None:
+        """Re-exec the process to pick up code changes (development helper)."""
+        self._save_prefs()
+        self._restart_requested = True
+        self.state.cancel_requested = True
+        try:
+            self.workers.cancel_all()
+        except Exception:
+            pass
+        self.exit()
+
     # ---- refresh workers ----
 
     def _trigger_refresh(self) -> None:
@@ -1068,22 +1103,19 @@ class DashboardApp(App[None]):
         self.run_worker(self._do_refresh_sync, thread=True, exit_on_error=False)
 
     def _do_refresh_sync(self) -> None:
+        logger.debug("refresh: starting")
         try:
             self._do_refresh_inner()
             self.state.consecutive_errors = 0
             self.state.last_error_message = None
+            logger.debug("refresh: completed successfully")
         except Exception as exc:
             self.state.is_refreshing = False
             self.state.consecutive_errors += 1
             msg = f"{exc.__class__.__name__}: {exc}"
             self.state.last_error_message = msg
             self.state.log_error("refresh", msg)
-            self.call_from_thread(
-                self.notify,
-                f"Refresh failed: {exc.__class__.__name__}",
-                severity="warning",
-                timeout=5,
-            )
+            logger.error(f"refresh: top-level failure: {msg}")
             self.call_from_thread(self._rerender)
 
     def _refresh_repo_list(self) -> None:
@@ -1097,11 +1129,14 @@ class DashboardApp(App[None]):
         but new repos are not added.
         """
         if self._github_client is None or not self._org_name:
+            logger.debug("refresh: skipping repo list (no client or org)")
             return
         try:
             fresh = strip_dotfile_repos(list_repos(self._github_client, self._org_name))
+            logger.debug(f"refresh: org listing returned {len(fresh)} repos")
         except Exception as exc:
             self.state.log_error("refresh", f"repo list refresh: {exc.__class__.__name__}: {exc}")
+            logger.warning(f"refresh: repo list failed: {exc}")
             return  # Keep current list on failure.
 
         if self._auto_discover:
@@ -1134,16 +1169,20 @@ class DashboardApp(App[None]):
         if not self._repos:
             return
 
-        # Phase 1: fetch statuses + pulls in parallel across repos.
+        # Phase 1: fetch statuses + pulls + team data in parallel across repos.
+        # Team data is collected without mutating shared state; it is merged
+        # on the main thread in _commit_refresh to avoid dict-iteration crashes.
         workers = min(8, len(self._repos) or 1)
         status_by_name: dict[str, RepoStatus] = {}
         pulls_by_name: dict[str, list] = {}
+        team_data: list[CollectedTeamData] = []
         ordered_names: list[str] = [r.full_name for r in self._repos]
 
         def _fetch_one(repo):
-            remember_repo_teams(self.state, repo)
-            return repo.full_name, fetch_repo_status_with_pulls(repo)
+            td = collect_repo_teams(repo)
+            return repo.full_name, fetch_repo_status_with_pulls(repo), td
 
+        logger.debug(f"refresh: fetching {len(self._repos)} repos with {workers} workers")
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(_fetch_one, repo): repo for repo in self._repos}
             for future in as_completed(futures):
@@ -1152,12 +1191,22 @@ class DashboardApp(App[None]):
                     return
                 repo = futures[future]
                 try:
-                    name, (status, pulls) = future.result()
+                    name, (status, pulls), td = future.result()
                     status_by_name[name] = status
                     pulls_by_name[name] = pulls
+                    team_data.append(td)
+                    logger.debug(
+                        f"refresh: {name} ci={status.main_status}"
+                        f" teams={td.info.all or '(none)'}"
+                        f" prs={status.open_prs}"
+                    )
+                    if td.error:
+                        self.state.log_error("refresh", td.error)
+                        logger.warning(f"refresh: {td.error}")
                 except Exception as exc:
                     name = getattr(repo, "full_name", "?")
                     self.state.log_error("refresh", f"{name}: {exc.__class__.__name__}: {exc}")
+                    logger.error(f"refresh: {name}: {exc.__class__.__name__}: {exc}")
                     status_by_name[name] = RepoStatus(
                         name=getattr(repo, "name", "?"),
                         full_name=name,
@@ -1199,9 +1248,22 @@ class DashboardApp(App[None]):
 
         # Commit the new state on the main thread so action handlers don't
         # observe healths and health_by_name in a half-updated state.
-        self.call_from_thread(self._commit_refresh, healths)
+        self.call_from_thread(self._commit_refresh, healths, team_data)
 
-    def _commit_refresh(self, healths: list[RepoHealth]) -> None:
+    def _commit_refresh(
+        self,
+        healths: list[RepoHealth],
+        team_data: list[CollectedTeamData] | None = None,
+    ) -> None:
+        # Merge team data collected by worker threads. This is the only place
+        # repo_teams / team_labels are mutated, so the main thread never
+        # races against a background dict modification.
+        if team_data:
+            merge_team_data(self.state, team_data)
+            logger.debug(
+                f"commit: merged team data for {len(team_data)} repos, "
+                f"{len(self.state.team_labels)} known teams"
+            )
         # Carry forward / stamp warning-transition timestamps *before* we swap
         # the healths list, so the card-flash logic can tell whether yellow is
         # new (ok -> warning) or established. Timestamps on the RepoStatus side
@@ -1211,6 +1273,12 @@ class DashboardApp(App[None]):
         self.state.health_by_name = {h.status.full_name: h for h in healths}
         self.state.last_refresh_at = datetime.now(UTC)
         self.state.is_refreshing = False
+        vis = visible_healths(self.state)
+        logger.debug(
+            f"commit: {len(healths)} total, {len(vis)} visible, "
+            f"filters={self.state.active_filters or 'none'}, "
+            f"sort={self.state.sort_mode}, errors={len(self.state.errors)}"
+        )
         self._rerender()
 
     def _update_warning_since(self, healths: list[RepoHealth]) -> None:
@@ -1281,6 +1349,7 @@ class DashboardApp(App[None]):
         if self._main is not None:
             try:
                 self._main.rerender()
+                self._main.refresh_error_drawer(self.state)
             except Exception as exc:
                 self.state.log_error("ui", f"{exc.__class__.__name__}: {exc}")
 
@@ -1427,8 +1496,16 @@ class DashboardApp(App[None]):
             event.stop()
             event.prevent_default()
 
-    def action_open_errors(self) -> None:
-        self.push_screen(ErrorLogScreen(self.state))
+    def action_toggle_errors(self) -> None:
+        if self._main is not None:
+            # Refresh content but don't auto-open -- the user is
+            # explicitly toggling, so just honour the toggle.
+            self._main._error_drawer.refresh_content(self.state)
+            self._main.toggle_error_drawer()
+
+    def action_clear_errors(self) -> None:
+        if self._main is not None:
+            self._main.clear_errors(self.state)
 
     def action_show_help(self) -> None:
         self.push_screen(HelpScreen())
@@ -1557,16 +1634,39 @@ def run_dashboard(
     saved_prefs: DashboardPrefs | None = None,
 ) -> None:
     """Launch the v2 interactive dashboard."""
-    app = DashboardApp(
-        repos=repos,
-        refresh_seconds=refresh_seconds,
-        initial_theme=theme,
-        initial_layout=layout,
-        health_config=health_config,
-        org_name=org_name,
-        skip_refresh=skip_refresh,
-        github_client=github_client,
-        auto_discover=auto_discover,
-        saved_prefs=saved_prefs,
-    )
-    app.run()
+    app_cls = DashboardApp
+    cur_theme = theme
+    cur_layout = layout
+    cur_prefs = saved_prefs
+
+    while True:
+        app = app_cls(
+            repos=repos,
+            refresh_seconds=refresh_seconds,
+            initial_theme=cur_theme,
+            initial_layout=cur_layout,
+            health_config=health_config,
+            org_name=org_name,
+            skip_refresh=skip_refresh,
+            github_client=github_client,
+            auto_discover=auto_discover,
+            saved_prefs=cur_prefs,
+        )
+        app.run()
+
+        if not getattr(app, "_restart_requested", False):
+            break
+
+        # Purge all augint_tools modules so re-import picks up code changes.
+        stale = [k for k in sys.modules if k.startswith("augint_tools")]
+        for k in stale:
+            del sys.modules[k]
+        importlib.invalidate_caches()
+
+        # Re-import fresh classes after the purge.
+        fresh_app = importlib.import_module("augint_tools.dashboard.app")
+        fresh_prefs = importlib.import_module("augint_tools.dashboard.prefs")
+        app_cls = fresh_app.DashboardApp
+        cur_prefs = fresh_prefs.load_prefs()
+        cur_theme = cur_prefs.theme_name
+        cur_layout = cur_prefs.layout_name

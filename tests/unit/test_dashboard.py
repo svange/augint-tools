@@ -513,17 +513,21 @@ class TestDashboardPilot:
 
         asyncio.run(run())
 
-    def test_error_log_screen(self):
+    def test_error_drawer_toggle(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
             _seed_state(app)
             app.state.log_error("refresh", "test injected error")
             async with app.run_test() as pilot:
                 await pilot.pause()
+                drawer = app.query_one("#error-drawer")
+                assert not drawer.has_class("open")
                 await pilot.press("e")
                 await pilot.pause()
-                # A second screen is on the stack.
-                assert len(app.screen_stack) >= 2
+                assert drawer.has_class("open")
+                await pilot.press("e")
+                await pilot.pause()
+                assert not drawer.has_class("open")
 
         asyncio.run(run())
 
@@ -812,8 +816,8 @@ class TestStateHelpers:
         move_selection(s, 1)
         assert s.selected_full_name is None
 
-    def test_remember_repo_teams(self):
-        from augint_tools.dashboard.state import remember_repo_teams
+    def test_collect_and_merge_repo_teams(self):
+        from augint_tools.dashboard.state import collect_repo_teams, merge_team_data
 
         s = AppState()
         team = MagicMock()
@@ -822,20 +826,25 @@ class TestStateHelpers:
         team.permission = "admin"
         repo = _mock_repo(full_name="org/x")
         repo.get_teams.return_value = [team]
-        remember_repo_teams(s, repo)
+        td = collect_repo_teams(repo)
+        assert td.error is None
+        merge_team_data(s, [td])
         assert s.repo_teams["org/x"].primary == "alpha"
         assert s.team_labels.get("alpha") == "Alpha"
 
-    def test_remember_repo_teams_api_failure(self):
+    def test_collect_repo_teams_api_failure(self):
         from augint_tools.dashboard.state import (
             UNASSIGNED_TEAM,
-            remember_repo_teams,
+            collect_repo_teams,
+            merge_team_data,
         )
 
         s = AppState()
         repo = _mock_repo(full_name="org/x")
         repo.get_teams.side_effect = RuntimeError("boom")
-        remember_repo_teams(s, repo)
+        td = collect_repo_teams(repo)
+        assert td.error is not None
+        merge_team_data(s, [td])
         assert s.repo_teams["org/x"].primary == UNASSIGNED_TEAM
 
     def test_apply_filter_no_renovate(self):

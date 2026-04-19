@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 from ._data import RepoStatus, load_cache, load_health_cache
 from .health import RepoHealth, Severity
 
@@ -161,32 +163,70 @@ def _team_sort_key(team: object) -> tuple[int, str]:
     return _TEAM_PERMISSION_ORDER.get(permission, 99), slug.lower()
 
 
-def remember_repo_teams(state: AppState, repo: Repository) -> None:
-    """Refresh team ownership for a repo. Safe on API failure."""
+@dataclass(frozen=True)
+class CollectedTeamData:
+    """Thread-safe snapshot of team data for a single repo.
+
+    Collected in worker threads, merged into ``AppState`` on the main
+    thread to avoid concurrent dict mutation.
+    """
+
+    full_name: str
+    info: RepoTeamInfo = RepoTeamInfo()
+    labels: dict[str, str] = field(default_factory=dict)
+    error: str | None = None
+
+
+def collect_repo_teams(repo: Repository) -> CollectedTeamData:
+    """Fetch team data for a repo without mutating shared state.
+
+    Safe to call from worker threads.  Returns a ``CollectedTeamData``
+    snapshot that the caller merges on the main thread via
+    ``merge_team_data``.
+    """
     full_name = getattr(repo, "full_name", "")
     if not full_name:
-        return
+        return CollectedTeamData(full_name="")
     try:
         teams = sorted(repo.get_teams(), key=_team_sort_key)
-    except Exception:
-        # On failure, keep previous data if we have it; otherwise mark empty.
-        if full_name not in state.repo_teams:
-            state.repo_teams[full_name] = RepoTeamInfo()
-        return
+    except Exception as exc:
+        logger.debug(f"collect_repo_teams: {full_name}: {exc.__class__.__name__}: {exc}")
+        return CollectedTeamData(
+            full_name=full_name,
+            error=f"{full_name}: teams: {exc.__class__.__name__}: {exc}",
+        )
 
     team_keys: list[str] = []
+    labels: dict[str, str] = {}
     for team in teams:
         slug = getattr(team, "slug", "") or ""
         if not slug:
             continue
         name = getattr(team, "name", "") or slug
         team_keys.append(slug)
-        state.team_labels[slug] = name
+        labels[slug] = name
 
     if not team_keys:
-        state.repo_teams[full_name] = RepoTeamInfo()
-        return
-    state.repo_teams[full_name] = RepoTeamInfo(primary=team_keys[0], all=tuple(team_keys))
+        return CollectedTeamData(full_name=full_name, labels=labels)
+    return CollectedTeamData(
+        full_name=full_name,
+        info=RepoTeamInfo(primary=team_keys[0], all=tuple(team_keys)),
+        labels=labels,
+    )
+
+
+def merge_team_data(state: AppState, collected: list[CollectedTeamData]) -> None:
+    """Apply collected team snapshots to state. Must run on the main thread."""
+    for td in collected:
+        if not td.full_name:
+            continue
+        if td.error:
+            # Keep previous data if we have it; otherwise mark unassigned.
+            if td.full_name not in state.repo_teams:
+                state.repo_teams[td.full_name] = RepoTeamInfo()
+            continue
+        state.repo_teams[td.full_name] = td.info
+        state.team_labels.update(td.labels)
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +262,14 @@ def _matches_filter(h: RepoHealth, mode: str, repo_teams: dict[str, RepoTeamInfo
         return any(c.check_name == "open_issues" and c.severity != Severity.OK for c in h.checks)
     team_key = team_key_from_filter(mode)
     if team_key is not None:
+        info = repo_teams.get(h.status.full_name)
+        if info is None:
+            # Team data not fetched yet -- include the repo so it isn't
+            # hidden just because the refresh hasn't completed.
+            return True
         if team_key == UNASSIGNED_TEAM:
-            return repo_teams.get(h.status.full_name, RepoTeamInfo()).primary == UNASSIGNED_TEAM
-        return team_key in repo_teams.get(h.status.full_name, RepoTeamInfo()).all
+            return info.primary == UNASSIGNED_TEAM
+        return team_key in info.all
     return True
 
 

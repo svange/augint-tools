@@ -29,10 +29,14 @@ Layouts and themes
 Overlays
   d                   Repo detail drawer
   u                   Usage breakdown drawer
-  e                   Error log screen
+  e                   Toggle error drawer
+  E                   Clear errors
   ?                   This help
   /                   Command palette
   esc                 Dismiss
+
+Development
+  F5                  Full restart (re-exec process)
 
 Mouse
   left                Select / open details

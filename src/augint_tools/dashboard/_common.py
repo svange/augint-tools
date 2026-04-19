@@ -16,11 +16,24 @@ from github.Repository import Repository
 from loguru import logger
 
 
-def configure_logging(verbose: bool) -> None:
-    """Configure loguru: silent by default, compact format with --verbose."""
+def configure_logging(verbose: bool, log_file: str | None = None) -> None:
+    """Configure loguru: silent by default, compact format with --verbose.
+
+    When ``log_file`` is given, DEBUG-level output is written to the file
+    (safe to use alongside the TUI -- nothing goes to stderr).
+    ``--verbose`` and ``--log`` can be combined.
+    """
     logger.remove()
     if verbose:
         logger.add(sys.stderr, level="DEBUG", format="  {message}")
+    if log_file:
+        logger.add(
+            log_file,
+            level="DEBUG",
+            format="{time:HH:mm:ss.SSS} | {level:<7} | {name}:{function}:{line} | {message}",
+            rotation="5 MB",
+            retention=2,
+        )
 
 
 def _load_dotenv_values(filename: str = ".env") -> dict[str, str]:

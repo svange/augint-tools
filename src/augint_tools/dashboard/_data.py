@@ -298,8 +298,9 @@ def fetch_repo_status_with_pulls(
             ),
             pulls_list,
         )
-    except Exception:
-        logger.debug(f"fetch failed for {repo.full_name}: {traceback.format_exc()}")
+    except Exception as exc:
+        logger.warning(f"fetch failed for {repo.full_name}: {exc.__class__.__name__}: {exc}")
+        logger.debug(f"fetch traceback for {repo.full_name}: {traceback.format_exc()}")
         if previous is not None:
             return previous, []
         # Degraded placeholder -- keeps the dashboard alive

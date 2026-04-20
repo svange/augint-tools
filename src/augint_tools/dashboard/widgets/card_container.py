@@ -82,11 +82,15 @@ class CardContainer(Container):
         order: list[str],
         headers: dict[str, str],
         buckets: dict[str, list[RepoCard]],
+        *,
+        columns: int = 0,
     ) -> None:
         """Rebuild children: header, cards, header, cards, ... per ``order``.
 
         Cards are kept; only headers are torn down and rebuilt, then cards are
-        reordered via move_child to land between headers.
+        reordered via move_child to land between headers. When ``columns`` is
+        given, each header's ``column_span`` is set before mounting so the
+        header stretches across the full grid width.
         """
         from .repo_card import RepoCard as _RepoCard
 
@@ -99,6 +103,8 @@ class CardContainer(Container):
         target: list = []
         for team_key in order:
             header = _GroupHeader(headers.get(team_key, team_key), classes="group-header")
+            if columns > 0:
+                header.styles.column_span = columns
             target.append(header)
             target.extend(buckets.get(team_key, []))
 

@@ -289,9 +289,8 @@ class RepoCard(Widget):
             t = Text()
             icon = spec.severity_icons.get(finding.severity, "*")
             t.append(f"{icon} ", style=self._severity_style(finding.severity, spec))
-            t.append(f"{finding.check_name.replace('_', ' ')}: ", style="bold")
             t.append(
-                _truncate(finding.summary, 28), style=self._severity_style(finding.severity, spec)
+                _truncate(finding.summary, 40), style=self._severity_style(finding.severity, spec)
             )
             lines.append(t)
             if len(lines) >= limit:

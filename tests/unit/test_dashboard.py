@@ -2053,3 +2053,119 @@ class TestMultiOrgCLI:
         assert "myuser" in owners
         assert "org-alpha" in owners
         assert "org-beta" not in owners
+
+
+# ---------------------------------------------------------------------------
+# Widget help modal + top-drawer click routing
+# ---------------------------------------------------------------------------
+
+
+class TestWidgetHelpScreen:
+    """Unit tests for the per-widget help modal (``i``-drawer click popup)."""
+
+    def test_screen_stores_id_and_renders_known_widget(self):
+        from augint_tools.dashboard.screens.widget_help import (
+            WIDGET_HELP,
+            WidgetHelpScreen,
+        )
+
+        screen = WidgetHelpScreen("activity")
+        assert screen.widget_id == "activity"
+        assert screen.title_text == WIDGET_HELP["activity"][0]
+        assert screen.body_text == WIDGET_HELP["activity"][1]
+
+    def test_unknown_widget_id_falls_back_to_placeholder(self):
+        from augint_tools.dashboard.screens.widget_help import WidgetHelpScreen
+
+        screen = WidgetHelpScreen("this-id-does-not-exist")
+        assert screen.title_text == "this-id-does-not-exist"
+        assert "No explanation" in screen.body_text
+
+    def test_widget_help_covers_every_drawer_section_id(self):
+        """Every section id produced by the drawer must have an entry in
+        WIDGET_HELP, otherwise a click would open an empty modal."""
+        from augint_tools.dashboard.screens.widget_help import WIDGET_HELP
+
+        # Section ids that are structural (empty/header/hint) and intentionally
+        # not documented because they don't represent real widgets.
+        structural = {"empty", "header", "hint"}
+
+        app = DashboardApp(repos=[], skip_refresh=True, org_name="acme")
+        crit = HealthCheckResult(check_name="broken_ci", severity=Severity.CRITICAL, summary="boom")
+        app.state.healths = [
+            _health(name="broken", full_name="org/a", checks=[crit]),
+            _health(name="ok", full_name="org/b"),
+        ]
+        app.state.health_by_name = {h.status.full_name: h for h in app.state.healths}
+        app.state.repo_teams = {
+            "org/a": RepoTeamInfo(primary="platform", all=("platform",)),
+            "org/b": RepoTeamInfo(primary="platform", all=("platform",)),
+        }
+        app.state.team_labels = {"platform": "Platform"}
+
+        async def collect() -> set[str]:
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._main is not None
+                ids: set[str] = set()
+                ids.update(sid for sid, _ in app._main._org_drawer_left_sections())
+                ids.update(sid for sid, _ in app._main._org_drawer_middle_sections())
+                ids.update(sid for sid, _ in app._main._org_drawer_right_sections())
+                return ids
+
+        ids = asyncio.run(collect())
+        meaningful = ids - structural
+        missing = meaningful - set(WIDGET_HELP)
+        assert not missing, f"WIDGET_HELP missing entries for: {sorted(missing)}"
+
+    @tui
+    def test_drawer_sections_have_stable_widget_ids(self):
+        """After opening the drawer, each section becomes a Static with a
+        DOM id prefixed ``top-drawer-section-<key>`` so clicks can be
+        attributed to the correct widget."""
+
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True, org_name="acme")
+            app.state.healths = [_health(full_name="org/a")]
+            app.state.health_by_name = {"org/a": app.state.healths[0]}
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._main is not None
+                app.action_toggle_org()
+                await pilot.pause()
+                drawer = app._main._top_drawer
+                mounted_ids = {
+                    child.id
+                    for column in (drawer._left, drawer._middle, drawer._right)
+                    for child in column.children
+                    if child.id
+                }
+                # At least one meaningful section id is present.
+                assert any(wid.startswith("top-drawer-section-") for wid in mounted_ids)
+
+        asyncio.run(run())
+
+    @tui
+    def test_section_click_opens_widget_help_modal(self):
+        """Posting a SectionClicked message pushes the help modal on top
+        of the app, carrying the section id."""
+
+        async def run():
+            from augint_tools.dashboard.screens.widget_help import WidgetHelpScreen
+            from augint_tools.dashboard.widgets.top_drawer import TopDrawer
+
+            app = DashboardApp(repos=[], skip_refresh=True, org_name="acme")
+            app.state.healths = [_health(full_name="org/a")]
+            app.state.health_by_name = {"org/a": app.state.healths[0]}
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._main is not None
+                app.action_toggle_org()
+                await pilot.pause()
+                app._main.on_top_drawer_section_clicked(TopDrawer.SectionClicked("activity"))
+                await pilot.pause()
+                top = app.screen
+                assert isinstance(top, WidgetHelpScreen)
+                assert top.widget_id == "activity"
+
+        asyncio.run(run())

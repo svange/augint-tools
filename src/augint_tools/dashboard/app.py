@@ -35,6 +35,7 @@ from .screens.filter_panel import FilterPanel
 from .screens.help import HelpScreen
 from .screens.org_manager import OrgManager
 from .screens.repo_manager import RepoManager
+from .screens.widget_help import WidgetHelpScreen
 from .state import (
     PANEL_WIDTH_MAX,
     PANEL_WIDTH_MIN,
@@ -77,6 +78,19 @@ def _progress_bar(fraction: float, width: int) -> str:
 
 # Unicode 'lower N eighth blocks' for sparkline rendering (U+2581..U+2588).
 _SPARK_GLYPHS = " \u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"
+
+
+def _concat_sections(sections: list[tuple[str, Text]]) -> Text:
+    """Concatenate a list of named sections into a single ``Text``.
+
+    Used to keep the original single-``Text`` drawer accessors working
+    after the drawer column renderers were split into per-section chunks.
+    Section ids are discarded -- they only matter for click routing.
+    """
+    out = Text()
+    for _, chunk in sections:
+        out.append_text(chunk)
+    return out
 
 
 def _sparkline(values: list[int]) -> str:
@@ -241,9 +255,9 @@ class MainScreen(Screen[None]):
         self._header.set_countdown(self._countdown_text())
         if self._top_drawer.is_open:
             self._top_drawer.set_content(
-                self._org_drawer_content(),
-                self._org_drawer_middle_content(),
-                self._org_drawer_right_content(),
+                self._org_drawer_left_sections(),
+                self._org_drawer_middle_sections(),
+                self._org_drawer_right_sections(),
             )
 
     def rerender_usage_only(self) -> None:
@@ -254,9 +268,9 @@ class MainScreen(Screen[None]):
         if self._top_drawer.is_open:
             # Org drawer embeds a usage block; refresh it in place.
             self._top_drawer.set_content(
-                self._org_drawer_content(),
-                self._org_drawer_middle_content(),
-                self._org_drawer_right_content(),
+                self._org_drawer_left_sections(),
+                self._org_drawer_middle_sections(),
+                self._org_drawer_right_sections(),
             )
 
     def tick_status(self) -> None:
@@ -372,13 +386,19 @@ class MainScreen(Screen[None]):
         self._drawer.toggle("usage", content)
 
     def toggle_org_drawer(self) -> None:
-        left = self._org_drawer_content()
-        middle = self._org_drawer_middle_content()
-        right = self._org_drawer_right_content()
-        self._top_drawer.toggle(left, middle, right)
+        self._top_drawer.toggle(
+            self._org_drawer_left_sections(),
+            self._org_drawer_middle_sections(),
+            self._org_drawer_right_sections(),
+        )
 
     def on_org_drawer_header_toggle(self, _message: OrgDrawerHeader.Toggle) -> None:
         self.toggle_org_drawer()
+
+    def on_top_drawer_section_clicked(self, message: TopDrawer.SectionClicked) -> None:
+        """Open the per-widget help modal when a drawer section is clicked."""
+        message.stop()
+        self.app.push_screen(WidgetHelpScreen(message.section_id))
 
     def _detail_drawer_content(self, health: RepoHealth) -> Text:
         status = health.status
@@ -398,33 +418,58 @@ class MainScreen(Screen[None]):
         t.append("\npress d to close, enter for full drilldown.", style="dim")
         return t
 
-    def _org_drawer_content(self) -> Text:
-        """Left column: system meters (GPU/RAM) + CI matrix."""
+    # ------------------------------------------------------------------
+    # Org drawer content
+    # ------------------------------------------------------------------
+    #
+    # Each column of the org drawer is composed from a list of named
+    # "sections". Splitting the columns this way lets the TopDrawer render
+    # each section as its own Static widget so clicks can be attributed to
+    # a specific widget (and open an explanatory modal). The section ids
+    # used below must stay in sync with the keys in
+    # ``augint_tools.dashboard.screens.widget_help.WIDGET_HELP``.
+
+    def _org_drawer_left_sections(self) -> list[tuple[str, Text]]:
+        """Sections that make up the left column of the org drawer."""
         state = self._state
         spec = get_theme(state.theme_name)
-        t = Text()
-        self._append_system_block(t, spec)
-        if not state.healths:
-            t.append("no data yet. press r to refresh.\n", style="dim")
-            return t
-        self._append_ci_matrix(t, state.healths, spec)
-        return t
+        sections: list[tuple[str, Text]] = []
 
-    def _org_drawer_middle_content(self) -> Text:
-        """Middle column: org-wide stats, weather, activity, usage."""
+        system = Text()
+        self._append_system_block(system, spec)
+        if system.plain:
+            sections.append(("system", system))
+
+        if not state.healths:
+            empty = Text()
+            empty.append("no data yet. press r to refresh.\n", style="dim")
+            sections.append(("empty", empty))
+            return sections
+
+        ci = Text()
+        self._append_ci_matrix(ci, state.healths, spec)
+        sections.append(("ci_matrix", ci))
+        return sections
+
+    def _org_drawer_middle_sections(self) -> list[tuple[str, Text]]:
+        """Sections that make up the middle column of the org drawer."""
         from .health import Severity as _Sev
 
         state = self._state
         spec = get_theme(state.theme_name)
-        t = Text()
-
         title = " + ".join(self._owners) if self._owners else self._org_name or "Organization"
+        sections: list[tuple[str, Text]] = []
 
         if not state.healths:
-            t.append(f"{title} -- org dashboard\n\n", style="bold")
-            t.append("no data yet. press r to refresh.\n\n", style="dim")
-            self._append_usage_block(t, spec)
-            return t
+            header = Text()
+            header.append(f"{title} -- org dashboard\n\n", style="bold")
+            header.append("no data yet. press r to refresh.\n\n", style="dim")
+            sections.append(("empty", header))
+            usage = Text()
+            self._append_usage_block(usage, spec)
+            if usage.plain:
+                sections.append(("usage", usage))
+            return sections
 
         by_sev: dict[_Sev, int] = {}
         for h in state.healths:
@@ -433,38 +478,95 @@ class MainScreen(Screen[None]):
         ok_count = by_sev.get(_Sev.OK, 0)
         score = int((ok_count / total) * 100) if total else 0
 
-        t.append(f"{title}\n", style="bold")
-        t.append(f"{total} repos  ·  {score}% green\n\n")
+        header = Text()
+        header.append(f"{title}\n", style="bold")
+        header.append(f"{total} repos  ·  {score}% green\n\n")
+        sections.append(("header", header))
 
-        self._append_severity_bar(t, by_sev, total, spec)
+        sev_bar = Text()
+        self._append_severity_bar(sev_bar, by_sev, total, spec)
+        sections.append(("severity_bar", sev_bar))
 
-        t.append("repos    ", style="bold")
-        self._append_repo_glyphs(t, spec)
-        t.append("\n\n")
+        glyphs = Text()
+        glyphs.append("repos    ", style="bold")
+        self._append_repo_glyphs(glyphs, spec)
+        glyphs.append("\n\n")
+        sections.append(("repo_glyphs", glyphs))
 
-        self._append_weather(t, by_sev, state.healths, spec)
-        self._append_activity_spark(t, spec)
-        self._append_pr_ages(t, state.healths, spec)
-        self._append_team_mix(t, state, spec)
-        self._append_usage_block(t, spec)
-        t.append("press i or click header to close.", style="dim")
-        return t
+        weather = Text()
+        self._append_weather(weather, by_sev, state.healths, spec)
+        sections.append(("weather", weather))
 
-    def _org_drawer_right_content(self) -> Text:
-        """Right column: check failures, service/lib mix, score histogram,
-        recent errors, worst-repos leaderboard."""
+        activity = Text()
+        self._append_activity_spark(activity, spec)
+        sections.append(("activity", activity))
+
+        pr_ages = Text()
+        self._append_pr_ages(pr_ages, state.healths, spec)
+        sections.append(("pr_ages", pr_ages))
+
+        team_mix = Text()
+        self._append_team_mix(team_mix, state, spec)
+        if team_mix.plain:
+            sections.append(("team_mix", team_mix))
+
+        usage = Text()
+        self._append_usage_block(usage, spec)
+        if usage.plain:
+            sections.append(("usage", usage))
+
+        hint = Text()
+        hint.append("press i or click header to close.", style="dim")
+        sections.append(("hint", hint))
+        return sections
+
+    def _org_drawer_right_sections(self) -> list[tuple[str, Text]]:
+        """Sections that make up the right column of the org drawer."""
         state = self._state
         spec = get_theme(state.theme_name)
-        t = Text()
+        sections: list[tuple[str, Text]] = []
         if not state.healths:
-            t.append("--\n", style="dim")
-            return t
-        self._append_check_breakdown(t, state.healths, spec)
-        self._append_service_lib(t, state.healths, spec)
-        self._append_score_histogram(t, state.healths, spec)
-        self._append_recent_errors(t, state, spec)
-        self._append_leaderboard(t, state.healths, spec)
-        return t
+            empty = Text()
+            empty.append("--\n", style="dim")
+            sections.append(("empty", empty))
+            return sections
+
+        check = Text()
+        self._append_check_breakdown(check, state.healths, spec)
+        sections.append(("check_breakdown", check))
+
+        svc = Text()
+        self._append_service_lib(svc, state.healths, spec)
+        sections.append(("service_lib", svc))
+
+        score = Text()
+        self._append_score_histogram(score, state.healths, spec)
+        sections.append(("score_histogram", score))
+
+        errors = Text()
+        self._append_recent_errors(errors, state, spec)
+        sections.append(("recent_errors", errors))
+
+        leader = Text()
+        self._append_leaderboard(leader, state.healths, spec)
+        if leader.plain:
+            sections.append(("leaderboard", leader))
+        return sections
+
+    # Backwards-compatible accessors -- concatenate sections into a single
+    # Text so older call sites (and tests) keep working unchanged.
+
+    def _org_drawer_content(self) -> Text:
+        """Left column as a single Text (concatenation of all sections)."""
+        return _concat_sections(self._org_drawer_left_sections())
+
+    def _org_drawer_middle_content(self) -> Text:
+        """Middle column as a single Text (concatenation of all sections)."""
+        return _concat_sections(self._org_drawer_middle_sections())
+
+    def _org_drawer_right_content(self) -> Text:
+        """Right column as a single Text (concatenation of all sections)."""
+        return _concat_sections(self._org_drawer_right_sections())
 
     # ------------------------------------------------------------------
     # Right-column widget helpers

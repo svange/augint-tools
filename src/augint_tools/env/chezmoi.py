@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import click
 from loguru import logger

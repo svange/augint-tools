@@ -36,7 +36,6 @@ FILTER_MODES: tuple[str, ...] = (
     "public",
     "no-workspace",
     "broken-ci",
-    "security",
     "no-renovate",
     "stale-prs",
     "issues",
@@ -293,10 +292,6 @@ def _matches_filter(h: RepoHealth, mode: str, repo_teams: dict[str, RepoTeamInfo
         return not h.status.is_workspace
     if mode == "broken-ci":
         return any(c.check_name == "broken_ci" and c.severity != Severity.OK for c in h.checks)
-    if mode == "security":
-        return any(
-            c.check_name == "security_alerts" and c.severity != Severity.OK for c in h.checks
-        )
     if mode == "no-renovate":
         return any(
             c.check_name == "renovate_enabled" and c.severity != Severity.OK for c in h.checks

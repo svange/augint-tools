@@ -24,7 +24,6 @@ _FILTER_LABELS: dict[str, str] = {
     "private": "Private",
     "public": "Public (Open source)",
     "broken-ci": "broken CI",
-    "security": "security alerts",
     "no-renovate": "no renovate",
     "no-workspace": "no workspace",
     "stale-prs": "stale PRs",

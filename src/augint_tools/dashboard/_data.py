@@ -236,9 +236,10 @@ def get_run_status(repo: Repository, branch: str) -> tuple[str, str | None, str 
     """
     try:
         runs = repo.get_workflow_runs(branch=branch, exclude_pull_requests=True)  # type: ignore[arg-type]
-        if runs.totalCount == 0:
+        try:
+            run = runs[0]
+        except (IndexError, GithubException):
             return "unknown", None, None
-        run = runs[0]
         if run.status in ("in_progress", "queued"):
             return "in_progress", None, None
         if run.conclusion == "success":

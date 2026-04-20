@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -129,8 +130,6 @@ async def perform_sync(
     repo = get_github_repo(gh_account, gh_repo)
 
     synced_secrets = await _sync_secrets(repo, secrets, dry_run, quiet_writer=quiet_writer)
-    synced_variables = await _sync_variables(
-        repo, variables, dry_run, quiet_writer=quiet_writer
-    )
+    synced_variables = await _sync_variables(repo, variables, dry_run, quiet_writer=quiet_writer)
 
     return {"secrets": synced_secrets, "variables": synced_variables}

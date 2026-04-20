@@ -28,6 +28,7 @@ class DashboardPrefs:
     panel_width: int = 38
     flash_enabled: bool = True
     disabled_repos: list[str] = field(default_factory=list)
+    disabled_orgs: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)

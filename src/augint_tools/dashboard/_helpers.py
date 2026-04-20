@@ -100,6 +100,41 @@ def select_repos_interactive(repos: list[Repository]) -> list[Repository]:
         print("[red]Invalid selection. Try again.[/red]")
 
 
+def get_viewer_login(g: Github) -> str:
+    """Return the login of the authenticated user."""
+    try:
+        return g.get_user().login
+    except GithubException:
+        return ""
+
+
+def list_user_orgs(g: Github) -> list[str]:
+    """Return login names of all organizations the authenticated user belongs to."""
+    try:
+        return [org.login for org in g.get_user().get_orgs()]
+    except GithubException:
+        return []
+
+
+def list_repos_multi(g: Github, owners: list[str]) -> list[Repository]:
+    """List non-archived repos across multiple owners (users/orgs).
+
+    Deduplicates by ``full_name`` in case the same repo appears under
+    multiple owners (shouldn't happen, but defensive).
+    """
+    seen: set[str] = set()
+    result: list[Repository] = []
+    for owner in owners:
+        try:
+            for repo in list_repos(g, owner):
+                if repo.full_name not in seen:
+                    seen.add(repo.full_name)
+                    result.append(repo)
+        except Exception:
+            logger.warning(f"Failed to list repos for '{owner}', skipping.")
+    return result
+
+
 def warn_rate_limit(repo_count: int, refresh_seconds: int) -> None:
     """Warn if estimated API usage would exceed GitHub rate limits."""
     calls_per_repo = 7

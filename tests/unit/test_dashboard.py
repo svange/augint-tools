@@ -20,6 +20,7 @@ from augint_tools.dashboard.layouts import (
     list_layouts,
     register_layout,
 )
+from augint_tools.dashboard.prefs import DashboardPrefs
 from augint_tools.dashboard.state import (
     FILTER_MODES,
     SORT_MODES,
@@ -157,10 +158,11 @@ class TestDashboardCLI:
         assert result.exit_code == 0
 
     @patch("augint_tools.dashboard.app.run_dashboard", side_effect=KeyboardInterrupt)
-    @patch("augint_tools.dashboard.cmd.list_repos")
+    @patch("augint_tools.dashboard.cmd.list_repos_multi")
+    @patch("augint_tools.dashboard.cmd.get_viewer_login", return_value="myaccount")
     @patch("augint_tools.dashboard.cmd.load_env_config")
     @patch("augint_tools.dashboard.cmd.get_github_client")
-    def test_dashboard_all_flag(self, mock_client, mock_env, mock_list, mock_run):
+    def test_dashboard_all_flag(self, mock_client, mock_env, mock_viewer, mock_list, mock_run):
         mock_env.return_value = ("", "myaccount", "tok")
         mock_list.return_value = [_mock_repo()]
         runner = CliRunner()
@@ -169,10 +171,11 @@ class TestDashboardCLI:
         mock_list.assert_called_once()
 
     @patch("augint_tools.dashboard.app.run_dashboard", side_effect=KeyboardInterrupt)
-    @patch("augint_tools.dashboard.cmd.list_repos")
+    @patch("augint_tools.dashboard.cmd.list_repos_multi")
+    @patch("augint_tools.dashboard.cmd.get_viewer_login", return_value="myaccount")
     @patch("augint_tools.dashboard.cmd.load_env_config")
     @patch("augint_tools.dashboard.cmd.get_github_client")
-    def test_dashboard_env_auth(self, mock_client, mock_env, mock_list, mock_run):
+    def test_dashboard_env_auth(self, mock_client, mock_env, mock_viewer, mock_list, mock_run):
         mock_env.return_value = ("", "myaccount", "tok")
         mock_list.return_value = [_mock_repo()]
         runner = CliRunner()
@@ -315,8 +318,8 @@ class TestApplyActiveFilters:
         out = apply_active_filters([broken, fine], {"broken-ci"})
         assert [h.status.name for h in out] == ["broken"]
 
-    def test_combined_filters_and_logic(self):
-        """Non-team filters combine with AND: repo must match ALL."""
+    def test_no_workspace_and_with_selection(self):
+        """no-workspace is a hard AND; broken-ci is an OR selection."""
         ci_check = HealthCheckResult(
             check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
         )
@@ -328,6 +331,7 @@ class TestApplyActiveFilters:
         )
         repo_ok = _health(name="repo-ok", full_name="org/repo-ok", is_workspace=False)
         out = apply_active_filters([ws_broken, repo_broken, repo_ok], {"broken-ci", "no-workspace"})
+        # ws-broken excluded by no-workspace AND, repo-ok doesn't match broken-ci OR
         assert [h.status.name for h in out] == ["repo-broken"]
 
     def test_team_filters_or_logic(self):
@@ -347,8 +351,8 @@ class TestApplyActiveFilters:
         )
         assert {h.status.name for h in out} == {"a", "b"}
 
-    def test_team_and_health_combined(self):
-        """Team OR + health AND: only team members matching the health filter."""
+    def test_health_and_team_or_together(self):
+        """broken-ci + team:alpha OR together: broken repos PLUS alpha repos."""
         ci_check = HealthCheckResult(
             check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
         )
@@ -363,7 +367,8 @@ class TestApplyActiveFilters:
             {"broken-ci", team_filter_mode("alpha")},
             repo_teams,
         )
-        assert [h.status.name for h in out] == ["a"]
+        # Both pass: a matches broken-ci, b matches team:alpha
+        assert {h.status.name for h in out} == {"a", "b"}
 
 
 class TestSelection:
@@ -864,6 +869,35 @@ class TestStateHelpers:
         assert td.error is not None
         merge_team_data(s, [td])
         assert s.repo_teams["org/x"].primary == UNASSIGNED_TEAM
+
+    def test_collect_repo_teams_403_suppressed(self):
+        """403 from personal (non-org) repos is expected -- no error field."""
+        from augint_tools.dashboard.state import collect_repo_teams
+
+        repo = _mock_repo(full_name="user/personal-repo")
+        repo.get_teams.side_effect = GithubException(403, "Forbidden", None)
+        td = collect_repo_teams(repo)
+        assert td.error is None
+        assert td.info.all == ()
+
+    def test_collect_repo_teams_404_suppressed(self):
+        """404 from the Teams API is also expected for non-org repos."""
+        from augint_tools.dashboard.state import collect_repo_teams
+
+        repo = _mock_repo(full_name="user/personal-repo")
+        repo.get_teams.side_effect = GithubException(404, "Not Found", None)
+        td = collect_repo_teams(repo)
+        assert td.error is None
+        assert td.info.all == ()
+
+    def test_collect_repo_teams_500_still_errors(self):
+        """Server errors (5xx) should still be reported."""
+        from augint_tools.dashboard.state import collect_repo_teams
+
+        repo = _mock_repo(full_name="org/x")
+        repo.get_teams.side_effect = GithubException(500, "Server Error", None)
+        td = collect_repo_teams(repo)
+        assert td.error is not None
 
     def test_apply_filter_no_renovate(self):
         check = HealthCheckResult(
@@ -1615,8 +1649,8 @@ class TestVisibilityFilters:
         out = apply_active_filters([priv, pub], {"public"})
         assert [h.status.name for h in out] == ["oss"]
 
-    def test_combined_public_and_broken_ci(self):
-        """Public + broken-ci filters AND together."""
+    def test_public_and_broken_ci_or_together(self):
+        """public + broken-ci OR together: public repos PLUS broken-CI repos."""
         ci_check = HealthCheckResult(
             check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
         )
@@ -1628,7 +1662,55 @@ class TestVisibilityFilters:
         )
         pub_ok = _health(name="pub-ok", full_name="org/pub-ok", private=False)
         out = apply_active_filters([pub_broken, priv_broken, pub_ok], {"public", "broken-ci"})
-        assert [h.status.name for h in out] == ["pub-broken"]
+        # All three pass: pub-broken matches both, priv-broken matches broken-ci, pub-ok matches public
+        assert {h.status.name for h in out} == {"pub-broken", "priv-broken", "pub-ok"}
+
+    def test_private_and_public_or_shows_all(self):
+        """Selecting both private + public shows all repos (OR)."""
+        priv = _health(name="secret", full_name="org/secret", private=True)
+        pub = _health(name="oss", full_name="org/oss", private=False)
+        out = apply_active_filters([priv, pub], {"private", "public"})
+        assert {h.status.name for h in out} == {"secret", "oss"}
+
+    def test_public_and_team_or_together(self):
+        """public + team:alpha OR: public repos PLUS alpha team repos."""
+        pub_team = _health(name="pub-team", full_name="org/pub-team", private=False)
+        priv_team = _health(name="priv-team", full_name="org/priv-team", private=True)
+        pub_no_team = _health(name="pub-no-team", full_name="org/pub-no-team", private=False)
+        repo_teams = {
+            "org/pub-team": RepoTeamInfo(primary="alpha", all=("alpha",)),
+            "org/priv-team": RepoTeamInfo(primary="alpha", all=("alpha",)),
+            "org/pub-no-team": RepoTeamInfo(primary="beta", all=("beta",)),
+        }
+        out = apply_active_filters(
+            [pub_team, priv_team, pub_no_team],
+            {"public", team_filter_mode("alpha")},
+            repo_teams,
+        )
+        # All pass: pub-team matches both, priv-team matches team:alpha, pub-no-team matches public
+        assert {h.status.name for h in out} == {"pub-team", "priv-team", "pub-no-team"}
+
+    def test_no_workspace_constrains_or_selections(self):
+        """no-workspace AND excludes workspaces even when other selections match."""
+        priv_team = _health(
+            name="priv-team", full_name="org/priv-team", private=True, is_workspace=False
+        )
+        pub_ws = _health(name="pub-ws", full_name="org/pub-ws", private=False, is_workspace=True)
+        pub_other = _health(
+            name="pub-other", full_name="org/pub-other", private=False, is_workspace=False
+        )
+        repo_teams = {
+            "org/priv-team": RepoTeamInfo(primary="alpha", all=("alpha",)),
+            "org/pub-ws": RepoTeamInfo(primary="alpha", all=("alpha",)),
+            "org/pub-other": RepoTeamInfo(primary="beta", all=("beta",)),
+        }
+        out = apply_active_filters(
+            [priv_team, pub_ws, pub_other],
+            {"no-workspace", "public", team_filter_mode("alpha")},
+            repo_teams,
+        )
+        # pub-ws excluded by no-workspace even though it matches public + team:alpha
+        assert {h.status.name for h in out} == {"priv-team", "pub-other"}
 
 
 class TestRepoStatusPrivateField:
@@ -1711,3 +1793,210 @@ class TestFilterLabels:
         from augint_tools.dashboard.widgets.status_bar import describe_filter
 
         assert describe_filter("public") == "Public (Open source)"
+
+    def test_describe_filter_org(self):
+        from augint_tools.dashboard.widgets.status_bar import describe_filter
+
+        assert describe_filter("org:my-org") == "org: my-org"
+
+
+# ---------------------------------------------------------------------------
+# Org filter support
+# ---------------------------------------------------------------------------
+
+
+class TestOrgFilter:
+    def test_org_filter_mode_round_trip(self):
+        from augint_tools.dashboard.state import org_filter_mode, org_key_from_filter
+
+        assert org_key_from_filter(org_filter_mode("my-org")) == "my-org"
+
+    def test_org_key_from_filter_returns_none_for_non_org(self):
+        from augint_tools.dashboard.state import org_key_from_filter
+
+        assert org_key_from_filter("team:alpha") is None
+        assert org_key_from_filter("broken-ci") is None
+
+    def test_owner_of(self):
+        from augint_tools.dashboard.state import owner_of
+
+        assert owner_of("my-org/my-repo") == "my-org"
+        assert owner_of("single") == "single"
+
+    def test_org_filter_matches_by_owner(self):
+        a = _health(name="a", full_name="org-a/a")
+        b = _health(name="b", full_name="org-b/b")
+        out = apply_filter([a, b], "org:org-a")
+        assert [h.status.name for h in out] == ["a"]
+
+    def test_org_filters_or_logic(self):
+        """Multiple org filters combine with OR: repo in ANY selected org passes."""
+        a = _health(name="a", full_name="org-a/a")
+        b = _health(name="b", full_name="org-b/b")
+        c = _health(name="c", full_name="org-c/c")
+        out = apply_active_filters([a, b, c], {"org:org-a", "org:org-b"})
+        assert {h.status.name for h in out} == {"a", "b"}
+
+    def test_org_and_health_or_together(self):
+        """org:org-a + broken-ci OR together: org-a repos PLUS broken-CI repos."""
+        ci_check = HealthCheckResult(
+            check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
+        )
+        a_broken = _health(name="a", full_name="org-a/a", checks=[ci_check])
+        b_ok = _health(name="b", full_name="org-a/b")
+        c_broken = _health(name="c", full_name="org-b/c", checks=[ci_check])
+        out = apply_active_filters([a_broken, b_ok, c_broken], {"broken-ci", "org:org-a"})
+        # All three pass: a matches both, b matches org:org-a, c matches broken-ci
+        assert {h.status.name for h in out} == {"a", "b", "c"}
+
+    def test_available_filter_modes_includes_orgs(self):
+        healths = [
+            _health(name="a", full_name="org-a/a"),
+            _health(name="b", full_name="org-b/b"),
+        ]
+        modes = available_filter_modes({}, {}, healths=healths)
+        assert "org:org-a" in modes
+        assert "org:org-b" in modes
+        assert set(FILTER_MODES).issubset(set(modes))
+
+
+# ---------------------------------------------------------------------------
+# Stale repos
+# ---------------------------------------------------------------------------
+
+
+class TestStaleRepos:
+    def test_stale_repos_default_empty(self):
+        s = AppState()
+        assert s.stale_repos == set()
+
+    def test_stale_card_rendering(self):
+        from augint_tools.dashboard.themes import get_theme
+        from augint_tools.dashboard.widgets.repo_card import RepoCard
+
+        health = _health(full_name="org/r0")
+        spec = get_theme("default")
+        card = RepoCard(health=health, theme_spec=spec)
+
+        # Not stale -- normal render.
+        card.stale = False
+        assert not card.has_class("card--stale")
+
+        # Stale -- card gets the stale class.
+        card.stale = True
+        assert card.has_class("card--stale")
+
+    def test_stale_card_render_content_dimmed(self):
+        from augint_tools.dashboard.themes import get_theme
+        from augint_tools.dashboard.widgets.repo_card import RepoCard
+
+        health = _health(full_name="org/r0")
+        spec = get_theme("default")
+        card = RepoCard(health=health, theme_spec=spec)
+        card.stale = True
+        out = card.render()
+        # The dim style is applied to the entire text.
+        assert "myrepo" in out.plain
+
+
+# ---------------------------------------------------------------------------
+# Enabled orgs in prefs
+# ---------------------------------------------------------------------------
+
+
+class TestDisabledOrgsPrefs:
+    def test_disabled_orgs_round_trip(self, tmp_path, monkeypatch):
+        from augint_tools.dashboard.prefs import (
+            DashboardPrefs,
+            load_prefs,
+            save_prefs,
+        )
+
+        monkeypatch.setattr("augint_tools.dashboard.prefs.CACHE_DIR", tmp_path)
+        monkeypatch.setattr("augint_tools.dashboard.prefs.PREFS_FILE", tmp_path / "prefs.json")
+
+        prefs = DashboardPrefs(disabled_orgs=["org-alpha", "org-beta"])
+        save_prefs(prefs)
+        loaded = load_prefs()
+        assert sorted(loaded.disabled_orgs) == ["org-alpha", "org-beta"]
+
+    def test_disabled_orgs_defaults_empty(self):
+        from augint_tools.dashboard.prefs import DashboardPrefs
+
+        prefs = DashboardPrefs()
+        assert prefs.disabled_orgs == []
+
+    def test_app_loads_disabled_orgs_from_prefs(self):
+        from augint_tools.dashboard.prefs import DashboardPrefs
+
+        prefs = DashboardPrefs(disabled_orgs=["org-alpha"])
+        app = DashboardApp(repos=[], skip_refresh=True, saved_prefs=prefs)
+        assert "org-alpha" in app._disabled_orgs
+
+    def test_app_saves_disabled_orgs_in_prefs(self):
+        app = DashboardApp(repos=[], skip_refresh=True)
+        app._disabled_orgs = {"org-alpha"}
+        with patch("augint_tools.dashboard.app.save_prefs") as mock_save:
+            app._save_prefs()
+            saved = mock_save.call_args[0][0]
+            assert "org-alpha" in saved.disabled_orgs
+
+
+# ---------------------------------------------------------------------------
+# Multi-org CLI
+# ---------------------------------------------------------------------------
+
+
+class TestMultiOrgCLI:
+    @patch("augint_tools.dashboard.app.run_dashboard", side_effect=KeyboardInterrupt)
+    @patch("augint_tools.dashboard.cmd.list_repos_multi")
+    @patch("augint_tools.dashboard.cmd.get_viewer_login", return_value="myuser")
+    @patch("augint_tools.dashboard.cmd.load_env_config")
+    @patch("augint_tools.dashboard.cmd.get_github_client")
+    def test_all_flag_uses_multi_org(self, mock_client, mock_env, mock_viewer, mock_list, mock_run):
+        mock_env.return_value = ("", "myuser", "tok")
+        mock_list.return_value = [_mock_repo()]
+        runner = CliRunner()
+        result = runner.invoke(main, ["dashboard", "--all"])
+        assert result.exit_code == 0
+        # Should have called list_repos_multi with the viewer's login.
+        call_args = mock_list.call_args
+        owners = call_args[0][1]
+        assert "myuser" in owners
+
+    @patch("augint_tools.dashboard.app.run_dashboard", side_effect=KeyboardInterrupt)
+    @patch("augint_tools.dashboard._common.get_github_repo")
+    @patch("augint_tools.dashboard.cmd.load_env_config")
+    @patch("augint_tools.dashboard.cmd.get_github_client")
+    def test_no_flags_uses_single_repo(self, mock_client, mock_env, mock_repo, mock_run):
+        """No --all or --interactive: falls back to GH_REPO single-repo mode."""
+        mock_env.return_value = ("myrepo", "myaccount", "tok")
+        mock_repo.return_value = _mock_repo()
+        runner = CliRunner()
+        result = runner.invoke(main, ["dashboard"])
+        assert result.exit_code == 0
+
+    @patch("augint_tools.dashboard.app.run_dashboard", side_effect=KeyboardInterrupt)
+    @patch("augint_tools.dashboard.cmd.list_repos_multi")
+    @patch("augint_tools.dashboard.cmd.list_user_orgs", return_value=["org-alpha", "org-beta"])
+    @patch("augint_tools.dashboard.cmd.get_viewer_login", return_value="myuser")
+    @patch("augint_tools.dashboard.cmd.load_env_config")
+    @patch("augint_tools.dashboard.cmd.get_github_client")
+    def test_disabled_orgs_excluded_from_owners(
+        self, mock_client, mock_env, mock_viewer, mock_orgs, mock_list, mock_run
+    ):
+        """Saved disabled_orgs from prefs are excluded from the owners list."""
+        mock_env.return_value = ("", "myuser", "tok")
+        mock_list.return_value = [_mock_repo()]
+        runner = CliRunner()
+        with patch(
+            "augint_tools.dashboard.cmd.load_prefs",
+            return_value=DashboardPrefs(disabled_orgs=["org-beta"]),
+        ):
+            result = runner.invoke(main, ["dashboard", "--all"])
+        assert result.exit_code == 0
+        call_args = mock_list.call_args
+        owners = call_args[0][1]
+        assert "myuser" in owners
+        assert "org-alpha" in owners
+        assert "org-beta" not in owners

@@ -1287,7 +1287,6 @@ class DashboardApp(App[None]):
         Binding("r", "refresh_now", "Refresh"),
         Binding("s", "cycle_sort", "Sort"),
         Binding("f", "open_filter_panel", "Filter"),
-        Binding("w", "toggle_workspace", "Workspace", show=False),
         Binding("g", "cycle_layout", "Layout"),
         Binding("t", "cycle_theme", "Theme"),
         Binding("b", "toggle_flash", "Blink"),
@@ -1415,9 +1414,6 @@ class DashboardApp(App[None]):
         self._main = MainScreen(self.state, self._org_name, owners=self._owners)
         self.push_screen(self._main)
 
-        # Usage fetch in the background -- never block the first paint.
-        self._refresh_usage()
-
         if self._repos and not self._skip_refresh:
             # Seed the countdown before the first worker lands so the
             # status bar shows "next refresh in ..." from paint zero.
@@ -1434,9 +1430,11 @@ class DashboardApp(App[None]):
             # for the 20-30s the initial GitHub fetch takes.
             self.set_interval(self._refresh_seconds, self._trigger_refresh)
             self._trigger_refresh()
+            # Usage fetch in the background -- never block the first paint.
+            self._refresh_usage()
+            self.set_interval(60.0, self._refresh_usage)
 
         self.set_interval(1.0, self._tick_status)
-        self.set_interval(60.0, self._refresh_usage)
         self.set_interval(_FLASH_TICK_SECONDS, self._tick_flash)
         # Probe host RAM / GPU in the background: once at startup so the
         # first org-drawer open already shows numbers, then every 3s while
@@ -1914,25 +1912,6 @@ class DashboardApp(App[None]):
         """
         self.state.active_filters = set(message.selected)
         self._rerender()
-
-    def action_toggle_workspace(self) -> None:
-        has_ws = "workspace" in self.state.active_filters
-        has_nws = "non-workspace" in self.state.active_filters
-        self.state.active_filters.discard("workspace")
-        self.state.active_filters.discard("non-workspace")
-        if not has_ws and not has_nws:
-            # show all -> hide workspaces
-            self.state.active_filters.add("non-workspace")
-            self.notify("hiding workspaces", timeout=2)
-        elif has_nws:
-            # hide workspaces -> workspace only
-            self.state.active_filters.add("workspace")
-            self.notify("workspace repos only", timeout=2)
-        else:
-            # workspace only -> show all
-            self.notify("showing all repos", timeout=2)
-        self._rerender()
-        self._save_prefs()
 
     def action_cycle_layout(self) -> None:
         layouts = list_layouts()

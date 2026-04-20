@@ -468,7 +468,10 @@ class TestDashboardApp:
                 app = DashboardApp(repos=[], skip_refresh=True)
                 async with app.run_test() as pilot:
                     await pilot.pause()
-                    # Worker is async; allow it to run.
+                    # skip_refresh=True suppresses the automatic usage
+                    # fetch, so trigger it manually to exercise the
+                    # error-handling path in _refresh_usage_sync.
+                    app._refresh_usage()
                     await app.workers.wait_for_complete()
                     assert any(e.source == "usage" for e in app.state.errors)
 
@@ -648,32 +651,6 @@ class TestDashboardActions:
         assert app.state.active_filters == {"broken-ci"}
         app.on_filter_panel_filter_changed(FilterPanel.FilterChanged(set()))
         assert app.state.active_filters == set()
-
-    def test_toggle_workspace(self):
-        async def run():
-            app = DashboardApp(repos=[], skip_refresh=True)
-            _seed_state(app)
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                # Start: neither workspace filter active
-                assert "non-workspace" not in app.state.active_filters
-                assert "workspace" not in app.state.active_filters
-                # First press: hide workspaces
-                await pilot.press("w")
-                await pilot.pause()
-                assert "non-workspace" in app.state.active_filters
-                # Second press: workspace only
-                await pilot.press("w")
-                await pilot.pause()
-                assert "workspace" in app.state.active_filters
-                assert "non-workspace" not in app.state.active_filters
-                # Third press: show all
-                await pilot.press("w")
-                await pilot.pause()
-                assert "workspace" not in app.state.active_filters
-                assert "non-workspace" not in app.state.active_filters
-
-        asyncio.run(run())
 
     def test_move_left_right(self):
         async def run():

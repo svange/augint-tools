@@ -5,7 +5,7 @@ main screen can rebuild the grid immediately.  The panel is still
 dismissible with ``escape``/``f``; we return the final selection set
 from ``dismiss`` so callers that want the list have it.
 
-The panel is organised into sections (Orgs, Teams, Visibility, Workspace,
+The panel is organised into sections (Orgs, Teams, GitHub Visibility, Workspace,
 Status) each with their own SelectionList and All/None toggle buttons.
 """
 
@@ -167,7 +167,9 @@ class FilterPanel(ModalScreen[set[str]]):
                 if has_identity:
                     yield Rule()
                 yield FilterSection(
-                    "Visibility", "visibility", self._make_selections(sections.visibility, tl)
+                    "GitHub Visibility",
+                    "visibility",
+                    self._make_selections(sections.visibility, tl),
                 )
                 yield FilterSection(
                     "Workspace", "workspace", self._make_selections(sections.workspace, tl)

@@ -1279,6 +1279,59 @@ class TestAppMisc:
         asyncio.run(run())
 
     @tui
+    def test_ci_matrix_applies_team_accent_and_link(self):
+        """The top-drawer CI matrix colours repo names by team accent and
+        wraps each as a hyperlink to that repo's Actions page."""
+
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True, org_name="nerds")
+            app.state.team_labels = {
+                "platform": "Platform",
+                "growth": "Growth",
+                state.UNASSIGNED_TEAM: "Unassigned",
+            }
+            app.state.repo_teams = {
+                "org/a": RepoTeamInfo(primary="platform", all=("platform",)),
+                "org/b": RepoTeamInfo(primary="growth", all=("growth",)),
+                # deliberately missing entry for org/c -> falls back to grey
+            }
+            app.state.healths = [
+                _health(name="repo-a", full_name="org/a"),
+                _health(name="repo-b", full_name="org/b"),
+                _health(name="repo-c", full_name="org/c"),
+            ]
+            app.state.health_by_name = {h.status.full_name: h for h in app.state.healths}
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._main is not None
+                content = app._main._org_drawer_content()
+                plain = content.plain
+                assert "ci matrix" in plain
+                # Collect spans that styled each repo name.
+                name_spans: dict[str, str] = {}
+                for span in content.spans:
+                    rendered = plain[span.start : span.end]
+                    stripped = rendered.strip()
+                    if stripped in {"repo-a", "repo-b", "repo-c"}:
+                        name_spans[stripped] = str(span.style)
+                for repo in ("repo-a", "repo-b", "repo-c"):
+                    assert repo in name_spans, f"no styled span for {repo}"
+                    style = name_spans[repo]
+                    assert f"link https://github.com/org/{repo[-1]}/actions" in style
+
+                known = list(app.state.team_labels)
+                platform_accent = team_accent("platform", known)
+                growth_accent = team_accent("growth", known)
+                assert platform_accent in name_spans["repo-a"]
+                assert growth_accent in name_spans["repo-b"]
+                # repo-c has no team entry -> default grey.
+                assert "#808080" in name_spans["repo-c"]
+                # Different teams should produce different accents.
+                assert platform_accent != growth_accent
+
+        asyncio.run(run())
+
+    @tui
     def test_usage_block_renders_meter(self):
         async def run():
             from augint_tools.dashboard.usage import UsageStats

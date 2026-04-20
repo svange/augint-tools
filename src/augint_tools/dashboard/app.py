@@ -471,13 +471,23 @@ class MainScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def _append_ci_matrix(self, t: Text, healths: list, spec) -> None:
-        """Per-repo CI status as coloured dots (dev + main if service)."""
+        """Per-repo CI status as coloured dots (dev + main if service).
+
+        Repo names are rendered in their team's accent colour and turned into
+        terminal hyperlinks (OSC 8) pointing at the repo's GitHub Actions page.
+        """
         t.append("ci matrix\n", style="bold")
         shown = healths[:24]
+        known_teams = list(self._state.team_labels)
         for h in shown:
             status = h.status
             name = status.name[:16]
-            t.append(f"  {name:<16} ")
+            team_info = self._state.repo_teams.get(status.full_name)
+            accent = team_accent(team_info.primary, known_teams) if team_info else "#808080"
+            link_url = f"https://github.com/{status.full_name}/actions"
+            t.append("  ")
+            t.append(f"{name:<16}", style=f"{accent} link {link_url}")
+            t.append(" ")
             if status.is_service and status.dev_status:
                 t.append("\u25cf", style=self._ci_dot_style(status.dev_status, spec))
                 t.append(" ")

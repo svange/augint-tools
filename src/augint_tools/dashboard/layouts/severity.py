@@ -24,7 +24,7 @@ def _card_severity_bucket(health) -> str:
     worst = health.worst_severity
     if worst == Severity.CRITICAL:
         return "critical"
-    if worst in (Severity.HIGH, Severity.MEDIUM) or status.open_prs > 0:
+    if worst in (Severity.HIGH, Severity.MEDIUM):
         return "warning"
     return "ok"
 

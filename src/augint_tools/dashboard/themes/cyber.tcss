@@ -13,7 +13,7 @@ CardContainer { layout: grid; grid-size: 4; grid-gutter: 0 1; padding: 0 1; over
 CardContainer.layout--list { layout: vertical; }
 CardContainer.layout--dense { grid-size: 6; }
 
-.group-header { column-span: 4; height: 1; background: #13132a; color: #f92aad; padding: 0 1; margin-top: 1; text-style: bold; }
+.group-header { height: 1; background: #13132a; color: #f92aad; padding: 0 1; margin-top: 1; text-style: bold; }
 
 RepoCard { height: auto; min-height: 5; border: round #303060; background: #13132a; color: #bef9ff; padding: 0 1; transition: border 200ms in_out_cubic, background 150ms linear; }
 RepoCard.card--ok { border: round #72f1b8; }

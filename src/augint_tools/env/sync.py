@@ -76,6 +76,9 @@ async def _sync_variables(repo: Any, env_data: dict[str, str], dry_run: bool) ->
 async def perform_sync(
     filename: str = ".env",
     dry_run: bool = False,
+    *,
+    force_var: frozenset[str] | set[str] | None = None,
+    force_secret: frozenset[str] | set[str] | None = None,
 ) -> dict[str, list[str]]:
     """Sync .env file to GitHub secrets and variables.
 
@@ -91,7 +94,7 @@ async def perform_sync(
     if not gh_repo or not gh_account:
         raise RuntimeError("GH_REPO and GH_ACCOUNT must be set in .env or environment.")
 
-    secrets, variables = partition_env(filename)
+    secrets, variables = partition_env(filename, force_var=force_var, force_secret=force_secret)
 
     repo = get_github_repo(gh_account, gh_repo)
 

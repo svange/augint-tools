@@ -73,6 +73,35 @@ class TestClassifyCommand:
         assert result.exit_code == 0
         assert "0 secrets" in result.output
 
+    def test_classify_force_var_flag(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            Path(".env").write_text("MY_SECRET=some-value\n")
+            result = runner.invoke(cli, ["gh", "classify", "--force-var", "MY_SECRET"])
+        assert result.exit_code == 0
+        assert "0 secrets" in result.output
+        assert "1 variables" in result.output
+
+    def test_classify_force_secret_flag(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            Path(".env").write_text("APP_NAME=myapp\n")
+            result = runner.invoke(cli, ["gh", "classify", "--force-secret", "APP_NAME"])
+        assert result.exit_code == 0
+        assert "1 secrets" in result.output
+        assert "0 variables" in result.output
+
+    def test_classify_json_variables_have_reasons(self):
+        """Variables in JSON output now include reasons (e.g., safe value info)."""
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            Path(".env").write_text("APP_NAME=myapp\n")
+            result = runner.invoke(cli, ["--json", "gh", "classify"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data["result"]["variables"][0], dict)
+        assert "key" in data["result"]["variables"][0]
+
 
 class TestPushCommand:
     def test_push_help(self):
@@ -80,6 +109,8 @@ class TestPushCommand:
         result = runner.invoke(cli, ["gh", "push", "--help"])
         assert result.exit_code == 0
         assert "--dry-run" in result.output
+        assert "--force-var" in result.output
+        assert "--force-secret" in result.output
 
     def test_push_missing_file(self):
         runner = CliRunner()

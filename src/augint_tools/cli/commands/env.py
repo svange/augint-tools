@@ -21,16 +21,31 @@ def gh(ctx):
 
 
 @gh.command()
+@click.option(
+    "--force-var",
+    default="",
+    help="Comma-separated key names to force-classify as variables.",
+)
+@click.option(
+    "--force-secret",
+    default="",
+    help="Comma-separated key names to force-classify as secrets.",
+)
 @click.argument("filename", type=click.Path(), default=".env")
 @click.pass_context
-def classify(ctx, filename):
+def classify(ctx, force_var, force_secret, filename):
     """Show how each .env variable would be classified (secret vs variable)."""
     from augint_tools.env.classify import Classification, classify_env
 
     opts = _get_output_opts(ctx)
 
+    fv = frozenset(k.strip() for k in force_var.split(",") if k.strip()) if force_var else None
+    fs = (
+        frozenset(k.strip() for k in force_secret.split(",") if k.strip()) if force_secret else None
+    )
+
     try:
-        results = classify_env(filename)
+        results = classify_env(filename, force_var=fv, force_secret=fs)
     except FileNotFoundError as e:
         emit_response(CommandResponse.error("gh classify", "repo", str(e)), **opts)
         sys.exit(1)
@@ -41,7 +56,7 @@ def classify(ctx, filename):
 
     result_data = {
         "secrets": [{"key": r.key, "reasons": r.reasons} for r in secrets],
-        "variables": [r.key for r in variables],
+        "variables": [{"key": r.key, "reasons": r.reasons} for r in variables],
         "skipped": [r.key for r in skipped],
     }
 
@@ -58,16 +73,31 @@ def classify(ctx, filename):
     "--dry-run", "-d", is_flag=True, help="Show what would change without modifying GitHub."
 )
 @click.option("--verbose", "-v", is_flag=True, help="Print detailed output.")
+@click.option(
+    "--force-var",
+    default="",
+    help="Comma-separated key names to force-classify as variables.",
+)
+@click.option(
+    "--force-secret",
+    default="",
+    help="Comma-separated key names to force-classify as secrets.",
+)
 @click.argument("filename", type=click.Path(exists=True), default=".env")
 @click.pass_context
-def push(ctx, dry_run, verbose, filename):
+def push(ctx, dry_run, verbose, force_var, force_secret, filename):
     """Push .env secrets and variables to GitHub repository settings."""
     from augint_tools.env.sync import perform_sync
 
     opts = _get_output_opts(ctx)
 
+    fv = frozenset(k.strip() for k in force_var.split(",") if k.strip()) if force_var else None
+    fs = (
+        frozenset(k.strip() for k in force_secret.split(",") if k.strip()) if force_secret else None
+    )
+
     try:
-        results = asyncio.run(perform_sync(filename, dry_run))
+        results = asyncio.run(perform_sync(filename, dry_run, force_var=fv, force_secret=fs))
     except Exception as e:
         emit_response(CommandResponse.error("gh push", "repo", str(e)), **opts)
         sys.exit(1)

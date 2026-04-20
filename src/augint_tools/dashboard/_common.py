@@ -5,6 +5,7 @@ Kept self-contained so the dashboard can ship as part of augint-tools without
 depending on augint-github at runtime.
 """
 
+import logging
 import os
 import subprocess
 import sys
@@ -34,6 +35,11 @@ def configure_logging(verbose: bool, log_file: str | None = None) -> None:
             rotation="5 MB",
             retention=2,
         )
+    # PyGithub's GithubRetry logs expected 403/404 responses at INFO level
+    # via the stdlib logging module. Textual captures stdlib logging and
+    # renders it in the TUI, causing distracting "Request GET ... failed
+    # with 403: Forbidden" messages to flash on screen. Silence them.
+    logging.getLogger("github").setLevel(logging.WARNING)
 
 
 def _load_dotenv_values(filename: str = ".env") -> dict[str, str]:

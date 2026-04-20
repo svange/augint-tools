@@ -21,6 +21,7 @@ RepoCard.card--warning { border: round #ebcb8b; }
 RepoCard.card--critical { border: round #bf616a; }
 RepoCard.card--warning.card--flash-on { border: round #f5e5c5; }
 RepoCard.card--critical.card--flash-on { border: round #dfb0b4; }
+RepoCard.card--stale { border: round #666666; opacity: 0.6; }
 RepoCard.card--dense { min-height: 4; padding: 0; }
 RepoCard.card--list { min-height: 6; }
 

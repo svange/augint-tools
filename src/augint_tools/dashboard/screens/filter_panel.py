@@ -48,7 +48,9 @@ class FilterPanel(ModalScreen[set[str]]):
         self._state = state
 
     def compose(self):
-        modes = available_filter_modes(self._state.team_labels, self._state.repo_teams)
+        modes = available_filter_modes(
+            self._state.team_labels, self._state.repo_teams, self._state.healths
+        )
         # Skip "all" -- empty selection already means all repos.
         selections = [
             Selection(

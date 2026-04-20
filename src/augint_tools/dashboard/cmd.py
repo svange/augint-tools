@@ -11,8 +11,9 @@ from rich import print
 
 from ._common import configure_logging, get_github_client, load_env_config
 from ._helpers import (
-    list_repos,
-    select_org_interactive,
+    get_viewer_login,
+    list_repos_multi,
+    list_user_orgs,
     select_repos_interactive,
     strip_dotfile_repos,
     warn_rate_limit,
@@ -116,19 +117,77 @@ def dashboard_command(
         logger.debug("Dashboard auth mode forced to .env (--env-auth).")
     g = get_github_client(auth_source=auth_source)
 
-    if interactive:
-        owner = org if org else select_org_interactive(g)
-        all_repos = strip_dotfile_repos(list_repos(g, owner))
-        repos = select_repos_interactive(all_repos)
-    elif show_all:
+    # ------------------------------------------------------------------
+    # Multi-org mode (--all or --interactive without --org):
+    # Auto-discover the personal account + all organizations the user
+    # belongs to.  Orgs the user has explicitly disabled via the in-TUI
+    # org manager (persisted in prefs.disabled_orgs) are excluded.
+    #
+    # Legacy single-org mode (--org): use exactly that org.
+    # Legacy single-repo mode (no flags): GH_REPO + GH_ACCOUNT from env.
+    # ------------------------------------------------------------------
+    multi_org = (show_all or interactive) and not org
+
+    if multi_org:
+        viewer = get_viewer_login(g) or gh_account or ""
+        if not viewer:
+            raise click.ClickException(
+                "Could not determine GitHub login. Set GH_ACCOUNT or authenticate with: gh auth login"
+            )
+        disabled_orgs = set(prefs.disabled_orgs)
+        owners: list[str] = [viewer]
+        for org_login in list_user_orgs(g):
+            if org_login not in owners and org_login not in disabled_orgs:
+                owners.append(org_login)
+
+        if interactive:
+            all_repos = strip_dotfile_repos(list_repos_multi(g, owners))
+            repos = select_repos_interactive(all_repos)
+        else:
+            repos = strip_dotfile_repos(list_repos_multi(g, owners))
+            if not repos:
+                raise click.ClickException(f"No repositories found for {', '.join(owners)}.")
+
+        warn_rate_limit(len(repos), refresh_seconds)
+        health_config = {"stale_pr_days": stale_days}
+
+        try:
+            run_dashboard(
+                repos,
+                refresh_seconds=refresh_seconds,
+                theme=theme,
+                layout=layout,
+                health_config=health_config,
+                owners=owners,
+                skip_refresh=no_refresh,
+                github_client=g,
+                auto_discover=show_all,
+                saved_prefs=prefs,
+            )
+        except KeyboardInterrupt:
+            print("\n[dim]Dashboard stopped.[/dim]")
+        return
+
+    # Legacy paths: --org or single-repo (no flags).
+    if show_all:
         owner = org if org else gh_account
         if not owner:
             raise click.ClickException(
                 "GH_ACCOUNT must be set in .env or environment, or use --org."
             )
+        from ._helpers import list_repos
+
         repos = strip_dotfile_repos(list_repos(g, owner))
         if not repos:
             raise click.ClickException(f"No repositories found for {owner}.")
+        owners = [owner]
+    elif org:
+        from ._helpers import list_repos
+
+        repos = strip_dotfile_repos(list_repos(g, org))
+        if not repos:
+            raise click.ClickException(f"No repositories found for {org}.")
+        owners = [org]
     else:
         gh_repo, gh_account_env, _ = load_env_config()
         if not gh_repo or not gh_account_env:
@@ -139,10 +198,9 @@ def dashboard_command(
         from ._common import get_github_repo
 
         repos = [get_github_repo(gh_account_env, gh_repo, auth_source=auth_source)]
+        owners = [gh_account_env]
 
     warn_rate_limit(len(repos), refresh_seconds)
-
-    org_name = org or gh_account or ""
     health_config = {"stale_pr_days": stale_days}
 
     try:
@@ -152,7 +210,7 @@ def dashboard_command(
             theme=theme,
             layout=layout,
             health_config=health_config,
-            org_name=org_name,
+            owners=owners,
             skip_refresh=no_refresh,
             github_client=g,
             auto_discover=show_all,

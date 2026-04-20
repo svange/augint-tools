@@ -98,6 +98,7 @@ class RepoCard(Widget):
 
     health: reactive[RepoHealth | None] = reactive(None)
     selected: reactive[bool] = reactive(False)
+    stale: reactive[bool] = reactive(False)
     render_mode: reactive[RenderMode] = reactive("packed", layout=True)
     team_accent: reactive[str] = reactive("#808080")
     team_label: reactive[str] = reactive("")
@@ -129,6 +130,13 @@ class RepoCard(Widget):
             self.add_class("card--selected")
         else:
             self.remove_class("card--selected")
+        self.refresh()
+
+    def watch_stale(self, _old: bool, new: bool) -> None:
+        if new:
+            self.add_class("card--stale")
+        else:
+            self.remove_class("card--stale")
         self.refresh()
 
     def watch_team_accent(self, _old: str, new: str) -> None:
@@ -209,10 +217,14 @@ class RepoCard(Widget):
         if self.health is None:
             return Text("loading…", style="dim")
         if self.render_mode == "dense":
-            return self._render_dense(self.health)
-        if self.render_mode == "list":
-            return self._render_list(self.health)
-        return self._render_packed(self.health)
+            result = self._render_dense(self.health)
+        elif self.render_mode == "list":
+            result = self._render_list(self.health)
+        else:
+            result = self._render_packed(self.health)
+        if self.stale:
+            result.stylize("dim")
+        return result
 
     def _title_line(self, health: RepoHealth) -> Text:
         line = Text()

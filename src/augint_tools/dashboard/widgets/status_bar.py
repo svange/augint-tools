@@ -38,6 +38,8 @@ def describe_filter(mode: str, team_labels: dict[str, str] | None = None) -> str
         if team_labels and key in team_labels:
             return f"team: {team_labels[key]}"
         return f"team: {key}"
+    if mode.startswith("org:"):
+        return f"org: {mode.removeprefix('org:')}"
     return mode
 
 
@@ -64,9 +66,12 @@ class StatusBar(Static):
         self._state: AppState | None = None
         self._org_name: str = ""
 
-    def bind_state(self, state: AppState, org_name: str) -> None:
+    def bind_state(
+        self, state: AppState, org_name: str = "", owners: list[str] | None = None
+    ) -> None:
         self._state = state
         self._org_name = org_name
+        self._owners: list[str] = owners or ([org_name] if org_name else [])
 
     def tick(self) -> None:
         """Re-render. Call every second from the app."""
@@ -78,7 +83,8 @@ class StatusBar(Static):
             self.update("loading...")
             return
         t = Text()
-        t.append(f" {self._org_name or 'no-org'} ", style="bold")
+        owner_label = " + ".join(self._owners) if self._owners else self._org_name or "no-org"
+        t.append(f" {owner_label} ", style="bold")
         filter_label = _describe_active_filters(state.active_filters, state.team_labels)
         t.append(
             f"| sort: {state.sort_mode} "

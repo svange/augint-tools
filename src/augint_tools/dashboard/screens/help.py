@@ -20,6 +20,7 @@ Data
   s                   Cycle sort (health, alpha, problem)
   f                   Open filter panel (multi-select)
   m                   Manage repos (enable/disable)
+  O                   Manage organizations (add/remove)
   w                   Toggle workspace filter
 
 Layouts and themes

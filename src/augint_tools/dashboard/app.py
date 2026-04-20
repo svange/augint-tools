@@ -26,13 +26,14 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from ._data import RepoStatus, fetch_repo_status_with_pulls, save_cache
-from ._helpers import list_repos, strip_dotfile_repos
+from ._helpers import get_viewer_login, list_repos_multi, list_user_orgs, strip_dotfile_repos
 from .health import FetchContext, RepoHealth, run_health_checks
 from .layouts import list_layouts
 from .prefs import DashboardPrefs, save_prefs
 from .screens.drilldown import DrillDownScreen
 from .screens.filter_panel import FilterPanel
 from .screens.help import HelpScreen
+from .screens.org_manager import OrgManager
 from .screens.repo_manager import RepoManager
 from .state import (
     PANEL_WIDTH_MAX,
@@ -198,10 +199,13 @@ class OrgDrawerHeader(Container):
 class MainScreen(Screen[None]):
     """Primary screen: header, status bar, highlight bar, card grid, footer, drawer."""
 
-    def __init__(self, state: AppState, org_name: str) -> None:
+    def __init__(
+        self, state: AppState, org_name: str = "", owners: list[str] | None = None
+    ) -> None:
         super().__init__(id="main-screen")
         self._state = state
         self._org_name = org_name
+        self._owners: list[str] = owners or ([org_name] if org_name else [])
         self._header = OrgDrawerHeader()
         self._status_bar = StatusBar()
         self._highlight_bar = HighlightBar()
@@ -213,7 +217,7 @@ class MainScreen(Screen[None]):
 
     def compose(self):
         yield self._header
-        self._status_bar.bind_state(self._state, self._org_name)
+        self._status_bar.bind_state(self._state, self._org_name, owners=self._owners)
         yield self._status_bar
         self._highlight_bar.bind_state(self._state)
         yield self._highlight_bar
@@ -292,10 +296,12 @@ class MainScreen(Screen[None]):
         # Add or update cards for the visible set, preserving order.
         known_teams = list(self._state.team_labels)
         cards_in_order: list[RepoCard] = []
+        stale_set = self._state.stale_repos
         for full_name, health in desired.items():
             team_info = self._state.repo_teams.get(full_name)
             accent = team_accent(team_info.primary, known_teams) if team_info else "#808080"
             label = self._state.team_labels.get(team_info.primary, "") if team_info else ""
+            is_stale = full_name in stale_set
             existing = self._cards_by_name.get(full_name)
             if existing is None:
                 card = RepoCard(
@@ -304,6 +310,7 @@ class MainScreen(Screen[None]):
                     team_accent=accent,
                     team_label=label,
                 )
+                card.stale = is_stale
                 self._cards_by_name[full_name] = card
             else:
                 card = existing
@@ -315,6 +322,8 @@ class MainScreen(Screen[None]):
                     card.team_accent = accent
                 if card.team_label != label:
                     card.team_label = label
+                if card.stale != is_stale:
+                    card.stale = is_stale
                 card.apply_theme(theme_spec)
             cards_in_order.append(card)
 
@@ -409,8 +418,10 @@ class MainScreen(Screen[None]):
         spec = get_theme(state.theme_name)
         t = Text()
 
+        title = " + ".join(self._owners) if self._owners else self._org_name or "Organization"
+
         if not state.healths:
-            t.append(f"{self._org_name or 'Organization'} -- org dashboard\n\n", style="bold")
+            t.append(f"{title} -- org dashboard\n\n", style="bold")
             t.append("no data yet. press r to refresh.\n\n", style="dim")
             self._append_usage_block(t, spec)
             return t
@@ -422,7 +433,7 @@ class MainScreen(Screen[None]):
         ok_count = by_sev.get(_Sev.OK, 0)
         score = int((ok_count / total) * 100) if total else 0
 
-        t.append(f"{self._org_name or 'Organization'}\n", style="bold")
+        t.append(f"{title}\n", style="bold")
         t.append(f"{total} repos  ·  {score}% green\n\n")
 
         self._append_severity_bar(t, by_sev, total, spec)
@@ -952,6 +963,7 @@ class DashboardApp(App[None]):
         Binding("e", "toggle_errors", "Errors"),
         Binding("E", "clear_errors", "Clear Errors", show=False),
         Binding("m", "manage_repos", "Repos"),
+        Binding("O", "manage_orgs", "Orgs"),
         Binding("question_mark", "show_help", "Help"),
         Binding("f5", "full_restart", "Restart", show=False),
         Binding("plus", "widen_card", "Wider", show=False),
@@ -987,6 +999,7 @@ class DashboardApp(App[None]):
         initial_layout: str = "packed",
         health_config: dict | None = None,
         org_name: str = "",
+        owners: list[str] | None = None,
         skip_refresh: bool = False,
         github_client: Github | None = None,
         auto_discover: bool = False,
@@ -997,6 +1010,7 @@ class DashboardApp(App[None]):
         self._refresh_seconds = refresh_seconds
         self._health_config = health_config or {}
         self._org_name = org_name
+        self._owners: list[str] = list(owners) if owners else ([org_name] if org_name else [])
         self._skip_refresh = skip_refresh
         self._github_client = github_client
         self._auto_discover = auto_discover
@@ -1019,6 +1033,9 @@ class DashboardApp(App[None]):
         # Disabled repos -- excluded from refresh and all views.
         self._disabled_repos: set[str] = set()
 
+        # Disabled orgs -- excluded from auto-discovery (like disabled_repos).
+        self._disabled_orgs: set[str] = set()
+
         # Apply remaining saved preferences (sort, filters, panel width, flash).
         # Theme and layout are already applied via initial_theme/initial_layout
         # which the caller resolves from saved prefs + CLI overrides.
@@ -1028,6 +1045,7 @@ class DashboardApp(App[None]):
             self.state.panel_width = saved_prefs.panel_width
             self._flash_enabled = saved_prefs.flash_enabled
             self._disabled_repos = set(saved_prefs.disabled_repos)
+            self._disabled_orgs = set(saved_prefs.disabled_orgs)
 
     # ---- preferences ----
 
@@ -1042,6 +1060,7 @@ class DashboardApp(App[None]):
                 panel_width=self.state.panel_width,
                 flash_enabled=self._flash_enabled,
                 disabled_repos=sorted(self._disabled_repos),
+                disabled_orgs=sorted(self._disabled_orgs),
             )
         )
 
@@ -1057,7 +1076,7 @@ class DashboardApp(App[None]):
         restrict = {r.full_name for r in self._repos} if self._repos else None
         bootstrap_from_cache(self.state, restrict_to=restrict)
 
-        self._main = MainScreen(self.state, self._org_name)
+        self._main = MainScreen(self.state, self._org_name, owners=self._owners)
         self.push_screen(self._main)
 
         # Usage fetch in the background -- never block the first paint.
@@ -1130,21 +1149,20 @@ class DashboardApp(App[None]):
             self.call_from_thread(self._rerender)
 
     def _refresh_repo_list(self) -> None:
-        """Re-list repos from the org to pick up additions and removals.
+        """Re-list repos from all owners to pick up additions and removals.
 
         Called at the start of each refresh cycle.  When ``auto_discover``
-        is True (``--all`` mode) the full current org listing replaces the
+        is True the full current listing across all owners replaces the
         internal repo list so new repos appear automatically.  In other
-        modes (``--interactive``, single-repo) only repos from the original
-        selection that still exist are kept -- deleted repos are dropped
-        but new repos are not added.
+        modes only repos from the original selection that still exist are
+        kept -- deleted repos are dropped but new repos are not added.
         """
-        if self._github_client is None or not self._org_name:
-            logger.debug("refresh: skipping repo list (no client or org)")
+        if self._github_client is None or not self._owners:
+            logger.debug("refresh: skipping repo list (no client or owners)")
             return
         try:
-            fresh = strip_dotfile_repos(list_repos(self._github_client, self._org_name))
-            logger.debug(f"refresh: org listing returned {len(fresh)} repos")
+            fresh = strip_dotfile_repos(list_repos_multi(self._github_client, self._owners))
+            logger.debug(f"refresh: listing returned {len(fresh)} repos across {self._owners}")
         except Exception as exc:
             self.state.log_error("refresh", f"repo list refresh: {exc.__class__.__name__}: {exc}")
             logger.warning(f"refresh: repo list failed: {exc}")
@@ -1198,6 +1216,7 @@ class DashboardApp(App[None]):
             td = collect_repo_teams(repo)
             return repo.full_name, fetch_repo_status_with_pulls(repo), td
 
+        failed_repos: set[str] = set()
         logger.debug(f"refresh: fetching {len(self._repos)} repos with {workers} workers")
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(_fetch_one, repo): repo for repo in self._repos}
@@ -1221,6 +1240,7 @@ class DashboardApp(App[None]):
                         logger.warning(f"refresh: {td.error}")
                 except Exception as exc:
                     name = getattr(repo, "full_name", "?")
+                    failed_repos.add(name)
                     self.state.log_error("refresh", f"{name}: {exc.__class__.__name__}: {exc}")
                     logger.error(f"refresh: {name}: {exc.__class__.__name__}: {exc}")
                     status_by_name[name] = RepoStatus(
@@ -1264,12 +1284,13 @@ class DashboardApp(App[None]):
 
         # Commit the new state on the main thread so action handlers don't
         # observe healths and health_by_name in a half-updated state.
-        self.call_from_thread(self._commit_refresh, healths, team_data)
+        self.call_from_thread(self._commit_refresh, healths, team_data, failed_repos)
 
     def _commit_refresh(
         self,
         healths: list[RepoHealth],
         team_data: list[CollectedTeamData] | None = None,
+        failed_repos: set[str] | None = None,
     ) -> None:
         # Merge team data collected by worker threads. This is the only place
         # repo_teams / team_labels are mutated, so the main thread never
@@ -1287,6 +1308,7 @@ class DashboardApp(App[None]):
         self._update_warning_since(healths)
         self.state.healths = healths
         self.state.health_by_name = {h.status.full_name: h for h in healths}
+        self.state.stale_repos = failed_repos or set()
         self.state.last_refresh_at = datetime.now(UTC)
         self.state.is_refreshing = False
         vis = visible_healths(self.state)
@@ -1556,6 +1578,43 @@ class DashboardApp(App[None]):
             callback=_on_dismiss,
         )
 
+    def action_manage_orgs(self) -> None:
+        """Open the org manager to enable/disable organizations."""
+        if self._github_client is None:
+            self.notify("no GitHub client -- cannot list orgs", severity="warning", timeout=3)
+            return
+
+        viewer = get_viewer_login(self._github_client)
+        available = list_user_orgs(self._github_client)
+        if not available:
+            self.notify("no organizations found for this account", severity="warning", timeout=3)
+            return
+
+        def _on_dismiss(disabled: set[str] | None) -> None:
+            if disabled is None:
+                return
+            self._disabled_orgs = disabled
+            # Rebuild owners list: personal (first) + non-disabled orgs.
+            new_owners = [self._owners[0]] if self._owners else []
+            for org_login in available:
+                if org_login not in disabled and org_login not in new_owners:
+                    new_owners.append(org_login)
+            self._owners = new_owners
+            if self._main is not None:
+                self._main._owners = new_owners
+                self._main._status_bar._owners = new_owners
+            self._save_prefs()
+            # Trigger a full refresh to pick up repos from newly added orgs.
+            n_disabled = len(disabled)
+            label = f"{n_disabled} disabled" if n_disabled else "all enabled"
+            self.notify(f"orgs: {label}", timeout=2)
+            self._trigger_refresh()
+
+        self.push_screen(
+            OrgManager(available, self._disabled_orgs, viewer_login=viewer),
+            callback=_on_dismiss,
+        )
+
     def action_move_down(self) -> None:
         move_selection(self.state, self._grid_step())
         self._rerender()
@@ -1674,6 +1733,7 @@ def run_dashboard(
     layout: str = "packed",
     health_config: dict | None = None,
     org_name: str = "",
+    owners: list[str] | None = None,
     skip_refresh: bool = False,
     github_client: Github | None = None,
     auto_discover: bool = False,
@@ -1693,6 +1753,7 @@ def run_dashboard(
             initial_layout=cur_layout,
             health_config=health_config,
             org_name=org_name,
+            owners=owners,
             skip_refresh=skip_refresh,
             github_client=github_client,
             auto_discover=auto_discover,
@@ -1704,8 +1765,8 @@ def run_dashboard(
             break
 
         # Purge all augint_tools modules so re-import picks up code changes.
-        stale = [k for k in sys.modules if k.startswith("augint_tools")]
-        for k in stale:
+        stale_mods = [k for k in sys.modules if k.startswith("augint_tools")]
+        for k in stale_mods:
             del sys.modules[k]
         importlib.invalidate_caches()
 

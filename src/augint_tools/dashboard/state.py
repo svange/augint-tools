@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from github.GithubException import GithubException
 from loguru import logger
 
 from ._data import RepoStatus, load_cache, load_health_cache
@@ -42,6 +43,7 @@ FILTER_MODES: tuple[str, ...] = (
 )
 
 _TEAM_FILTER_PREFIX = "team:"
+_ORG_FILTER_PREFIX = "org:"
 _TEAM_PERMISSION_ORDER = {"admin": 0, "maintain": 1, "push": 2, "triage": 3, "pull": 4}
 
 
@@ -89,6 +91,9 @@ class AppState:
     consecutive_errors: int = 0
     last_error_message: str | None = None
 
+    # Repos whose most recent refresh attempt failed (shown gray/stale).
+    stale_repos: set[str] = field(default_factory=set)
+
     # Cooperative cancellation flag for threaded workers.
     cancel_requested: bool = False
 
@@ -114,6 +119,26 @@ def team_key_from_filter(mode: str) -> str | None:
     if mode.startswith(_TEAM_FILTER_PREFIX):
         return mode.removeprefix(_TEAM_FILTER_PREFIX)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Org (owner) helpers
+# ---------------------------------------------------------------------------
+
+
+def org_filter_mode(owner: str) -> str:
+    return f"{_ORG_FILTER_PREFIX}{owner}"
+
+
+def org_key_from_filter(mode: str) -> str | None:
+    if mode.startswith(_ORG_FILTER_PREFIX):
+        return mode.removeprefix(_ORG_FILTER_PREFIX)
+    return None
+
+
+def owner_of(full_name: str) -> str:
+    """Extract the owner (org or user) from a ``owner/repo`` full name."""
+    return full_name.split("/", 1)[0] if "/" in full_name else full_name
 
 
 def display_team_label(team_key: str, team_labels: dict[str, str]) -> str:
@@ -191,6 +216,20 @@ def collect_repo_teams(repo: Repository) -> CollectedTeamData:
         return CollectedTeamData(full_name="")
     try:
         teams = sorted(repo.get_teams(), key=_team_sort_key)
+    except GithubException as exc:
+        # 403/404 are expected for personal (non-org) repos -- the Teams API
+        # doesn't apply to user repos.  Treat as "no teams" without logging
+        # a user-visible error that would flash the error drawer.
+        if exc.status in (403, 404):
+            logger.debug(
+                f"collect_repo_teams: {full_name}: expected {exc.status} (not an org repo)"
+            )
+            return CollectedTeamData(full_name=full_name)
+        logger.debug(f"collect_repo_teams: {full_name}: {exc.__class__.__name__}: {exc}")
+        return CollectedTeamData(
+            full_name=full_name,
+            error=f"{full_name}: teams: {exc.__class__.__name__}: {exc}",
+        )
     except Exception as exc:
         logger.debug(f"collect_repo_teams: {full_name}: {exc.__class__.__name__}: {exc}")
         return CollectedTeamData(
@@ -276,6 +315,9 @@ def _matches_filter(h: RepoHealth, mode: str, repo_teams: dict[str, RepoTeamInfo
         if team_key == UNASSIGNED_TEAM:
             return info.primary == UNASSIGNED_TEAM
         return team_key in info.all
+    org_key = org_key_from_filter(mode)
+    if org_key is not None:
+        return owner_of(h.status.full_name) == org_key
     return True
 
 
@@ -295,33 +337,51 @@ def apply_active_filters(
     active: set[str],
     repo_teams: dict[str, RepoTeamInfo] | None = None,
 ) -> list[RepoHealth]:
-    """Apply multiple filters. Non-team filters AND together; team filters OR together."""
+    """Apply multiple filters.
+
+    ``no-workspace`` is the only hard AND constraint -- it always
+    excludes workspace repos when checked (persistent toggle via ``w``).
+
+    Every other filter is an OR **selection**: each checked item adds
+    matching repos to the visible set.  This matches the mental model
+    of a multi-select checklist where checking ``broken-ci`` +
+    ``team:woxom`` means "show broken-CI repos PLUS woxom repos."
+    """
     if not active:
         return list(healths)
     teams = repo_teams or {}
-    non_team = sorted(m for m in active if not m.startswith(_TEAM_FILTER_PREFIX))
-    team_modes = sorted(m for m in active if m.startswith(_TEAM_FILTER_PREFIX))
+    # no-workspace is a hard exclusion (the 'w' toggle).
+    has_no_workspace = "no-workspace" in active
+    # Everything else ORs together as additive selections.
+    selections = sorted(m for m in active if m != "no-workspace")
     result: list[RepoHealth] = []
     for h in healths:
-        if not all(_matches_filter(h, mode, teams) for mode in non_team):
+        if has_no_workspace and not _matches_filter(h, "no-workspace", teams):
             continue
-        if team_modes and not any(_matches_filter(h, mode, teams) for mode in team_modes):
+        if selections and not any(_matches_filter(h, mode, teams) for mode in selections):
             continue
         result.append(h)
     return result
 
 
 def available_filter_modes(
-    team_labels: dict[str, str], repo_teams: dict[str, RepoTeamInfo]
+    team_labels: dict[str, str],
+    repo_teams: dict[str, RepoTeamInfo],
+    healths: list[RepoHealth] | None = None,
 ) -> list[str]:
     team_keys = {team for info in repo_teams.values() for team in (info.all or (info.primary,))}
-    dynamic = [
+    team_dynamic = [
         team_filter_mode(team_key)
         for team_key in sorted(
             team_keys, key=lambda key: display_team_label(key, team_labels).lower()
         )
     ]
-    return [*FILTER_MODES, *dynamic]
+    # Org filters derived from the owners present in the current health data.
+    org_keys: set[str] = set()
+    if healths:
+        org_keys = {owner_of(h.status.full_name) for h in healths}
+    org_dynamic = [org_filter_mode(key) for key in sorted(org_keys)]
+    return [*FILTER_MODES, *org_dynamic, *team_dynamic]
 
 
 def visible_healths(state: AppState) -> list[RepoHealth]:

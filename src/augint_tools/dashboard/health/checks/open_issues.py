@@ -35,7 +35,7 @@ class OpenIssuesCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.OK,
-                summary=f"{status.open_issues} open issues",
+                summary=f"({status.open_issues}) open issues",
             )
 
         # Fetch issues to filter out bot-created noise.
@@ -56,14 +56,14 @@ class OpenIssuesCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.LOW,
-                summary=f"{human_count} open issues (excl. bots)",
+                summary=f"({human_count}) open issues (excl. bots)",
                 link=f"https://github.com/{status.full_name}/issues",
             )
 
         return HealthCheckResult(
             check_name=self.name,
             severity=Severity.OK,
-            summary=f"{human_count} open issues",
+            summary=f"({human_count}) open issues",
         )
 
 

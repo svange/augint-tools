@@ -13,6 +13,50 @@ def _get_output_opts(ctx: click.Context) -> dict:
     return {"json_mode": obj.get("json_mode", False)}
 
 
+def _make_quiet_writer(*, verbose: bool, json_mode: bool):
+    """Return a clean stderr writer for human mode, or None when output should be silent.
+
+    Suppressed under ``--json`` (machine-readable) and under ``--verbose`` (the
+    detailed loguru stream already covers user-visible activity).
+    """
+    if verbose or json_mode:
+        return None
+
+    def _write(msg: str) -> None:
+        click.echo(msg, err=True)
+
+    return _write
+
+
+def _configure_env_logging(verbose: bool) -> None:
+    """Quiet loguru by default; preserve detailed loguru output with --verbose.
+
+    Loguru's default sink is DEBUG-to-stderr with timestamps, levels, and
+    module paths, which produces a wall of text for user-facing CLIs. We
+    remove the default sink and only re-add it when ``-v`` is passed, in
+    which case the original loguru format is preserved exactly.
+    """
+    import sys
+
+    from loguru import logger
+
+    logger.remove()
+    if verbose:
+        # Loguru's documented default format. Re-adding explicitly keeps
+        # the verbose stream identical to what users saw before this
+        # quieting change.
+        logger.add(
+            sys.stderr,
+            level="DEBUG",
+            format=(
+                "<green>{time:HH:mm:ss.SSS}</green> | "
+                "<level>{level: <8}</level> | "
+                "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> "
+                "- <level>{message}</level>"
+            ),
+        )
+
+
 @click.group()
 @click.pass_context
 def gh(ctx):
@@ -90,6 +134,8 @@ def push(ctx, dry_run, verbose, force_var, force_secret, filename):
     from augint_tools.env.sync import perform_sync
 
     opts = _get_output_opts(ctx)
+    _configure_env_logging(verbose)
+    quiet_writer = _make_quiet_writer(verbose=verbose, json_mode=opts["json_mode"])
 
     fv = frozenset(k.strip() for k in force_var.split(",") if k.strip()) if force_var else None
     fs = (
@@ -97,7 +143,15 @@ def push(ctx, dry_run, verbose, force_var, force_secret, filename):
     )
 
     try:
-        results = asyncio.run(perform_sync(filename, dry_run, force_var=fv, force_secret=fs))
+        results = asyncio.run(
+            perform_sync(
+                filename,
+                dry_run,
+                force_var=fv,
+                force_secret=fs,
+                quiet_writer=quiet_writer,
+            )
+        )
     except Exception as e:
         emit_response(CommandResponse.error("gh push", "repo", str(e)), **opts)
         sys.exit(1)
@@ -136,6 +190,8 @@ def sync(ctx, no_sync, verbose, dry_run, filename):
     from augint_tools.env.chezmoi import chezmoi_backup
 
     opts = _get_output_opts(ctx)
+    _configure_env_logging(verbose)
+    quiet_writer = _make_quiet_writer(verbose=verbose, json_mode=opts["json_mode"])
 
     try:
         result = chezmoi_backup(
@@ -143,6 +199,7 @@ def sync(ctx, no_sync, verbose, dry_run, filename):
             sync_github=not no_sync,
             verbose=verbose,
             dry_run=dry_run,
+            quiet_writer=quiet_writer,
         )
     except click.ClickException as e:
         emit_response(CommandResponse.error("sync", "repo", e.format_message()), **opts)

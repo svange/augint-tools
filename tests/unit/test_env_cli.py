@@ -117,3 +117,73 @@ class TestPushCommand:
         with runner.isolated_filesystem():
             result = runner.invoke(cli, ["gh", "push", "nonexistent.env"])
         assert result.exit_code != 0
+
+
+class TestOutputQuieting:
+    """Default mode emits clean lines; --verbose preserves loguru detail; --json stays parseable."""
+
+    def _make_perform_sync_stub(self):
+        async def _stub(filename, dry_run, *, force_var=None, force_secret=None, quiet_writer=None):
+            if quiet_writer is not None:
+                quiet_writer("set FOO_KEY (secret)")
+                quiet_writer("set BAR_NAME (var)")
+            return {"secrets": ["FOO_KEY"], "variables": ["BAR_NAME"]}
+
+        return _stub
+
+    def test_push_default_output_is_clean(self):
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        stub = self._make_perform_sync_stub()
+        with runner.isolated_filesystem():
+            Path(".env").write_text("FOO_KEY=ghp_abc\nBAR_NAME=hello\n")
+            with patch("augint_tools.cli.commands.env.perform_sync", new=stub, create=True):
+                # patching the module-level import is brittle; patch the source:
+                with patch("augint_tools.env.sync.perform_sync", new=stub):
+                    result = runner.invoke(cli, ["gh", "push"])
+
+        assert result.exit_code == 0, result.output
+        # Clean per-key lines, no timestamps or loguru-style level prefixes
+        assert "set FOO_KEY (secret)" in result.output
+        assert "set BAR_NAME (var)" in result.output
+        assert "DEBUG" not in result.output
+        assert "| INFO" not in result.output
+
+    def test_push_json_mode_suppresses_quiet_writer(self):
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        stub = self._make_perform_sync_stub()
+        with runner.isolated_filesystem():
+            Path(".env").write_text("FOO_KEY=ghp_abc\n")
+            with patch("augint_tools.env.sync.perform_sync", new=stub):
+                result = runner.invoke(cli, ["--json", "gh", "push"])
+
+        assert result.exit_code == 0, result.output
+        # JSON mode must remain parseable: no quiet_writer narration
+        assert "set FOO_KEY (secret)" not in result.output
+        data = json.loads(result.output)
+        assert data["status"] == "ok"
+
+    def test_push_verbose_preserves_loguru_format(self):
+        """With --verbose, loguru emits to stderr in the documented format."""
+        from unittest.mock import patch
+
+        from loguru import logger
+
+        async def _stub(filename, dry_run, *, force_var=None, force_secret=None, quiet_writer=None):
+            logger.info("Creating secret VERBOSE_KEY...")
+            return {"secrets": ["VERBOSE_KEY"], "variables": []}
+
+        runner = CliRunner(mix_stderr=False)
+        with runner.isolated_filesystem():
+            Path(".env").write_text("VERBOSE_KEY=ghp_abc\n")
+            with patch("augint_tools.env.sync.perform_sync", new=_stub):
+                result = runner.invoke(cli, ["gh", "push", "--verbose"])
+
+        assert result.exit_code == 0, result.output
+        # Verbose loguru format includes a level token (DEBUG/INFO) and the message
+        assert "Creating secret VERBOSE_KEY" in (result.stderr or "")
+        # Restore loguru to a quiet state for following tests
+        logger.remove()

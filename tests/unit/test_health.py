@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-from github.GithubException import GithubException, UnknownObjectException
+from github.GithubException import GithubException
 
 from augint_tools.dashboard._data import RepoStatus
 from augint_tools.dashboard.health import (
@@ -189,13 +188,12 @@ class TestRegistry:
         assert "broken_ci" in names
         assert "renovate_enabled" in names
         assert "renovate_prs_piling" in names
-        assert "security_alerts" in names
         assert "stale_prs" in names
         assert "open_issues" in names
 
     def test_all_checks_returns_instances(self):
         checks = all_checks()
-        assert len(checks) >= 6
+        assert len(checks) >= 5
         for check in checks:
             assert hasattr(check, "name")
             assert hasattr(check, "evaluate")
@@ -347,70 +345,6 @@ class TestRenovatePRsPiling:
         assert "3 Renovate PRs" in result.summary
 
 
-class TestSecurityAlerts:
-    def test_no_alerts(self):
-        repo = _mock_repo()
-        repo.get_dependabot_alerts.return_value = []
-        result = get_check("security_alerts").evaluate(repo, _status(), config={})
-        assert result.severity == Severity.OK
-
-    def test_critical_alerts(self):
-        repo = _mock_repo()
-        repo.get_dependabot_alerts.side_effect = lambda **kw: (
-            [MagicMock()] if kw.get("severity") == "critical" else []
-        )
-        result = get_check("security_alerts").evaluate(repo, _status(), config={})
-        assert result.severity == Severity.CRITICAL
-        assert "1 critical" in result.summary
-
-    def test_high_alerts_only(self):
-        repo = _mock_repo()
-        repo.get_dependabot_alerts.side_effect = lambda **kw: (
-            [MagicMock(), MagicMock()] if kw.get("severity") == "high" else []
-        )
-        result = get_check("security_alerts").evaluate(repo, _status(), config={})
-        assert result.severity == Severity.HIGH
-        assert "2 high" in result.summary
-
-    def test_api_unavailable(self):
-        repo = _mock_repo()
-        repo.get_dependabot_alerts.side_effect = GithubException(403, "forbidden", None)
-        result = get_check("security_alerts").evaluate(repo, _status(), config={})
-        assert result.severity == Severity.OK
-        assert "unavailable" in result.summary
-
-    def test_dependabot_not_enabled_404(self, caplog):
-        """A 404 means Dependabot isn't enabled (e.g. uv/Renovate projects).
-
-        Must be OK severity with a quiet summary, and must not log at INFO
-        level -- those logs are what flashes across the top of the TUI.
-        """
-        repo = _mock_repo()
-        repo.get_dependabot_alerts.side_effect = GithubException(404, "not found", None)
-
-        with caplog.at_level(logging.INFO, logger="augint_tools"):
-            result = get_check("security_alerts").evaluate(repo, _status(), config={})
-
-        assert result.severity == Severity.OK
-        assert "not enabled" in result.summary.lower()
-        # Nothing at INFO or above from our check -- DEBUG only.
-        offending = [r for r in caplog.records if r.levelno >= logging.INFO]
-        assert offending == []
-
-    def test_dependabot_not_enabled_unknown_object(self, caplog):
-        """``UnknownObjectException`` (subclass of GithubException) also means disabled."""
-        repo = _mock_repo()
-        repo.get_dependabot_alerts.side_effect = UnknownObjectException(404, "not found", None)
-
-        with caplog.at_level(logging.INFO, logger="augint_tools"):
-            result = get_check("security_alerts").evaluate(repo, _status(), config={})
-
-        assert result.severity == Severity.OK
-        assert "not enabled" in result.summary.lower()
-        offending = [r for r in caplog.records if r.levelno >= logging.INFO]
-        assert offending == []
-
-
 class TestStalePRs:
     def test_no_stale(self):
         pulls = [_mock_pr(created_at=datetime.now(UTC))]
@@ -527,7 +461,7 @@ class TestRunHealthChecks:
         status = _status(main_status="success", open_issues=0)
         health = run_health_checks(repo, status, config={})
 
-        assert len(health.checks) >= 6
+        assert len(health.checks) >= 5
         check_names = {c.check_name for c in health.checks}
         assert "broken_ci" in check_names
         assert "renovate_enabled" in check_names
@@ -538,7 +472,7 @@ class TestRunHealthChecks:
 
         status = _status()
         health = run_health_checks(repo, status, config={})
-        assert len(health.checks) >= 6
+        assert len(health.checks) >= 5
 
     def test_shared_pulls_context(self):
         repo = _mock_repo()
@@ -550,7 +484,7 @@ class TestRunHealthChecks:
         health = run_health_checks(repo, _status(), config={}, context=ctx)
         # repo.get_pulls should not have been called since we provided context
         repo.get_pulls.assert_not_called()
-        assert len(health.checks) >= 6
+        assert len(health.checks) >= 5
 
 
 class TestRunAllHealthChecks:

@@ -25,11 +25,13 @@ from augint_tools.dashboard.state import (
     FILTER_MODES,
     SORT_MODES,
     AppState,
+    FilterSections,
     RepoTeamInfo,
     apply_active_filters,
     apply_filter,
     apply_sort,
     available_filter_modes,
+    available_filter_sections,
     ensure_selection,
     move_selection,
     team_accent,
@@ -318,8 +320,8 @@ class TestApplyActiveFilters:
         out = apply_active_filters([broken, fine], {"broken-ci"})
         assert [h.status.name for h in out] == ["broken"]
 
-    def test_no_workspace_and_with_selection(self):
-        """no-workspace is a hard AND; broken-ci is an OR selection."""
+    def test_non_workspace_and_broken_ci_or_together(self):
+        """non-workspace + broken-ci OR together: non-ws repos PLUS broken repos."""
         ci_check = HealthCheckResult(
             check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
         )
@@ -330,9 +332,11 @@ class TestApplyActiveFilters:
             name="repo-broken", full_name="org/repo-broken", checks=[ci_check], is_workspace=False
         )
         repo_ok = _health(name="repo-ok", full_name="org/repo-ok", is_workspace=False)
-        out = apply_active_filters([ws_broken, repo_broken, repo_ok], {"broken-ci", "no-workspace"})
-        # ws-broken excluded by no-workspace AND, repo-ok doesn't match broken-ci OR
-        assert [h.status.name for h in out] == ["repo-broken"]
+        out = apply_active_filters(
+            [ws_broken, repo_broken, repo_ok], {"broken-ci", "non-workspace"}
+        )
+        # ws-broken matches broken-ci, repo-broken matches both, repo-ok matches non-workspace
+        assert {h.status.name for h in out} == {"ws-broken", "repo-broken", "repo-ok"}
 
     def test_team_filters_or_logic(self):
         """Multiple team filters combine with OR: repo in ANY selected team passes."""
@@ -409,6 +413,24 @@ class TestTeamHelpers:
         assert "team:alpha" in modes
         # Standard filter modes still present.
         assert set(FILTER_MODES).issubset(set(modes))
+
+    def test_available_filter_sections(self):
+        repo_teams = {"org/a": RepoTeamInfo(primary="alpha", all=("alpha",))}
+        labels = {"alpha": "Alpha Team"}
+        healths = [_health(name="a", full_name="org-x/a")]
+        sections = available_filter_sections(labels, repo_teams, healths)
+        assert isinstance(sections, FilterSections)
+        assert "team:alpha" in sections.teams
+        assert "org:org-x" in sections.orgs
+        assert sections.visibility == ["private", "public"]
+        assert sections.workspace == ["workspace", "non-workspace"]
+        assert "broken-ci" in sections.health
+        assert "renovate-prs-piling" in sections.health
+        # all_modes returns a flat list covering everything.
+        flat = sections.all_modes()
+        assert "team:alpha" in flat
+        assert "org:org-x" in flat
+        assert "broken-ci" in flat
 
 
 # ---------------------------------------------------------------------------
@@ -633,13 +655,23 @@ class TestDashboardActions:
             _seed_state(app)
             async with app.run_test() as pilot:
                 await pilot.pause()
-                assert "no-workspace" not in app.state.active_filters
+                # Start: neither workspace filter active
+                assert "non-workspace" not in app.state.active_filters
+                assert "workspace" not in app.state.active_filters
+                # First press: hide workspaces
                 await pilot.press("w")
                 await pilot.pause()
-                assert "no-workspace" in app.state.active_filters
+                assert "non-workspace" in app.state.active_filters
+                # Second press: workspace only
                 await pilot.press("w")
                 await pilot.pause()
-                assert "no-workspace" not in app.state.active_filters
+                assert "workspace" in app.state.active_filters
+                assert "non-workspace" not in app.state.active_filters
+                # Third press: show all
+                await pilot.press("w")
+                await pilot.pause()
+                assert "workspace" not in app.state.active_filters
+                assert "non-workspace" not in app.state.active_filters
 
         asyncio.run(run())
 
@@ -937,17 +969,31 @@ class TestStateHelpers:
         out = apply_filter([iss, _health(name="ok", full_name="org/ok")], "issues")
         assert [h.status.name for h in out] == ["i"]
 
-    def test_apply_filter_no_workspace(self):
+    def test_apply_filter_non_workspace(self):
         ws = _health(name="ws", full_name="org/ws", is_workspace=True)
         repo = _health(name="repo", full_name="org/repo", is_workspace=False)
-        out = apply_filter([ws, repo], "no-workspace")
+        out = apply_filter([ws, repo], "non-workspace")
         assert [h.status.name for h in out] == ["repo"]
 
-    def test_apply_filter_no_workspace_all_regular(self):
+    def test_apply_filter_workspace(self):
+        ws = _health(name="ws", full_name="org/ws", is_workspace=True)
+        repo = _health(name="repo", full_name="org/repo", is_workspace=False)
+        out = apply_filter([ws, repo], "workspace")
+        assert [h.status.name for h in out] == ["ws"]
+
+    def test_apply_filter_non_workspace_all_regular(self):
         a = _health(name="a", full_name="org/a")
         b = _health(name="b", full_name="org/b")
-        out = apply_filter([a, b], "no-workspace")
+        out = apply_filter([a, b], "non-workspace")
         assert len(out) == 2
+
+    def test_apply_filter_renovate_prs_piling(self):
+        check = HealthCheckResult(
+            check_name="renovate_prs_piling", severity=Severity.HIGH, summary="piling"
+        )
+        piling = _health(name="p", full_name="org/p", checks=[check])
+        out = apply_filter([piling, _health(name="ok", full_name="org/ok")], "renovate-prs-piling")
+        assert [h.status.name for h in out] == ["p"]
 
     def test_apply_sort_problem(self):
         critical = HealthCheckResult(
@@ -1917,7 +1963,7 @@ class TestPrefs:
             theme_name="nord",
             layout_name="dense",
             sort_mode="alpha",
-            active_filters=["broken-ci", "no-workspace"],
+            active_filters=["broken-ci", "non-workspace"],
             panel_width=42,
             flash_enabled=False,
         )
@@ -1926,7 +1972,7 @@ class TestPrefs:
         assert loaded.theme_name == "nord"
         assert loaded.layout_name == "dense"
         assert loaded.sort_mode == "alpha"
-        assert loaded.active_filters == ["broken-ci", "no-workspace"]
+        assert loaded.active_filters == ["broken-ci", "non-workspace"]
         assert loaded.panel_width == 42
         assert loaded.flash_enabled is False
 
@@ -1947,6 +1993,18 @@ class TestPrefs:
         monkeypatch.setattr("augint_tools.dashboard.prefs.PREFS_FILE", prefs_file)
         loaded = load_prefs()
         assert loaded == DashboardPrefs()
+
+    def test_prefs_migration_no_workspace(self, tmp_path, monkeypatch):
+        """Loading prefs with legacy 'no-workspace' migrates to 'non-workspace'."""
+        import json
+
+        from augint_tools.dashboard.prefs import load_prefs
+
+        prefs_file = tmp_path / "prefs.json"
+        prefs_file.write_text(json.dumps({"active_filters": ["broken-ci", "no-workspace"]}))
+        monkeypatch.setattr("augint_tools.dashboard.prefs.PREFS_FILE", prefs_file)
+        loaded = load_prefs()
+        assert loaded.active_filters == ["broken-ci", "non-workspace"]
 
     def test_unknown_fields_ignored(self, tmp_path, monkeypatch):
         import json
@@ -2031,6 +2089,8 @@ class TestVisibilityFilters:
     def test_private_and_public_in_filter_modes(self):
         assert "private" in FILTER_MODES
         assert "public" in FILTER_MODES
+        assert "workspace" in FILTER_MODES
+        assert "non-workspace" in FILTER_MODES
 
     def test_active_filters_public_hides_private(self):
         priv = _health(name="secret", full_name="org/secret", private=True)
@@ -2079,8 +2139,8 @@ class TestVisibilityFilters:
         # All pass: pub-team matches both, priv-team matches team:alpha, pub-no-team matches public
         assert {h.status.name for h in out} == {"pub-team", "priv-team", "pub-no-team"}
 
-    def test_no_workspace_constrains_or_selections(self):
-        """no-workspace AND excludes workspaces even when other selections match."""
+    def test_non_workspace_ors_with_other_selections(self):
+        """non-workspace ORs with other filters like any other selection."""
         priv_team = _health(
             name="priv-team", full_name="org/priv-team", private=True, is_workspace=False
         )
@@ -2095,11 +2155,12 @@ class TestVisibilityFilters:
         }
         out = apply_active_filters(
             [priv_team, pub_ws, pub_other],
-            {"no-workspace", "public", team_filter_mode("alpha")},
+            {"non-workspace", "public", team_filter_mode("alpha")},
             repo_teams,
         )
-        # pub-ws excluded by no-workspace even though it matches public + team:alpha
-        assert {h.status.name for h in out} == {"priv-team", "pub-other"}
+        # All three match: priv-team matches non-workspace + team:alpha,
+        # pub-ws matches public + team:alpha, pub-other matches non-workspace + public
+        assert {h.status.name for h in out} == {"priv-team", "pub-ws", "pub-other"}
 
 
 class TestRepoStatusPrivateField:

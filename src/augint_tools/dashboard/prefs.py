@@ -37,6 +37,12 @@ class DashboardPrefs:
     def from_dict(cls, data: dict) -> DashboardPrefs:
         allowed = {f.name for f in __import__("dataclasses").fields(cls)}
         filtered = {k: v for k, v in data.items() if k in allowed}
+        # Migrate legacy "no-workspace" -> "non-workspace".
+        filters = filtered.get("active_filters")
+        if isinstance(filters, list) and "no-workspace" in filters:
+            filtered["active_filters"] = [
+                "non-workspace" if f == "no-workspace" else f for f in filters
+            ]
         return cls(**filtered)
 
 

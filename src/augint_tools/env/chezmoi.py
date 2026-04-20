@@ -54,6 +54,96 @@ def ensure_chezmoi() -> None:
         )
 
 
+def _run_chezmoi_pipeline(
+    filename: str,
+    env_path: Path,
+    project_name: str,
+    *,
+    verbose: bool,
+    dry_run: bool,
+) -> bool:
+    """Execute the synchronous chezmoi backup pipeline.
+
+    Returns True if a commit was produced (or would be in dry-run).
+    """
+    click.echo(f"Adding {filename} to chezmoi...")
+    run_chezmoi(["add", str(env_path)], dry_run=dry_run, verbose=verbose)
+
+    run_chezmoi(["git", "add", "--", "."], dry_run=dry_run, verbose=verbose)
+
+    status_result = run_chezmoi(
+        ["git", "status", "--", "--porcelain"], dry_run=dry_run, verbose=verbose
+    )
+    status_output = status_result.stdout.strip()
+
+    if not (status_output or dry_run):
+        return False
+
+    message = build_commit_message(project_name, status_output)
+    click.echo("Committing to chezmoi...")
+    run_chezmoi(["git", "commit", "--", "-m", message], dry_run=dry_run, verbose=verbose)
+
+    click.echo("Syncing with chezmoi remote...")
+    run_chezmoi(["git", "pull", "--", "--rebase"], dry_run=dry_run, verbose=verbose)
+    run_chezmoi(["git", "push"], dry_run=dry_run, verbose=verbose)
+    return True
+
+
+async def _run_github_sync(
+    filename: str, sync_github: bool, dry_run: bool
+) -> dict[str, list[str]] | None:
+    """Run the GitHub secrets sync if enabled."""
+    if not sync_github:
+        return None
+    click.echo("Syncing secrets to GitHub...")
+    return await perform_sync(filename, dry_run)
+
+
+async def _run_pipelines_concurrently(
+    filename: str,
+    env_path: Path,
+    project_name: str,
+    *,
+    sync_github: bool,
+    verbose: bool,
+    dry_run: bool,
+) -> tuple[bool, dict[str, list[str]] | None]:
+    """Run chezmoi and GitHub sync pipelines concurrently.
+
+    Both pipelines run to completion even if one fails, so users see all
+    errors in a single invocation. If either fails, raises a
+    click.ClickException aggregating the messages.
+    """
+    chezmoi_task = asyncio.create_task(
+        asyncio.to_thread(
+            _run_chezmoi_pipeline,
+            filename,
+            env_path,
+            project_name,
+            verbose=verbose,
+            dry_run=dry_run,
+        )
+    )
+    github_task = asyncio.create_task(_run_github_sync(filename, sync_github, dry_run))
+
+    results = await asyncio.gather(chezmoi_task, github_task, return_exceptions=True)
+    chezmoi_result, github_result = results
+
+    errors: list[str] = []
+    if isinstance(chezmoi_result, BaseException):
+        errors.append(f"chezmoi backup failed: {chezmoi_result}")
+    if isinstance(github_result, BaseException):
+        errors.append(f"GitHub sync failed: {github_result}")
+
+    if errors:
+        raise click.ClickException("; ".join(errors))
+
+    # mypy: both are not exceptions here
+    assert not isinstance(chezmoi_result, BaseException)
+    assert not isinstance(github_result, BaseException)
+    return chezmoi_result, github_result
+
+
 def chezmoi_backup(
     filename: str = ".env",
     *,
@@ -62,6 +152,9 @@ def chezmoi_backup(
     dry_run: bool = False,
 ) -> dict[str, object]:
     """Back up an env file to chezmoi and optionally sync secrets to GitHub.
+
+    The chezmoi backup (local subprocess calls) and the GitHub secrets sync
+    (remote API calls) run concurrently because they are independent.
 
     Returns a result dict suitable for CommandResponse.
     """
@@ -73,32 +166,20 @@ def chezmoi_backup(
 
     project_name = Path.cwd().name
 
-    click.echo(f"Adding {filename} to chezmoi...")
-    run_chezmoi(["add", str(env_path)], dry_run=dry_run, verbose=verbose)
-
-    run_chezmoi(["git", "add", "--", "."], dry_run=dry_run, verbose=verbose)
-
-    status_result = run_chezmoi(
-        ["git", "status", "--", "--porcelain"], dry_run=dry_run, verbose=verbose
+    chezmoi_committed, sync_result = asyncio.run(
+        _run_pipelines_concurrently(
+            filename,
+            env_path,
+            project_name,
+            sync_github=sync_github,
+            verbose=verbose,
+            dry_run=dry_run,
+        )
     )
-    status_output = status_result.stdout.strip()
-
-    chezmoi_committed = False
-    if status_output or dry_run:
-        message = build_commit_message(project_name, status_output)
-        click.echo("Committing to chezmoi...")
-        run_chezmoi(["git", "commit", "--", "-m", message], dry_run=dry_run, verbose=verbose)
-
-        click.echo("Syncing with chezmoi remote...")
-        run_chezmoi(["git", "pull", "--", "--rebase"], dry_run=dry_run, verbose=verbose)
-        run_chezmoi(["git", "push"], dry_run=dry_run, verbose=verbose)
-        chezmoi_committed = True
 
     result: dict[str, object] = {"chezmoi_committed": chezmoi_committed}
 
-    if sync_github:
-        click.echo("Syncing secrets to GitHub...")
-        sync_result = asyncio.run(perform_sync(filename, dry_run))
+    if sync_result is not None:
         result["secrets_synced"] = len(sync_result["secrets"])
         result["variables_synced"] = len(sync_result["variables"])
     else:

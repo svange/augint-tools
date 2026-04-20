@@ -6,11 +6,14 @@ import asyncio
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 import click
 from loguru import logger
 
 from augint_tools.env.sync import perform_sync
+
+QuietWriter = Callable[[str], None]
 
 
 def run_chezmoi(
@@ -61,12 +64,15 @@ def _run_chezmoi_pipeline(
     *,
     verbose: bool,
     dry_run: bool,
+    quiet_writer: QuietWriter | None = None,
 ) -> bool:
     """Execute the synchronous chezmoi backup pipeline.
 
     Returns True if a commit was produced (or would be in dry-run).
     """
-    click.echo(f"Adding {filename} to chezmoi...")
+    if quiet_writer is not None:
+        quiet_writer(f"chezmoi: add {filename}")
+    logger.info(f"Adding {filename} to chezmoi...")
     run_chezmoi(["add", str(env_path)], dry_run=dry_run, verbose=verbose)
 
     run_chezmoi(["git", "add", "--", "."], dry_run=dry_run, verbose=verbose)
@@ -77,26 +83,38 @@ def _run_chezmoi_pipeline(
     status_output = status_result.stdout.strip()
 
     if not (status_output or dry_run):
+        if quiet_writer is not None:
+            quiet_writer("chezmoi: no changes")
         return False
 
     message = build_commit_message(project_name, status_output)
-    click.echo("Committing to chezmoi...")
+    if quiet_writer is not None:
+        quiet_writer("chezmoi: commit")
+    logger.info("Committing to chezmoi...")
     run_chezmoi(["git", "commit", "--", "-m", message], dry_run=dry_run, verbose=verbose)
 
-    click.echo("Syncing with chezmoi remote...")
+    if quiet_writer is not None:
+        quiet_writer("chezmoi: push")
+    logger.info("Syncing with chezmoi remote...")
     run_chezmoi(["git", "pull", "--", "--rebase"], dry_run=dry_run, verbose=verbose)
     run_chezmoi(["git", "push"], dry_run=dry_run, verbose=verbose)
     return True
 
 
 async def _run_github_sync(
-    filename: str, sync_github: bool, dry_run: bool
+    filename: str,
+    sync_github: bool,
+    dry_run: bool,
+    *,
+    quiet_writer: QuietWriter | None = None,
 ) -> dict[str, list[str]] | None:
     """Run the GitHub secrets sync if enabled."""
     if not sync_github:
         return None
-    click.echo("Syncing secrets to GitHub...")
-    return await perform_sync(filename, dry_run)
+    if quiet_writer is not None:
+        quiet_writer("github: sync")
+    logger.info("Syncing secrets to GitHub...")
+    return await perform_sync(filename, dry_run, quiet_writer=quiet_writer)
 
 
 async def _run_pipelines_concurrently(
@@ -107,6 +125,7 @@ async def _run_pipelines_concurrently(
     sync_github: bool,
     verbose: bool,
     dry_run: bool,
+    quiet_writer: QuietWriter | None = None,
 ) -> tuple[bool, dict[str, list[str]] | None]:
     """Run chezmoi and GitHub sync pipelines concurrently.
 
@@ -122,9 +141,12 @@ async def _run_pipelines_concurrently(
             project_name,
             verbose=verbose,
             dry_run=dry_run,
+            quiet_writer=quiet_writer,
         )
     )
-    github_task = asyncio.create_task(_run_github_sync(filename, sync_github, dry_run))
+    github_task = asyncio.create_task(
+        _run_github_sync(filename, sync_github, dry_run, quiet_writer=quiet_writer)
+    )
 
     results = await asyncio.gather(chezmoi_task, github_task, return_exceptions=True)
     chezmoi_result, github_result = results
@@ -150,6 +172,7 @@ def chezmoi_backup(
     sync_github: bool = True,
     verbose: bool = False,
     dry_run: bool = False,
+    quiet_writer: QuietWriter | None = None,
 ) -> dict[str, object]:
     """Back up an env file to chezmoi and optionally sync secrets to GitHub.
 
@@ -174,6 +197,7 @@ def chezmoi_backup(
             sync_github=sync_github,
             verbose=verbose,
             dry_run=dry_run,
+            quiet_writer=quiet_writer,
         )
     )
 

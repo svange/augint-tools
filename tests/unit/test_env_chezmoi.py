@@ -183,7 +183,7 @@ class TestConcurrency:
                 return subprocess.CompletedProcess(cmd, 0, stdout=" M dot_env\n", stderr="")
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-        async def github_side_effect(filename, dry_run):
+        async def github_side_effect(filename, dry_run, **kwargs):
             github_started.set()
             # Wait for chezmoi pipeline to also be running.
             await asyncio.sleep(0.2)
@@ -217,7 +217,7 @@ class TestConcurrency:
 
         sync_called = threading.Event()
 
-        async def github_side_effect(filename, dry_run):
+        async def github_side_effect(filename, dry_run, **kwargs):
             sync_called.set()
             return {"secrets": [], "variables": []}
 
@@ -239,7 +239,7 @@ class TestConcurrency:
         """Both failures are surfaced in the error message."""
         mock_run.return_value = subprocess.CompletedProcess([], 1, stdout="", stderr="chezmoi boom")
 
-        async def github_side_effect(filename, dry_run):
+        async def github_side_effect(filename, dry_run, **kwargs):
             raise RuntimeError("github boom")
 
         mock_sync.side_effect = github_side_effect

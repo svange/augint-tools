@@ -938,29 +938,84 @@ class MainScreen(Screen[None]):
             return
         t.append("usage\n", style="bold")
         for stats in configured:
-            t.append(f"  {stats.display_name:<12}")
-            fraction = stats.usage_fraction
-            if fraction is not None and stats.limit:
-                bar = _progress_bar(fraction, 14)
-                color = _usage_status_color(stats.status, spec)
-                t.append(bar, style=color)
+            if stats.provider == "claude_code":
+                self._append_claude_usage_rows(t, stats, spec)
+            else:
+                self._append_single_usage_row(t, stats, spec)
+        t.append("\n")
+
+    def _append_single_usage_row(self, t: Text, stats, spec) -> None:
+        """Render a one-line provider row (used for OpenAI / Copilot)."""
+        t.append(f"  {stats.display_name:<12}")
+        fraction = stats.usage_fraction
+        if fraction is not None and stats.limit:
+            bar = _progress_bar(fraction, 14)
+            color = _usage_status_color(stats.status, spec)
+            t.append(bar, style=color)
+            pct = int(fraction * 100)
+            t.append(f" {pct}%", style="dim")
+            if stats.tier:
+                t.append(f" {stats.tier}", style="dim")
+        elif stats.status == "empty":
+            t.append("no data", style="dim")
+        elif stats.status == "unknown":
+            if stats.tier:
+                t.append(f"{stats.tier}", style="dim")
+            elif stats.note:
+                t.append(stats.note, style="dim")
+        else:
+            t.append(f"{stats.messages} msgs", style="dim")
+            if stats.tier:
+                t.append(f" {stats.tier}", style="dim")
+        t.append("\n")
+
+    def _append_claude_usage_rows(self, t: Text, stats, spec) -> None:
+        """Render Claude with both 5-hour and 7-day rolling windows.
+
+        A single provider row is not enough context on a Max plan -- the user
+        needs to see both the session window (5h) and the weekly window (7d)
+        so they can tell which one they're about to hit. We render a header
+        line with the tier label, then an indented line per window.
+        """
+        t.append(f"  {stats.display_name:<12}", style="bold")
+        if stats.tier:
+            t.append(f"{stats.tier}", style="dim")
+        t.append("\n")
+
+        windows = (
+            ("5h", stats.hour5_used, stats.hour5_limit, stats.hour5_fraction),
+            ("7d", stats.week7_used, stats.week7_limit, stats.week7_fraction),
+        )
+        color = _usage_status_color(stats.status, spec)
+        rendered_any = False
+        for label, used, win_limit, fraction in windows:
+            if used is None and win_limit is None:
+                continue
+            rendered_any = True
+            t.append(f"    {label:<3}")
+            if fraction is not None:
+                t.append(_progress_bar(fraction, 10), style=color)
                 pct = int(fraction * 100)
                 t.append(f" {pct}%", style="dim")
-                if stats.tier:
-                    t.append(f" {stats.tier}", style="dim")
-            elif stats.status == "empty":
+                if used is not None and win_limit:
+                    t.append(f"  {used}/{win_limit}", style="dim")
+            elif used is not None and used > 0:
+                # Known count but unknown limit -- show the raw number.
+                t.append(f"{used} msgs", style="dim")
+            else:
                 t.append("no data", style="dim")
-            elif stats.status == "unknown":
-                if stats.tier:
-                    t.append(f"{stats.tier}", style="dim")
-                elif stats.note:
-                    t.append(stats.note, style="dim")
+            t.append("\n")
+
+        if not rendered_any:
+            # Extreme fallback: no window data at all.
+            t.append("    ")
+            if stats.status == "empty":
+                t.append("no data", style="dim")
+            elif stats.note:
+                t.append(stats.note, style="dim")
             else:
                 t.append(f"{stats.messages} msgs", style="dim")
-                if stats.tier:
-                    t.append(f" {stats.tier}", style="dim")
             t.append("\n")
-        t.append("\n")
 
     def _append_system_block(self, t: Text, spec) -> None:
         """Host-system meters: RAM (always, when /proc/meminfo is readable)

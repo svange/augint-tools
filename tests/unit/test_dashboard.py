@@ -2525,3 +2525,127 @@ class TestTopDrawerReconcile:
                     assert drawer.is_open is expected_open
 
         asyncio.run(run())
+
+    @tui
+    def test_open_close_open_does_not_raise_duplicate_ids(self):
+        """The reported bug: opening the drawer, closing it, then opening
+        again raises ``DuplicateIds`` because Static widgets from the first
+        open are still in the column when the second open's mount fires.
+
+        Even with the reconcile-in-place fix, a refresh tick (sysmeter,
+        usage, periodic rerender) firing between the close and the next
+        open can interleave a remove with a remount of the same id. This
+        test pins that the open->close->open sequence stays crash-free.
+        """
+
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True, org_name="acme")
+            app.state.healths = [_health(full_name="org/a")]
+            app.state.health_by_name = {"org/a": app.state.healths[0]}
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._main is not None
+                drawer = app._main._top_drawer
+                # Open
+                app.action_toggle_org()
+                await pilot.pause()
+                assert drawer.is_open
+                # Close
+                app.action_toggle_org()
+                await pilot.pause()
+                assert not drawer.is_open
+                # Reopen -- this is the path that used to raise DuplicateIds.
+                app.action_toggle_org()
+                await pilot.pause()
+                assert drawer.is_open
+
+        asyncio.run(run())
+
+    @tui
+    def test_set_content_called_twice_in_a_row_survives(self):
+        """Two back-to-back set_content calls (mimicking a refresh tick
+        firing on top of a toggle) must not raise DuplicateIds even when
+        the second call lands while the first call's mount is still pending.
+        """
+        from rich.text import Text as _Text
+
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True, org_name="acme")
+            app.state.healths = [_health(full_name="org/a")]
+            app.state.health_by_name = {"org/a": app.state.healths[0]}
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._main is not None
+                drawer = app._main._top_drawer
+                app.action_toggle_org()
+                await pilot.pause()
+                # Fire two set_content calls without a pause between them.
+                # On the buggy code path the second mount of the same id
+                # would raise DuplicateIds.
+                drawer.set_content(
+                    [("system", _Text("a"))],
+                    [("usage", _Text("b"))],
+                    [("leaderboard", _Text("c"))],
+                )
+                drawer.set_content(
+                    [("system", _Text("a2"))],
+                    [("usage", _Text("b2"))],
+                    [("leaderboard", _Text("c2"))],
+                )
+                await pilot.pause()
+                # No crash == pass. Sanity-check the ids are unique.
+                seen_ids: list[str] = []
+                for column in (drawer._left, drawer._middle, drawer._right):
+                    for child in column.children:
+                        if child.id:
+                            seen_ids.append(child.id)
+                assert len(seen_ids) == len(set(seen_ids)), f"duplicate ids in drawer: {seen_ids}"
+
+        asyncio.run(run())
+
+    def test_reconcile_dedupes_when_same_id_already_present(self):
+        """Pure-state-machine guard: if the column somehow already contains
+        two widgets with the same section id (e.g. from a prior race), the
+        reconcile path must drop the extra rather than mount a third.
+
+        Runs without a Pilot so it's safe in CI without textual headless.
+        """
+        from rich.text import Text as _Text
+        from textual.widgets import Static
+
+        from augint_tools.dashboard.widgets.top_drawer import (
+            _SECTION_ID_PREFIX,
+            TopDrawer,
+        )
+
+        drawer = TopDrawer()
+        # Simulate a column with a duplicate already present. We can't
+        # really mount widgets without an app, so we monkey-patch the
+        # column's children with stubs that quack like Static.
+        sid = "system"
+        full_id = f"{_SECTION_ID_PREFIX}{sid}"
+
+        class _StubStatic(Static):
+            removed = False
+
+            def remove(self):  # type: ignore[override]
+                self.removed = True
+
+            def update(self, *args, **kwargs):  # type: ignore[override]
+                pass
+
+        first = _StubStatic("", id=full_id)
+        second = _StubStatic("", id=full_id)
+        column = drawer._left
+        # Bypass mount -- inject the children directly for the test.
+        column._nodes._nodes.extend([first, second])  # type: ignore[attr-defined]
+
+        # Force the columns_ready check to pass.
+        object.__setattr__(column, "_is_mounted", True)
+        object.__setattr__(drawer._middle, "_is_mounted", True)
+        object.__setattr__(drawer._right, "_is_mounted", True)
+
+        # Reconcile a single section -- the duplicate should be dropped.
+        drawer._reconcile_column(column, [(sid, _Text("hi"))], column_name="left")
+        # At least one of the two stubs got remove()'d.
+        assert first.removed or second.removed

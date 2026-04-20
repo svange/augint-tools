@@ -254,11 +254,18 @@ class MainScreen(Screen[None]):
         self._status_bar.tick()
         self._header.set_countdown(self._countdown_text())
         if self._top_drawer.is_open:
-            self._top_drawer.set_content(
-                self._org_drawer_left_sections(),
-                self._org_drawer_middle_sections(),
-                self._org_drawer_right_sections(),
-            )
+            logger.info("MainScreen.rerender: drawer open, refreshing top_drawer")
+            try:
+                self._top_drawer.set_content(
+                    self._org_drawer_left_sections(),
+                    self._org_drawer_middle_sections(),
+                    self._org_drawer_right_sections(),
+                )
+            except Exception as exc:
+                logger.exception(
+                    f"MainScreen.rerender: top_drawer.set_content failed: "
+                    f"{exc.__class__.__name__}: {exc}"
+                )
 
     def rerender_usage_only(self) -> None:
         """Update only the usage-derived UI (HighlightBar + open usage/org drawer)."""
@@ -267,11 +274,18 @@ class MainScreen(Screen[None]):
             self._drawer.set_content(self._usage_drawer_content())
         if self._top_drawer.is_open:
             # Org drawer embeds a usage block; refresh it in place.
-            self._top_drawer.set_content(
-                self._org_drawer_left_sections(),
-                self._org_drawer_middle_sections(),
-                self._org_drawer_right_sections(),
-            )
+            logger.info("MainScreen.rerender_usage_only: drawer open, refreshing top_drawer")
+            try:
+                self._top_drawer.set_content(
+                    self._org_drawer_left_sections(),
+                    self._org_drawer_middle_sections(),
+                    self._org_drawer_right_sections(),
+                )
+            except Exception as exc:
+                logger.exception(
+                    f"MainScreen.rerender_usage_only: top_drawer.set_content failed: "
+                    f"{exc.__class__.__name__}: {exc}"
+                )
 
     def tick_status(self) -> None:
         self._status_bar.tick()
@@ -1549,7 +1563,7 @@ class DashboardApp(App[None]):
             if not self._main._top_drawer.is_open:
                 return
         except Exception as exc:
-            logger.debug(f"_tick_sysmeter: drawer probe failed: {exc}")
+            logger.exception(f"_tick_sysmeter: drawer probe failed: {exc}")
             return
         self._refresh_sysmeter()
 
@@ -1698,8 +1712,9 @@ class DashboardApp(App[None]):
 
     def action_toggle_org(self) -> None:
         if self._main is None:
-            logger.debug("action_toggle_org: ignored, _main not yet mounted")
+            logger.info("action_toggle_org: ignored, _main not yet mounted")
             return
+        logger.info("action_toggle_org: dispatching to MainScreen.toggle_org_drawer")
         try:
             self._main.toggle_org_drawer()
         except Exception as exc:
@@ -1711,9 +1726,10 @@ class DashboardApp(App[None]):
         # periodic tick takes over from here.
         try:
             if self._main._top_drawer.is_open:
+                logger.info("action_toggle_org: drawer now open, kicking sysmeter")
                 self._refresh_sysmeter()
         except Exception as exc:
-            logger.debug(f"action_toggle_org: post-toggle probe skipped: {exc}")
+            logger.exception(f"action_toggle_org: post-toggle probe failed: {exc}")
 
     def action_widen_card(self) -> None:
         self._resize_card(+PANEL_WIDTH_STEP)

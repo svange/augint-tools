@@ -1545,7 +1545,11 @@ class DashboardApp(App[None]):
         """
         if self._main is None:
             return
-        if not self._main._top_drawer.is_open:
+        try:
+            if not self._main._top_drawer.is_open:
+                return
+        except Exception as exc:
+            logger.debug(f"_tick_sysmeter: drawer probe failed: {exc}")
             return
         self._refresh_sysmeter()
 
@@ -1694,12 +1698,22 @@ class DashboardApp(App[None]):
 
     def action_toggle_org(self) -> None:
         if self._main is None:
+            logger.debug("action_toggle_org: ignored, _main not yet mounted")
             return
-        self._main.toggle_org_drawer()
+        try:
+            self._main.toggle_org_drawer()
+        except Exception as exc:
+            # Don't let a render race in the drawer crash the whole app.
+            logger.exception(f"action_toggle_org: toggle failed: {exc}")
+            self.state.log_error("ui", f"toggle_org: {exc.__class__.__name__}: {exc}")
+            return
         # Kick a fresh probe on open so the sysmeter block isn't stale; the
         # periodic tick takes over from here.
-        if self._main._top_drawer.is_open:
-            self._refresh_sysmeter()
+        try:
+            if self._main._top_drawer.is_open:
+                self._refresh_sysmeter()
+        except Exception as exc:
+            logger.debug(f"action_toggle_org: post-toggle probe skipped: {exc}")
 
     def action_widen_card(self) -> None:
         self._resize_card(+PANEL_WIDTH_STEP)
@@ -1855,12 +1869,15 @@ class DashboardApp(App[None]):
 
     def on_repo_card_go_back(self, _message: RepoCard.GoBack) -> None:
         if self._main is not None:
-            if self._main._top_drawer.is_open:
-                self._main._top_drawer.close()
-                return
-            if self._main._drawer.is_open:
-                self._main._drawer.close()
-                return
+            try:
+                if self._main._top_drawer.is_open:
+                    self._main._top_drawer.close()
+                    return
+                if self._main._drawer.is_open:
+                    self._main._drawer.close()
+                    return
+            except Exception as exc:
+                logger.debug(f"on_repo_card_go_back: drawer probe failed: {exc}")
         if len(self.screen_stack) > 1:
             self.pop_screen()
 

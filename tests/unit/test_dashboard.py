@@ -2416,3 +2416,112 @@ class TestWidgetHelpScreen:
                 assert top.widget_id == "activity"
 
         asyncio.run(run())
+
+
+class TestTopDrawerReconcile:
+    """Regression tests for the drawer's set_content reconcile path.
+
+    The drawer used to remove every Static and remount fresh ones on each
+    set_content call, which caused (a) flicker between the async remove and
+    mount and (b) intermittent crashes when set_content fired during a
+    refresh tick. The reconcile path keeps Static widgets across redraws
+    and updates their content in place; tests below pin that contract.
+    """
+
+    @tui
+    def test_set_content_before_mount_is_safe(self):
+        """Calling set_content on an unmounted TopDrawer must not raise.
+
+        Background ticks (sysmeter, refresh) can fire before MainScreen has
+        finished composing. The pre-mount call must be a no-op rather than a
+        MountError.
+        """
+        from rich.text import Text as _Text
+
+        from augint_tools.dashboard.widgets.top_drawer import TopDrawer
+
+        drawer = TopDrawer()
+        # Not mounted -- should be a quiet no-op, not a crash.
+        drawer.set_content([("system", _Text("anything"))])
+
+    @tui
+    def test_set_content_reuses_static_widgets_across_calls(self):
+        """Repeated set_content with the same section ids must update Static
+        widgets in place (no remount). Identity preservation is what kills
+        the open->close->reopen flicker."""
+        from rich.text import Text as _Text
+
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True, org_name="acme")
+            app.state.healths = [_health(full_name="org/a")]
+            app.state.health_by_name = {"org/a": app.state.healths[0]}
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._main is not None
+                drawer = app._main._top_drawer
+                # Open the drawer first so columns are mounted and populated.
+                app.action_toggle_org()
+                await pilot.pause()
+                first_ids = {
+                    child.id: id(child)
+                    for column in (drawer._left, drawer._middle, drawer._right)
+                    for child in column.children
+                    if child.id
+                }
+                assert first_ids, "expected at least one section after open"
+                # Re-call set_content with fresh Text objects but the same
+                # section structure -- widget identity should be preserved.
+                drawer.set_content(
+                    [("system", _Text("updated"))],
+                    [("usage", _Text("updated middle"))],
+                    [("leaderboard", _Text("updated right"))],
+                )
+                await pilot.pause()
+                second_ids = {
+                    child.id: id(child)
+                    for column in (drawer._left, drawer._middle, drawer._right)
+                    for child in column.children
+                    if child.id
+                }
+                shared = set(first_ids) & set(second_ids)
+                assert shared, "no shared section ids after second set_content"
+                for sid in shared:
+                    assert first_ids[sid] == second_ids[sid], (
+                        f"section {sid!r} was remounted instead of updated in place"
+                    )
+
+        asyncio.run(run())
+
+    @tui
+    def test_action_toggle_org_does_not_crash_when_main_unset(self):
+        """Pressing the org-toggle key before the main screen is mounted
+        must be a no-op, not an AttributeError. Defensive check for the
+        race the user hit when --log was wired up to capture the crash."""
+
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True, org_name="acme")
+            # Deliberately do not enter run_test -- _main stays None.
+            app.action_toggle_org()  # must not raise
+
+        asyncio.run(run())
+
+    @tui
+    def test_repeated_toggle_keeps_drawer_consistent(self):
+        """Toggling open->close->open->close in quick succession must not
+        crash and must leave is_open in a sane state. Mirrors the reported
+        bug where pressing the toggle key several times eventually crashed."""
+
+        async def run():
+            app = DashboardApp(repos=[], skip_refresh=True, org_name="acme")
+            app.state.healths = [_health(full_name="org/a")]
+            app.state.health_by_name = {"org/a": app.state.healths[0]}
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._main is not None
+                drawer = app._main._top_drawer
+                for expected_open in (True, False, True, False, True):
+                    app.action_toggle_org()
+                    await pilot.pause()
+                    assert drawer.is_open is expected_open
+
+        asyncio.run(run())

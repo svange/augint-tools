@@ -1662,7 +1662,21 @@ class DashboardApp(App[None]):
         try:
             stats = fetch_all_usage()
         except Exception as exc:
-            self.state.log_error("usage", f"{exc.__class__.__name__}: {exc}")
+            # fetch_all_usage handles per-provider errors internally and returns
+            # graceful "unavailable" stats. Only truly unexpected errors (bugs)
+            # reach here -- log those so they surface in the error drawer.
+            import subprocess
+            import urllib.error
+
+            expected_types = (
+                urllib.error.HTTPError,
+                urllib.error.URLError,
+                subprocess.SubprocessError,
+                OSError,
+                TimeoutError,
+            )
+            if not isinstance(exc, expected_types):
+                self.state.log_error("usage", f"{exc.__class__.__name__}: {exc}")
             return
         self.state.usage_stats = stats
         self.call_from_thread(self._rerender_usage_only)

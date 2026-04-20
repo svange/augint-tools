@@ -68,7 +68,7 @@ class UsageStats:
     window_total_seconds: int | None = None
     # Subscription / plan tier label for display.
     tier: str | None = None
-    status: str = "ok"  # ok, warning, critical, unknown, unconfigured, empty
+    status: str = "ok"  # ok, warning, critical, unknown, unconfigured, unavailable, empty
     error: str | None = None
     # Free-form note shown under the progress bar (e.g. data source).
     note: str | None = None
@@ -465,7 +465,7 @@ def fetch_copilot_usage(window_days: int = 7, limit: int | None = None) -> Usage
             display_name="Copilot",
             window_days=window_days,
             status="unconfigured",
-            error="gh CLI not installed -- copilot auth rides on gh",
+            note="gh CLI not installed",
         )
     billing = _gh_copilot_billing()
     if billing:
@@ -497,7 +497,7 @@ def fetch_copilot_usage(window_days: int = 7, limit: int | None = None) -> Usage
         display_name="Copilot",
         window_days=window_days,
         status="unconfigured",
-        error="no Copilot subscription on gh-authed account",
+        note="no Copilot subscription detected",
     )
 
 
@@ -651,6 +651,14 @@ def fetch_openai_usage(
     try:
         payload = _openai_usage_request(api_key, org_id, start_time)
     except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            return UsageStats(
+                provider="openai",
+                display_name=label,
+                window_days=window_days,
+                status="unavailable",
+                note="requires admin API key",
+            )
         body_tail = ""
         try:
             body_tail = exc.read().decode("utf-8", errors="replace")[:120]
@@ -663,16 +671,16 @@ def fetch_openai_usage(
             provider="openai",
             display_name=label,
             window_days=window_days,
-            status="unknown",
-            error=detail,
+            status="unavailable",
+            note=detail,
         )
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
         return UsageStats(
             provider="openai",
             display_name=label,
             window_days=window_days,
-            status="unknown",
-            error=f"{exc.__class__.__name__}",
+            status="unavailable",
+            note=f"{exc.__class__.__name__}",
         )
 
     messages = 0
@@ -710,19 +718,70 @@ def fetch_all_usage(
 
     OpenAI accounts are discovered dynamically from OPENAI_API_KEY_<LABEL>
     entries in the environment or .env file. Each gets its own usage row.
+
+    Individual provider failures are caught per-provider so one failure does
+    not affect others. Failed providers are included with status="unavailable".
     """
-    results: list[UsageStats] = [fetch_claude_code_usage(limit=claude_limit)]
+    results: list[UsageStats] = []
 
-    openai_accounts = _resolve_openai_keys()
-    if openai_accounts:
-        for label, key, org_id in openai_accounts:
-            results.append(
-                fetch_openai_usage(limit=openai_limit, api_key=key, org_id=org_id, label=label)
+    # Claude
+    try:
+        results.append(fetch_claude_code_usage(limit=claude_limit))
+    except Exception:
+        results.append(
+            UsageStats(
+                provider="claude_code",
+                display_name="Claude Code",
+                status="unavailable",
+                note="failed to fetch usage",
             )
-    else:
-        results.append(fetch_openai_usage(limit=openai_limit))
+        )
 
-    results.append(fetch_copilot_usage(limit=copilot_limit))
+    # OpenAI (one or more accounts)
+    try:
+        openai_accounts = _resolve_openai_keys()
+        if openai_accounts:
+            for label, key, org_id in openai_accounts:
+                try:
+                    results.append(
+                        fetch_openai_usage(
+                            limit=openai_limit, api_key=key, org_id=org_id, label=label
+                        )
+                    )
+                except Exception:
+                    results.append(
+                        UsageStats(
+                            provider="openai",
+                            display_name=label,
+                            status="unavailable",
+                            note="failed to fetch usage",
+                        )
+                    )
+        else:
+            results.append(fetch_openai_usage(limit=openai_limit))
+    except Exception:
+        results.append(
+            UsageStats(
+                provider="openai",
+                display_name="OpenAI",
+                status="unavailable",
+                note="failed to fetch usage",
+            )
+        )
+
+    # Copilot
+    try:
+        results.append(fetch_copilot_usage(limit=copilot_limit))
+    except Exception:
+        results.append(
+            UsageStats(
+                provider="copilot",
+                display_name="Copilot",
+                status="unavailable",
+                note="failed to fetch usage",
+            )
+        )
+
     return results
 
 

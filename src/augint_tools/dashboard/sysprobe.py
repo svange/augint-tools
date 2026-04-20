@@ -204,10 +204,15 @@ def _tcp_ping(host: str, port: int, timeout: float) -> float | None:
 
 def _http_check(timeout: float) -> float | None:
     """HTTP connectivity check. Returns RTT in ms or None on failure."""
-    url = "http://connectivitycheck.gstatic.com/generate_204"
     try:
         start = time.perf_counter()
-        resp = urllib.request.urlopen(url, timeout=timeout)  # noqa: S310  # nosec B310
+        # Hardcoded URL -- Google's captive-portal endpoint, purpose-built
+        # for connectivity checks.  Inline so static analysers (Semgrep,
+        # Bandit) can verify the scheme is safe.
+        resp = urllib.request.urlopen(  # noqa: S310  # nosec B310
+            "http://connectivitycheck.gstatic.com/generate_204",
+            timeout=timeout,
+        )
         resp.read()
         resp.close()
         elapsed = (time.perf_counter() - start) * 1000.0

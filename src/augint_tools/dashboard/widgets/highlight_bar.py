@@ -85,11 +85,14 @@ class HighlightBar(Static):
                 self._append_claude_usage(t, stats)
             else:
                 t.append(f"{stats.display_name} ", style="bold")
-                usage = stats.usage_fraction
-                if usage is None:
-                    t.append(stats.status, style="dim")
+                if stats.status in ("unavailable", "error", "unconfigured"):
+                    t.append("unavailable", style="dim")
                 else:
-                    t.append(f"{int(usage * 100)}%")
+                    usage = stats.usage_fraction
+                    if usage is None:
+                        t.append(stats.status, style="dim")
+                    else:
+                        t.append(f"{int(usage * 100)}%")
         return t
 
     def _append_claude_usage(self, t: Text, stats: UsageStats) -> None:

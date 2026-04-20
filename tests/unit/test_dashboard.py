@@ -1903,7 +1903,7 @@ class TestAppMisc:
         monkeypatch.setattr(panel_usage.shutil, "which", lambda _cmd: None)
         stats = panel_usage.fetch_copilot_usage()
         assert stats.status == "unconfigured"
-        assert "gh CLI" in (stats.error or "")
+        assert "gh CLI" in (stats.note or "")
 
     def test_panel_usage_copilot_billing_path(self, monkeypatch):
         from augint_tools.dashboard import usage as panel_usage

@@ -49,7 +49,7 @@ class StalePRsCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.MEDIUM,
-                summary=f"{len(stale)} stale PR(s), oldest {oldest_age}d",
+                summary=f"({len(stale)}) stale PR(s), oldest {oldest_age}d",
                 link=oldest_pr.html_url,
             )
 

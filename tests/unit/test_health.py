@@ -321,7 +321,7 @@ class TestRenovatePRsPiling:
             _mock_repo(), _status(), config={}, pulls=pulls
         )
         assert result.severity == Severity.HIGH
-        assert "5 Renovate PRs" in result.summary
+        assert "(5) Renovate PRs" in result.summary
         assert result.link is not None
 
     def test_custom_threshold(self):
@@ -342,7 +342,7 @@ class TestRenovatePRsPiling:
             _mock_repo(), _status(), config={}, pulls=pulls
         )
         assert result.severity == Severity.HIGH
-        assert "3 Renovate PRs" in result.summary
+        assert "(3) Renovate PRs" in result.summary
 
 
 class TestStalePRs:
@@ -361,7 +361,7 @@ class TestStalePRs:
         ]
         result = get_check("stale_prs").evaluate(_mock_repo(), _status(), config={}, pulls=pulls)
         assert result.severity == Severity.MEDIUM
-        assert "1 stale PR" in result.summary
+        assert "(1) stale PR" in result.summary
         assert "10d" in result.summary
         assert result.link == "https://github.com/org/repo/pull/1"
 
@@ -419,7 +419,7 @@ class TestOpenIssues:
         repo.get_issues.return_value = [_mock_issue() for _ in range(15)]
         result = get_check("open_issues").evaluate(repo, _status(open_issues=15), config={})
         assert result.severity == Severity.LOW
-        assert "15 open issues" in result.summary
+        assert "(15) open issues" in result.summary
         assert result.link is not None
 
     def test_bot_issues_excluded(self):
@@ -435,7 +435,7 @@ class TestOpenIssues:
         repo.get_issues.return_value = issues
         result = get_check("open_issues").evaluate(repo, _status(open_issues=12), config={})
         assert result.severity == Severity.OK
-        assert "5 open issues" in result.summary
+        assert "(5) open issues" in result.summary
 
     def test_custom_threshold(self):
         repo = _mock_repo()

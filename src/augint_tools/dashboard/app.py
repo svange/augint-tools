@@ -54,8 +54,10 @@ from .state import (
     visible_healths,
 )
 from .sysmeter import probe_gpu, probe_ram
+from .sysprobe import probe_system
 from .themes import get_theme, list_themes
 from .usage import claude_daily_message_buckets, fetch_all_usage
+from .widgets.aws_drawer import AwsDrawer
 from .widgets.card_container import CardContainer
 from .widgets.dashboard_footer import DashboardFooter
 from .widgets.drawer import Drawer
@@ -64,6 +66,7 @@ from .widgets.error_drawer import ErrorDrawer
 from .widgets.highlight_bar import HighlightBar
 from .widgets.repo_card import RepoCard
 from .widgets.status_bar import StatusBar, format_header_refresh_text
+from .widgets.system_drawer import SystemDrawer
 from .widgets.top_drawer import TopDrawer
 
 if TYPE_CHECKING:
@@ -229,6 +232,8 @@ class MainScreen(Screen[None]):
         self._drawer = Drawer()
         self._top_drawer = TopDrawer()
         self._error_drawer = ErrorDrawer()
+        self._system_drawer = SystemDrawer()
+        self._aws_drawer = AwsDrawer()
         self._cards_by_name: dict[str, RepoCard] = {}
         # Active effect sprites keyed by repo full_name. Persistent until
         # the user clicks anywhere; positioned over the matching card's
@@ -243,7 +248,9 @@ class MainScreen(Screen[None]):
         yield self._highlight_bar
         yield self._top_drawer
         yield Container(self._card_container)
+        yield self._aws_drawer
         yield self._drawer
+        yield self._system_drawer
         yield self._error_drawer
         yield DashboardFooter()
 
@@ -493,6 +500,46 @@ class MainScreen(Screen[None]):
             self._org_drawer_right_sections(),
         )
 
+    def cycle_right_drawer(self) -> None:
+        """Cycle: closed -> repo detail -> system info -> closed."""
+        if not self._drawer.is_open and not self._system_drawer.is_open:
+            # Closed -> open repo detail
+            health = selected_health(self._state)
+            if health is not None:
+                content = self._detail_drawer_content(health)
+                self._drawer.open_with("detail", content)
+            return
+        if self._drawer.is_open:
+            # Detail open -> close detail, open system
+            self._drawer.close()
+            self._system_drawer.refresh_content(self._state)
+            self._system_drawer.open()
+            return
+        # System open -> close
+        self._system_drawer.close()
+
+    def cycle_left_drawer(self) -> None:
+        """Toggle the AWS drawer open/closed."""
+        if self._aws_drawer.is_open:
+            self._aws_drawer.close()
+        else:
+            self._aws_drawer.refresh_content(self._state.aws_state)
+            self._aws_drawer.open()
+
+    def cycle_top_drawer(self) -> None:
+        """Alias for toggle_org_drawer (SHIFT+W)."""
+        self.toggle_org_drawer()
+
+    def refresh_system_drawer(self) -> None:
+        """Update the system drawer content if it is open."""
+        if self._system_drawer.is_open:
+            self._system_drawer.refresh_content(self._state)
+
+    def refresh_aws_drawer(self) -> None:
+        """Update the AWS drawer content if it is open."""
+        if self._aws_drawer.is_open:
+            self._aws_drawer.refresh_content(self._state.aws_state)
+
     def on_org_drawer_header_toggle(self, _message: OrgDrawerHeader.Toggle) -> None:
         self.toggle_org_drawer()
 
@@ -500,6 +547,25 @@ class MainScreen(Screen[None]):
         """Open the per-widget help modal when a drawer section is clicked."""
         message.stop()
         self.app.push_screen(WidgetHelpScreen(message.section_id))
+
+    def on_aws_drawer_sso_login_requested(self, message: AwsDrawer.SsoLoginRequested) -> None:
+        """Launch SSO login for the clicked profile."""
+        message.stop()
+        from ..dashboard.awsprobe import launch_sso_login
+
+        profile_name = message.profile_name
+        # Check current state to see if active
+        aws_state = self._state.aws_state
+        if aws_state is not None:
+            for p in aws_state.profiles:
+                if p.name == profile_name and p.status == "active":
+                    self.app.notify(f"profile {profile_name} is active", timeout=3)
+                    return
+        launched = launch_sso_login(profile_name)
+        if launched:
+            self.app.notify(f"launching SSO for {profile_name}...", timeout=4)
+        else:
+            self.app.notify(f"failed to launch SSO for {profile_name}", severity="error", timeout=4)
 
     def _detail_drawer_content(self, health: RepoHealth) -> Text:
         status = health.status
@@ -1230,6 +1296,9 @@ class DashboardApp(App[None]):
         Binding("i", "toggle_org", "Org"),
         Binding("e", "toggle_errors", "Errors"),
         Binding("E", "clear_errors", "Clear Errors", show=False),
+        Binding("D", "cycle_right_drawer", "Drawer", show=False),
+        Binding("A", "cycle_left_drawer", "AWS", show=False),
+        Binding("W", "cycle_top_drawer", "Org", show=False),
         Binding("m", "manage_repos", "Repos"),
         Binding("O", "manage_orgs", "Orgs"),
         Binding("question_mark", "show_help", "Help"),
@@ -1241,11 +1310,9 @@ class DashboardApp(App[None]):
         Binding("2", "refresh_now", show=False),
         Binding("3", "cycle_sort", show=False),
         Binding("4", "open_filter_panel", show=False),
-        Binding("5", "toggle_drawer", show=False),
-        Binding("6", "toggle_usage", show=False),
-        Binding("7", "toggle_org", show=False),
-        Binding("8", "toggle_errors", show=False),
-        Binding("9", "show_help", show=False),
+        Binding("5", "cycle_layout", show=False),
+        Binding("6", "cycle_theme", show=False),
+        Binding("7", "toggle_flash", show=False),
         Binding("enter", "open_selected", show=False, priority=True),
         Binding("o", "open_selected_browser", show=False, priority=True),
         Binding("down", "move_down", show=False, priority=True),
@@ -1376,6 +1443,15 @@ class DashboardApp(App[None]):
         # the drawer is visible (see ``_tick_sysmeter``).
         self._refresh_sysmeter()
         self.set_interval(3.0, self._tick_sysmeter)
+
+        # System probe (CPU, docker, network): refresh every 5s while the
+        # system drawer is open. No initial probe at mount -- it fires on
+        # first drawer open and then periodically while open.
+        self.set_interval(5.0, self._tick_system_probe)
+
+        # AWS probe: refresh every 30s while the AWS drawer is open.
+        # No initial probe at mount -- fires on first drawer open.
+        self.set_interval(30.0, self._tick_aws_probe)
 
     async def action_quit(self) -> None:
         self.state.cancel_requested = True
@@ -1708,6 +1784,62 @@ class DashboardApp(App[None]):
         self.state.ram_stats = ram
         self.call_from_thread(self._rerender_usage_only)
 
+    # ---- system probe worker ----
+
+    def _refresh_system_probe(self) -> None:
+        """Kick a background system probe (CPU, docker, network)."""
+        self.run_worker(self._refresh_system_probe_sync, thread=True, exit_on_error=False)
+
+    def _refresh_system_probe_sync(self) -> None:
+        try:
+            snapshot = probe_system()
+        except Exception as exc:
+            self.state.log_error("sysprobe", f"{exc.__class__.__name__}: {exc}")
+            return
+        self.state.system_snapshot = snapshot
+        self.call_from_thread(self._update_system_drawer)
+
+    def _update_system_drawer(self) -> None:
+        if self._main is not None:
+            self._main.refresh_system_drawer()
+
+    def _tick_system_probe(self) -> None:
+        """Periodic system probe -- only while system drawer is open."""
+        if self._main is None:
+            return
+        if not self._main._system_drawer.is_open:
+            return
+        self._refresh_system_probe()
+
+    # ---- AWS probe worker ----
+
+    def _refresh_aws_probe(self) -> None:
+        """Kick a background AWS probe."""
+        self.run_worker(self._refresh_aws_probe_sync, thread=True, exit_on_error=False)
+
+    def _refresh_aws_probe_sync(self) -> None:
+        from .awsprobe import probe_aws
+
+        try:
+            aws_state = probe_aws()
+        except Exception as exc:
+            self.state.log_error("awsprobe", f"{exc.__class__.__name__}: {exc}")
+            return
+        self.state.aws_state = aws_state
+        self.call_from_thread(self._update_aws_drawer)
+
+    def _update_aws_drawer(self) -> None:
+        if self._main is not None:
+            self._main.refresh_aws_drawer()
+
+    def _tick_aws_probe(self) -> None:
+        """Periodic AWS probe -- only while AWS drawer is open."""
+        if self._main is None:
+            return
+        if not self._main._aws_drawer.is_open:
+            return
+        self._refresh_aws_probe()
+
     # ---- render glue ----
 
     def _rerender(self) -> None:
@@ -1852,6 +1984,26 @@ class DashboardApp(App[None]):
         # periodic tick takes over from here.
         if self._main._top_drawer.is_open:
             self._refresh_sysmeter()
+
+    def action_cycle_right_drawer(self) -> None:
+        if self._main is None:
+            return
+        self._main.cycle_right_drawer()
+        # Trigger system probe refresh when opening system drawer
+        if self._main._system_drawer.is_open:
+            self._refresh_system_probe()
+
+    def action_cycle_left_drawer(self) -> None:
+        if self._main is None:
+            return
+        self._main.cycle_left_drawer()
+        # Trigger AWS probe refresh when opening
+        if self._main._aws_drawer.is_open:
+            self._refresh_aws_probe()
+
+    def action_cycle_top_drawer(self) -> None:
+        """SHIFT+W alias for toggle_org."""
+        self.action_toggle_org()
 
     def action_widen_card(self) -> None:
         self._resize_card(+PANEL_WIDTH_STEP)

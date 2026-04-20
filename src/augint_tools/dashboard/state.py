@@ -18,7 +18,9 @@ from .health import RepoHealth, Severity
 if TYPE_CHECKING:
     from github.Repository import Repository
 
+    from .awsprobe import AwsState
     from .sysmeter import GpuStats, RamStats
+    from .sysprobe import SystemSnapshot
     from .usage import UsageStats
 
 # Panel sizing -- mirrors v1 constraints (lesson #13).
@@ -97,6 +99,9 @@ class AppState:
     usage_stats: list[UsageStats] = field(default_factory=list)
     gpu_stats: GpuStats | None = None
     ram_stats: RamStats | None = None
+    system_snapshot: SystemSnapshot | None = None
+    aws_state: AwsState | None = None
+    docker_filter_augint_shell: bool = False
     errors: list[ErrorEntry] = field(default_factory=list)
 
     sort_mode: str = SORT_MODES[0]

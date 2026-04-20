@@ -18,19 +18,19 @@ _LEFT_KEYS: list[tuple[str, str, str]] = [
     ("r", "Refresh", "refresh_now"),
     ("s", "Sort", "cycle_sort"),
     ("f", "Filter", "open_filter_panel"),
-    ("d", "Detail", "toggle_drawer"),
-    ("u", "Usage", "toggle_usage"),
-    ("i", "Org", "toggle_org"),
-    ("e", "Errors", "toggle_errors"),
-    ("?", "Help", "show_help"),
-]
-
-# Visual/presentation keys shown on the right without numbering.
-# (key_char, label, action_name)
-_RIGHT_KEYS: list[tuple[str, str, str]] = [
     ("g", "Layout", "cycle_layout"),
     ("t", "Theme", "cycle_theme"),
     ("b", "Blink", "toggle_flash"),
+]
+
+# Drawer/panel keys shown on the right without numbering.
+# (key_char, label, action_name)
+_RIGHT_KEYS: list[tuple[str, str, str]] = [
+    ("W", "Org", "cycle_top_drawer"),
+    ("A", "AWS", "cycle_left_drawer"),
+    ("D", "Drawer", "cycle_right_drawer"),
+    ("e", "Errors", "toggle_errors"),
+    ("?", "Help", "show_help"),
 ]
 
 
@@ -83,6 +83,22 @@ def _build_right_items() -> list[_FooterItem]:
     return items
 
 
+class _FooterSeparator(Static):
+    """A dim vertical bar separator between footer sections."""
+
+    DEFAULT_CSS = """
+    _FooterSeparator {
+        width: auto;
+        height: 1;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self) -> None:
+        txt = Text("|", style="dim")
+        super().__init__(txt)
+
+
 class DashboardFooter(Horizontal):
     """Split footer: numbered functional controls left, visual controls right."""
 
@@ -112,4 +128,5 @@ class DashboardFooter(Horizontal):
 
     def compose(self):  # type: ignore[override]
         yield Horizontal(*_build_left_items(), id="footer-left")
+        yield _FooterSeparator()
         yield Horizontal(*_build_right_items(), id="footer-right")

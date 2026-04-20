@@ -23,11 +23,13 @@ _FILTER_LABELS: dict[str, str] = {
     "all": "all repos",
     "private": "Private",
     "public": "Public (Open source)",
-    "broken-ci": "broken CI",
-    "no-renovate": "no renovate",
-    "no-workspace": "no workspace",
-    "stale-prs": "stale PRs",
-    "issues": "has issues",
+    "workspace": "Workspace repos",
+    "non-workspace": "Non-workspace repos",
+    "broken-ci": "Broken CI",
+    "no-renovate": "No Renovate config",
+    "renovate-prs-piling": "Renovate PRs piling up",
+    "stale-prs": "Stale PRs",
+    "issues": "Open issues",
 }
 
 

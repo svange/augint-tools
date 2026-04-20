@@ -1767,13 +1767,21 @@ class DashboardApp(App[None]):
         self._rerender()
 
     def action_toggle_workspace(self) -> None:
-        mode = "no-workspace"
-        if mode in self.state.active_filters:
-            self.state.active_filters.discard(mode)
-            self.notify("showing workspaces", timeout=2)
-        else:
-            self.state.active_filters.add(mode)
+        has_ws = "workspace" in self.state.active_filters
+        has_nws = "non-workspace" in self.state.active_filters
+        self.state.active_filters.discard("workspace")
+        self.state.active_filters.discard("non-workspace")
+        if not has_ws and not has_nws:
+            # show all -> hide workspaces
+            self.state.active_filters.add("non-workspace")
             self.notify("hiding workspaces", timeout=2)
+        elif has_nws:
+            # hide workspaces -> workspace only
+            self.state.active_filters.add("workspace")
+            self.notify("workspace repos only", timeout=2)
+        else:
+            # workspace only -> show all
+            self.notify("showing all repos", timeout=2)
         self._rerender()
         self._save_prefs()
 

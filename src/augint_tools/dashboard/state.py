@@ -30,15 +30,22 @@ PANEL_WIDTH_STEP = 2
 UNASSIGNED_TEAM = "unassigned"
 
 SORT_MODES: tuple[str, ...] = ("health", "alpha", "problem")
-FILTER_MODES: tuple[str, ...] = (
-    "all",
-    "private",
-    "public",
-    "no-workspace",
+
+# --- Filter categories ---------------------------------------------------
+VISIBILITY_FILTERS: tuple[str, ...] = ("private", "public")
+WORKSPACE_FILTERS: tuple[str, ...] = ("workspace", "non-workspace")
+HEALTH_FILTERS: tuple[str, ...] = (
     "broken-ci",
     "no-renovate",
+    "renovate-prs-piling",
     "stale-prs",
     "issues",
+)
+FILTER_MODES: tuple[str, ...] = (
+    "all",
+    *VISIBILITY_FILTERS,
+    *WORKSPACE_FILTERS,
+    *HEALTH_FILTERS,
 )
 
 _TEAM_FILTER_PREFIX = "team:"
@@ -61,6 +68,21 @@ class ErrorEntry:
     timestamp: datetime
     source: str  # "refresh" | "usage" | "cache" | "ui"
     message: str
+
+
+@dataclass(frozen=True)
+class FilterSections:
+    """Grouped filter modes for the sectioned filter panel."""
+
+    orgs: list[str]
+    teams: list[str]
+    visibility: list[str]
+    workspace: list[str]
+    health: list[str]
+
+    def all_modes(self) -> list[str]:
+        """Flat list of every filter mode across all sections."""
+        return [*self.orgs, *self.teams, *self.visibility, *self.workspace, *self.health]
 
 
 @dataclass
@@ -288,13 +310,19 @@ def _matches_filter(h: RepoHealth, mode: str, repo_teams: dict[str, RepoTeamInfo
         return h.status.private
     if mode == "public":
         return not h.status.private
-    if mode == "no-workspace":
+    if mode == "workspace":
+        return h.status.is_workspace
+    if mode == "non-workspace":
         return not h.status.is_workspace
     if mode == "broken-ci":
         return any(c.check_name == "broken_ci" and c.severity != Severity.OK for c in h.checks)
     if mode == "no-renovate":
         return any(
             c.check_name == "renovate_enabled" and c.severity != Severity.OK for c in h.checks
+        )
+    if mode == "renovate-prs-piling":
+        return any(
+            c.check_name == "renovate_prs_piling" and c.severity != Severity.OK for c in h.checks
         )
     if mode == "stale-prs":
         return any(c.check_name == "stale_prs" and c.severity != Severity.OK for c in h.checks)
@@ -332,12 +360,9 @@ def apply_active_filters(
     active: set[str],
     repo_teams: dict[str, RepoTeamInfo] | None = None,
 ) -> list[RepoHealth]:
-    """Apply multiple filters.
+    """Apply multiple filters with OR semantics.
 
-    ``no-workspace`` is the only hard AND constraint -- it always
-    excludes workspace repos when checked (persistent toggle via ``w``).
-
-    Every other filter is an OR **selection**: each checked item adds
+    Every checked filter is an OR **selection**: each checked item adds
     matching repos to the visible set.  This matches the mental model
     of a multi-select checklist where checking ``broken-ci`` +
     ``team:woxom`` means "show broken-CI repos PLUS woxom repos."
@@ -345,25 +370,16 @@ def apply_active_filters(
     if not active:
         return list(healths)
     teams = repo_teams or {}
-    # no-workspace is a hard exclusion (the 'w' toggle).
-    has_no_workspace = "no-workspace" in active
-    # Everything else ORs together as additive selections.
-    selections = sorted(m for m in active if m != "no-workspace")
-    result: list[RepoHealth] = []
-    for h in healths:
-        if has_no_workspace and not _matches_filter(h, "no-workspace", teams):
-            continue
-        if selections and not any(_matches_filter(h, mode, teams) for mode in selections):
-            continue
-        result.append(h)
-    return result
+    selections = sorted(active)
+    return [h for h in healths if any(_matches_filter(h, mode, teams) for mode in selections)]
 
 
-def available_filter_modes(
+def available_filter_sections(
     team_labels: dict[str, str],
     repo_teams: dict[str, RepoTeamInfo],
     healths: list[RepoHealth] | None = None,
-) -> list[str]:
+) -> FilterSections:
+    """Return filter modes grouped into UI sections."""
     team_keys = {team for info in repo_teams.values() for team in (info.all or (info.primary,))}
     team_dynamic = [
         team_filter_mode(team_key)
@@ -371,12 +387,27 @@ def available_filter_modes(
             team_keys, key=lambda key: display_team_label(key, team_labels).lower()
         )
     ]
-    # Org filters derived from the owners present in the current health data.
     org_keys: set[str] = set()
     if healths:
         org_keys = {owner_of(h.status.full_name) for h in healths}
     org_dynamic = [org_filter_mode(key) for key in sorted(org_keys)]
-    return [*FILTER_MODES, *org_dynamic, *team_dynamic]
+    return FilterSections(
+        orgs=org_dynamic,
+        teams=team_dynamic,
+        visibility=list(VISIBILITY_FILTERS),
+        workspace=list(WORKSPACE_FILTERS),
+        health=list(HEALTH_FILTERS),
+    )
+
+
+def available_filter_modes(
+    team_labels: dict[str, str],
+    repo_teams: dict[str, RepoTeamInfo],
+    healths: list[RepoHealth] | None = None,
+) -> list[str]:
+    """Flat list of all available filter modes (compat wrapper)."""
+    sections = available_filter_sections(team_labels, repo_teams, healths)
+    return [*FILTER_MODES, *sections.orgs, *sections.teams]
 
 
 def visible_healths(state: AppState) -> list[RepoHealth]:

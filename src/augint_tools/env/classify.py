@@ -34,6 +34,21 @@ class Classification(Enum):
 
 KEY_SKIP_PREFIXES = frozenset({"AWS_PROFILE", "AWS_DEFAULT_REGION", "AWS_REGION"})
 
+_INFRA_BASE_NAMES = (
+    "AWS_DEPLOY_ROLE",
+    "PIPELINE_EXECUTION_ROLE",
+    "CLOUDFORMATION_EXECUTION_ROLE",
+    "ARTIFACTS_BUCKET",
+    "HOSTED_ZONE_ID",
+    "WILDCARD_CERT_ARN",
+)
+
+KEY_ALWAYS_VAR = frozenset(
+    {name for name in _INFRA_BASE_NAMES}
+    | {f"STAGING_{name}" for name in _INFRA_BASE_NAMES}
+    | {f"PROD_{name}" for name in _INFRA_BASE_NAMES}
+)
+
 KEY_SECRET_KEYWORDS = frozenset(
     {
         "secret",
@@ -273,6 +288,13 @@ def classify_variable(
         return ClassificationResult(
             key, value, Classification.VARIABLE, ["inline comment hint @var"]
         )
+
+    # --- Always-var allowlist: known infrastructure identifier keys ---
+    # Wins over every heuristic. Still loses to --force-secret and @secret so the
+    # user can override from the call site or the .env itself.
+    if key in KEY_ALWAYS_VAR:
+        logger.info(f"[classify] {key} -> VARIABLE (always-var list)")
+        return ClassificationResult(key, value, Classification.VARIABLE, ["always-var list"])
 
     # --- Heuristic classification ---
     reasons: list[str] = []

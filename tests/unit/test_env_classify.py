@@ -544,3 +544,46 @@ class TestRegressionMiscategorizedKeys:
         assert r.classification == Classification.VARIABLE, (
             f"{key}={value!r} classified as {r.classification.value}; reasons={r.reasons}"
         )
+
+
+class TestAlwaysVarAllowlist:
+    """Keys in ``KEY_ALWAYS_VAR`` are variables even against strong secret signals."""
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "HOSTED_ZONE_ID",
+            "STAGING_HOSTED_ZONE_ID",
+            "PROD_HOSTED_ZONE_ID",
+            "AWS_DEPLOY_ROLE",
+            "STAGING_AWS_DEPLOY_ROLE",
+            "PROD_AWS_DEPLOY_ROLE",
+            "PIPELINE_EXECUTION_ROLE",
+            "STAGING_PIPELINE_EXECUTION_ROLE",
+            "PROD_PIPELINE_EXECUTION_ROLE",
+            "CLOUDFORMATION_EXECUTION_ROLE",
+            "STAGING_CLOUDFORMATION_EXECUTION_ROLE",
+            "PROD_CLOUDFORMATION_EXECUTION_ROLE",
+            "ARTIFACTS_BUCKET",
+            "STAGING_ARTIFACTS_BUCKET",
+            "PROD_ARTIFACTS_BUCKET",
+            "WILDCARD_CERT_ARN",
+            "STAGING_WILDCARD_CERT_ARN",
+            "PROD_WILDCARD_CERT_ARN",
+        ],
+    )
+    def test_allowlist_key_is_variable(self, key):
+        # A long, high-entropy, base64-ish value that would otherwise flag SECRET.
+        r = classify_variable(key, "Z0123456789AbCdEfGhIjKlMnOpQrStUvWxYz+/abcd==")
+        assert r.classification == Classification.VARIABLE
+        assert "always-var list" in r.reasons
+
+    def test_allowlist_loses_to_force_secret(self):
+        r = classify_variable("HOSTED_ZONE_ID", "Z0ABC", force_secret=frozenset({"HOSTED_ZONE_ID"}))
+        assert r.classification == Classification.SECRET
+
+    def test_allowlist_loses_to_inline_secret_comment(self, tmp_path):
+        env_file = tmp_path / ".env"
+        env_file.write_text("# @secret\nHOSTED_ZONE_ID=Z0ABC\n")
+        results = classify_env(str(env_file))
+        assert results[0].classification == Classification.SECRET

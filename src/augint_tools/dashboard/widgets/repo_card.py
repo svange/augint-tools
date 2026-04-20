@@ -206,7 +206,7 @@ class RepoCard(Widget):
         worst = health.worst_severity
         if worst == Severity.CRITICAL:
             self.add_class("card--critical")
-        elif worst in (Severity.HIGH, Severity.MEDIUM) or status.open_prs > 0:
+        elif worst in (Severity.HIGH, Severity.MEDIUM):
             self.add_class("card--warning")
         else:
             self.add_class("card--ok")

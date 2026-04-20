@@ -5,8 +5,12 @@ and docks at the top of the screen. When opened it animates its height
 from 0 to N rows, pushing the card grid downward rather than hovering
 over it. This keeps org-wide context and repo cards visible together.
 
-The body is split into a left and right column so the org drawer can
-pack extra nerdy widgets on the right without crowding the main stack.
+The body is split into a left, middle, and right column. Each column is
+composed of one or more "sections" rendered as individual :class:`Static`
+widgets so that clicks can be attributed to a specific section (e.g. the
+activity sparkline vs the weather line). When a section is clicked the
+drawer posts a :class:`TopDrawer.SectionClicked` message carrying the
+section id, which the app uses to open an explanatory modal.
 """
 
 from __future__ import annotations
@@ -14,7 +18,18 @@ from __future__ import annotations
 from rich.text import Text
 from textual import events
 from textual.containers import Container
+from textual.message import Message
 from textual.widgets import Static
+
+# Prefix used for per-section Static widget ids. A section registered with
+# id "activity" becomes a widget with DOM id "top-drawer-section-activity".
+_SECTION_ID_PREFIX = "top-drawer-section-"
+
+# Column container ids.
+_COLUMN_IDS = ("top-drawer-left", "top-drawer-middle", "top-drawer-right")
+
+# Type alias: a column is a list of (section_id, rich_text) pairs.
+Section = tuple[str, Text]
 
 
 class TopDrawer(Container):
@@ -36,22 +51,39 @@ class TopDrawer(Container):
     TopDrawer > #top-drawer-left {
         width: 1fr;
         padding-right: 1;
+        height: auto;
     }
     TopDrawer > #top-drawer-middle {
         width: 1fr;
         padding: 0 1;
+        height: auto;
     }
     TopDrawer > #top-drawer-right {
         width: 1fr;
         padding-left: 1;
+        height: auto;
+    }
+    TopDrawer .top-drawer-section {
+        height: auto;
+        width: 100%;
+    }
+    TopDrawer .top-drawer-section:hover {
+        background: $boost;
     }
     """
 
+    class SectionClicked(Message):
+        """Posted when a user clicks a specific top-drawer section."""
+
+        def __init__(self, section_id: str) -> None:
+            self.section_id = section_id
+            super().__init__()
+
     def __init__(self, id: str = "top-drawer") -> None:
         super().__init__(id=id)
-        self._left = Static("", id="top-drawer-left")
-        self._middle = Static("", id="top-drawer-middle")
-        self._right = Static("", id="top-drawer-right")
+        self._left = Container(id="top-drawer-left")
+        self._middle = Container(id="top-drawer-middle")
+        self._right = Container(id="top-drawer-right")
 
     def compose(self):
         yield self._left
@@ -62,22 +94,44 @@ class TopDrawer(Container):
     def is_open(self) -> bool:
         return self.has_class("open")
 
+    # ------------------------------------------------------------------
+    # Content management
+    # ------------------------------------------------------------------
+
     def set_content(
         self,
-        left: Text,
-        middle: Text | None = None,
-        right: Text | None = None,
+        left: list[Section] | Text,
+        middle: list[Section] | Text | None = None,
+        right: list[Section] | Text | None = None,
     ) -> None:
-        """Update the body without changing open/closed state."""
-        self._left.update(left)
-        self._middle.update(middle if middle is not None else Text(""))
-        self._right.update(right if right is not None else Text(""))
+        """Replace each column's content.
+
+        Accepts either a list of ``(section_id, Text)`` pairs -- preferred --
+        or a single :class:`~rich.text.Text` for backward compatibility. A
+        raw ``Text`` is treated as a one-section column with a stub id.
+        """
+        self._set_column(self._left, _normalise(left))
+        self._set_column(self._middle, _normalise(middle))
+        self._set_column(self._right, _normalise(right))
+
+    def _set_column(self, column: Container, sections: list[Section]) -> None:
+        """Rebuild a column to host exactly ``sections`` in order."""
+        # Remove any existing child widgets before re-mounting.
+        for child in list(column.children):
+            child.remove()
+        for section_id, text in sections:
+            static = Static(
+                text,
+                id=f"{_SECTION_ID_PREFIX}{section_id}",
+                classes="top-drawer-section",
+            )
+            column.mount(static)
 
     def toggle(
         self,
-        left: Text,
-        middle: Text | None = None,
-        right: Text | None = None,
+        left: list[Section] | Text,
+        middle: list[Section] | Text | None = None,
+        right: list[Section] | Text | None = None,
     ) -> None:
         """Open the drawer with the column contents, or close if already open."""
         if self.is_open:
@@ -88,9 +142,9 @@ class TopDrawer(Container):
 
     def open_with(
         self,
-        left: Text,
-        middle: Text | None = None,
-        right: Text | None = None,
+        left: list[Section] | Text,
+        middle: list[Section] | Text | None = None,
+        right: list[Section] | Text | None = None,
     ) -> None:
         self.set_content(left, middle, right)
         self.add_class("open")
@@ -98,6 +152,35 @@ class TopDrawer(Container):
     def close(self) -> None:
         self.remove_class("open")
 
+    # ------------------------------------------------------------------
+    # Input
+    # ------------------------------------------------------------------
+
     def on_click(self, event: events.Click) -> None:
+        # Right-click closes the drawer, matching the other drawers.
         if event.button == 3:
             self.close()
+            return
+        # Map left-clicks to the nearest clicked section id.
+        widget = event.widget
+        section_id: str | None = None
+        while widget is not None and widget is not self:
+            wid = getattr(widget, "id", None)
+            if wid and wid.startswith(_SECTION_ID_PREFIX):
+                section_id = wid[len(_SECTION_ID_PREFIX) :]
+                break
+            widget = getattr(widget, "parent", None)
+        if section_id:
+            # Post the message so the parent screen/app can react (e.g. open
+            # an explanatory modal). Using a Message keeps TopDrawer unaware
+            # of how the app handles the click.
+            self.post_message(self.SectionClicked(section_id))
+
+
+def _normalise(value: list[Section] | Text | None) -> list[Section]:
+    """Coerce the various accepted content types into a list of sections."""
+    if value is None:
+        return []
+    if isinstance(value, Text):
+        return [("legacy", value)] if value.plain else []
+    return list(value)

@@ -1519,26 +1519,31 @@ class DashboardApp(App[None]):
             logger.warning(f"refresh: repo list failed: {exc}")
             return  # Keep current list on failure.
 
+        prev_names = {r.full_name for r in self._repos}
+        fresh_names = {r.full_name for r in fresh}
+
         if self._auto_discover:
             self._repos = [r for r in fresh if r.full_name not in self._disabled_repos]
         else:
             # Keep only repos the user originally selected that still exist.
-            fresh_names = {r.full_name for r in fresh}
             self._repos = [
                 r
                 for r in fresh
                 if r.full_name in self._original_repo_names
                 and r.full_name not in self._disabled_repos
             ]
-            # Log removals so they're visible in the error drawer.
-            gone = self._original_repo_names - fresh_names
-            for name in sorted(gone):
-                self.state.log_error("refresh", f"{name}: removed (deleted or archived)")
             # Shrink the original set so we stop warning on every cycle.
+            gone = self._original_repo_names - fresh_names
             self._original_repo_names -= gone
 
-        # Clean up state for repos no longer in the list.
+        # Detect repos that disappeared (archived, deleted, or org removed).
         current_names = {r.full_name for r in self._repos}
+        vanished = prev_names - current_names
+        for name in sorted(vanished):
+            self.state.log_error("refresh", f"{name}: removed (deleted or archived)")
+            logger.info(f"refresh: {name} removed (deleted or archived)")
+
+        # Clean up state for repos no longer in the list.
         removed = set(self.state.health_by_name.keys()) - current_names
         if removed:
             self.state.healths = [
@@ -1548,7 +1553,16 @@ class DashboardApp(App[None]):
                 self.state.health_by_name.pop(name, None)
                 self.state.repo_teams.pop(name, None)
 
+        # Note: stale refresh errors from previous cycles are cleared at
+        # the top of _do_refresh_inner() so errors about archived/deleted
+        # repos don't linger.  The "removed" log entries above will survive
+        # because they're logged *after* that blanket clear.
+
     def _do_refresh_inner(self) -> None:
+        # Clear stale refresh errors from the previous cycle.  If the same
+        # problems still exist they'll be re-logged during this cycle.
+        self.state.errors = [e for e in self.state.errors if e.source != "refresh"]
+
         # Phase 0: reconcile the repo list against the live org listing.
         self._refresh_repo_list()
         if not self._repos:

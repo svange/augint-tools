@@ -176,9 +176,9 @@ class OrgDrawerHeader(Container):
     }
     OrgDrawerHeader > #hdr-countdown {
         width: auto;
-        max-width: 20;
+        max-width: 24;
         padding: 0 1;
-        color: #8b8b9a;
+        color: #d0d0d8;
         overflow: hidden;
     }
     """
@@ -283,8 +283,16 @@ class MainScreen(Screen[None]):
             card.apply_flash_phase(phase, window_seconds=window_seconds)
 
     def _countdown_text(self) -> str:
-        """Format the right-header countdown -- short and quiet on purpose."""
+        """Format the right-header countdown.
+
+        Prefers the loading / refreshing state so users have an
+        unmistakable "we're working on it" indicator during the 20-30
+        second first fetch.  Otherwise shows the time until the next
+        auto-refresh.
+        """
         state = self._state
+        if state.is_refreshing and state.last_refresh_at is None:
+            return "loading data..."
         if state.is_refreshing:
             return "refreshing..."
         if state.next_refresh_at is None:
@@ -294,8 +302,8 @@ class MainScreen(Screen[None]):
             return "next: now"
         if remaining >= 60:
             m, s = divmod(remaining, 60)
-            return f"next: {m}m{s:02d}s"
-        return f"next: {remaining}s"
+            return f"next refresh: {m}m{s:02d}s"
+        return f"next refresh: {remaining}s"
 
     def _rebuild_cards(self) -> None:
         theme_spec = get_theme(self._state.theme_name)
@@ -1250,11 +1258,19 @@ class DashboardApp(App[None]):
         self._refresh_usage()
 
         if self._repos and not self._skip_refresh:
-            # Seed the countdown before the first worker lands so the status
-            # bar shows "next refresh in ..." from the first paint.
+            # Seed the countdown before the first worker lands so the
+            # status bar shows "next refresh in ..." from paint zero.
+            # _trigger_refresh also sets next_refresh_at, but seeding
+            # here keeps the behaviour visible even when _trigger_refresh
+            # is mocked out in tests.
             self.state.next_refresh_at = datetime.now(UTC) + timedelta(
                 seconds=self._refresh_seconds
             )
+            # Trigger the first refresh immediately.  _trigger_refresh
+            # flips ``is_refreshing`` to True synchronously so the first
+            # StatusBar paint (driven by the tick 1s later) shows
+            # "loading data..." / "refreshing..." rather than going blank
+            # for the 20-30s the initial GitHub fetch takes.
             self.set_interval(self._refresh_seconds, self._trigger_refresh)
             self._trigger_refresh()
 
@@ -1601,8 +1617,10 @@ class DashboardApp(App[None]):
         def _on_dismiss(selected: set[str] | None) -> None:
             if selected is None:
                 return
+            # ``FilterChanged`` has already applied the selection live;
+            # final state equals ``selected`` here, so we just persist
+            # and announce it without doing another rerender pass.
             self.state.active_filters = selected
-            self._rerender()
             self._save_prefs()
             count = len(visible_healths(self.state))
             n = len(selected)
@@ -1610,6 +1628,16 @@ class DashboardApp(App[None]):
             self.notify(f"filter: {label} -- {count} repos", timeout=2)
 
         self.push_screen(FilterPanel(self.state), callback=_on_dismiss)
+
+    def on_filter_panel_filter_changed(self, message: FilterPanel.FilterChanged) -> None:
+        """Apply filter-panel selections live, without waiting for dismiss.
+
+        Without this handler the cards only re-filter when the panel
+        closes -- users watching the list behind the panel see nothing
+        happen and assume the app has hung.
+        """
+        self.state.active_filters = set(message.selected)
+        self._rerender()
 
     def action_toggle_workspace(self) -> None:
         mode = "no-workspace"

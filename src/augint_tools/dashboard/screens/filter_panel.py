@@ -1,4 +1,10 @@
-"""FilterPanel -- multi-select filter overlay."""
+"""FilterPanel -- multi-select filter overlay.
+
+Selections apply live -- each toggle posts :class:`FilterChanged` so the
+main screen can rebuild the grid immediately.  The panel is still
+dismissible with ``escape``/``f``; we return the final selection set
+from ``dismiss`` so callers that want the list have it.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +13,7 @@ from typing import TYPE_CHECKING
 from textual import events
 from textual.binding import Binding
 from textual.containers import Container
+from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import SelectionList
 from textual.widgets.selection_list import Selection
@@ -43,6 +50,19 @@ class FilterPanel(ModalScreen[set[str]]):
         Binding("f", "dismiss_panel", "Close"),
     ]
 
+    class FilterChanged(Message):
+        """Emitted whenever the SelectionList selection changes.
+
+        Carries the current selected filter keys so the main screen can
+        apply them live without waiting for the panel to be dismissed.
+        This matches the mental model of checkboxes on a filter bar --
+        toggling one immediately filters the view underneath.
+        """
+
+        def __init__(self, selected: set[str]) -> None:
+            super().__init__()
+            self.selected = selected
+
     def __init__(self, state: AppState) -> None:
         super().__init__()
         self._state = state
@@ -66,6 +86,17 @@ class FilterPanel(ModalScreen[set[str]]):
     def on_click(self, event: events.Click) -> None:
         if event.button == 3:
             self.action_dismiss_panel()
+
+    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged) -> None:
+        """Apply the user's selection as soon as they toggle a filter.
+
+        Without this handler the grid only re-filters when the user
+        dismisses the panel, which feels like the app has hung for
+        anyone expecting live feedback from the checkboxes.
+        """
+        event.stop()
+        selected = set(event.selection_list.selected)
+        self.post_message(self.FilterChanged(selected))
 
     def action_dismiss_panel(self) -> None:
         sel_list = self.query_one("#filter-list", SelectionList)

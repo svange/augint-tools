@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from github.GithubException import GithubException
 from loguru import logger
 
-from ._data import RepoStatus, load_cache, load_health_cache
+from ._data import RepoStatus, load_cache, load_cache_timestamp, load_health_cache
 from .health import RepoHealth, Severity
 
 if TYPE_CHECKING:
@@ -427,7 +427,13 @@ def move_selection(state: AppState, delta: int) -> None:
 
 
 def bootstrap_from_cache(state: AppState, restrict_to: set[str] | None = None) -> bool:
-    """Populate state.healths from the on-disk cache. Returns True if loaded."""
+    """Populate state.healths from the on-disk cache. Returns True if loaded.
+
+    Also seeds ``last_refresh_at`` from the cache's ``health_ts`` so the
+    staleness indicator shows a real "updated Xm ago" value from the
+    first paint, instead of staying blank until the first live refresh
+    lands.
+    """
     try:
         cache = load_cache()
         if restrict_to is not None:
@@ -438,6 +444,12 @@ def bootstrap_from_cache(state: AppState, restrict_to: set[str] | None = None) -
         health_cache = load_health_cache(cache)
         state.healths = [health_cache.get(s.full_name) or RepoHealth(status=s) for s in statuses]
         state.health_by_name = {h.status.full_name: h for h in state.healths}
+        # Best-effort -- if the cache predates the health_ts field we just
+        # leave last_refresh_at as None and the staleness chip will show
+        # "loading..." until the first live refresh commits.
+        cache_ts = load_cache_timestamp()
+        if cache_ts is not None:
+            state.last_refresh_at = cache_ts
         return True
     except Exception as exc:
         state.log_error("cache", f"{exc.__class__.__name__}: {exc}")

@@ -30,7 +30,10 @@ class HighlightBar(Static):
     def rerender(self) -> None:
         state = self._state
         if state is None or not state.healths:
-            self.update(Text("no data yet", style="dim"))
+            if state is not None and state.is_refreshing:
+                self.update(Text("loading repository data...", style="bold yellow"))
+            else:
+                self.update(Text("no data yet. press r to refresh.", style="dim"))
             return
 
         worst = min(state.healths, key=lambda h: h.score)

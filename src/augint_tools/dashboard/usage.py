@@ -525,16 +525,24 @@ def _openai_usage_request(
 
 
 def _resolve_openai_key() -> str | None:
-    """Resolve an OpenAI admin key from env, keyring, or common config paths.
+    """Resolve an OpenAI admin key from env, .env, keyring, or common config paths.
 
     OpenAI does not offer an SSO-based token flow for API clients, so the
     best we can do is look in the places a user with proper secret hygiene
-    would store the key: the OS keyring (Windows Credential Manager / macOS
-    Keychain / libsecret) and common CLI config files.
+    would store the key: environment variables, the project .env file, the
+    OS keyring (Windows Credential Manager / macOS Keychain / libsecret),
+    and common CLI config files.
     """
     key = os.environ.get("OPENAI_API_KEY")
     if key:
         return key
+    # Check .env file (same file the dashboard reads GH_TOKEN from).
+    from dotenv import dotenv_values
+
+    env_values = dotenv_values(".env")
+    dotenv_key = env_values.get("OPENAI_API_KEY")
+    if dotenv_key:
+        return dotenv_key
     # Try OS keyring if the optional dependency is installed.
     try:
         import keyring  # type: ignore[import-not-found]
@@ -567,15 +575,73 @@ def _resolve_openai_key() -> str | None:
     return None
 
 
-def fetch_openai_usage(window_days: int = 7, limit: int | None = None) -> UsageStats:
-    """OpenAI usage via admin key (env, keyring, or config file)."""
-    api_key = _resolve_openai_key()
-    org_id = os.environ.get("OPENAI_ORG_ID") or os.environ.get("OPENAI_ORGANIZATION")
+def _resolve_openai_keys() -> list[tuple[str, str, str | None]]:
+    """Discover all OpenAI API keys from env and .env.
+
+    Returns a list of (label, api_key, org_id) tuples.  Supports:
+      - OPENAI_API_KEY_<LABEL> entries (one per account, label from suffix)
+      - Legacy single OPENAI_API_KEY (labelled "OpenAI")
+
+    Keys from .env are merged with os.environ; explicit env vars win on
+    conflict.  The suffix after ``OPENAI_API_KEY_`` becomes the display
+    label (title-cased).
+    """
+    from dotenv import dotenv_values
+
+    env_values = dotenv_values(".env")
+
+    # Merge: explicit env wins over .env for the same var name.
+    merged: dict[str, str] = {k: v for k, v in env_values.items() if v}
+    merged.update({k: v for k, v in os.environ.items() if v})
+
+    # Collect OPENAI_API_KEY_<SUFFIX> entries.
+    prefix = "OPENAI_API_KEY_"
+    accounts: list[tuple[str, str, str | None]] = []
+    seen_keys: set[str] = set()
+    for var, value in sorted(merged.items()):
+        if var.startswith(prefix) and len(var) > len(prefix):
+            suffix = var[len(prefix) :]
+            label = suffix.replace("_", " ").title()
+            org_var = f"OPENAI_ORG_ID_{suffix}"
+            org_id = merged.get(org_var)
+            if value not in seen_keys:
+                accounts.append((label, value, org_id))
+                seen_keys.add(value)
+
+    if accounts:
+        return accounts
+
+    # Fallback: single legacy OPENAI_API_KEY.
+    single = _resolve_openai_key()
+    if single:
+        org_id = merged.get("OPENAI_ORG_ID") or merged.get("OPENAI_ORGANIZATION")
+        return [("OpenAI", single, org_id)]
+
+    return []
+
+
+def fetch_openai_usage(
+    window_days: int = 7,
+    limit: int | None = None,
+    *,
+    api_key: str | None = None,
+    org_id: str | None = None,
+    label: str = "OpenAI",
+) -> UsageStats:
+    """OpenAI usage for a single account.
+
+    When called without explicit ``api_key``, falls back to the legacy
+    single-key resolution for backward compatibility.
+    """
+    if api_key is None:
+        api_key = _resolve_openai_key()
+    if org_id is None and api_key is not None:
+        org_id = os.environ.get("OPENAI_ORG_ID") or os.environ.get("OPENAI_ORGANIZATION")
 
     if not api_key:
         return UsageStats(
             provider="openai",
-            display_name="OpenAI",
+            display_name=label,
             window_days=window_days,
             status="unconfigured",
             error="no key in env/keyring/~/.openai -- OpenAI has no SSO",
@@ -595,7 +661,7 @@ def fetch_openai_usage(window_days: int = 7, limit: int | None = None) -> UsageS
             detail += f": {body_tail.strip()}"
         return UsageStats(
             provider="openai",
-            display_name="OpenAI",
+            display_name=label,
             window_days=window_days,
             status="unknown",
             error=detail,
@@ -603,7 +669,7 @@ def fetch_openai_usage(window_days: int = 7, limit: int | None = None) -> UsageS
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
         return UsageStats(
             provider="openai",
-            display_name="OpenAI",
+            display_name=label,
             window_days=window_days,
             status="unknown",
             error=f"{exc.__class__.__name__}",
@@ -621,7 +687,7 @@ def fetch_openai_usage(window_days: int = 7, limit: int | None = None) -> UsageS
     window_total_seconds = window_days * 86400
     return UsageStats(
         provider="openai",
-        display_name="OpenAI",
+        display_name=label,
         window_days=window_days,
         messages=messages,
         input_tokens=input_tokens,
@@ -640,12 +706,24 @@ def fetch_all_usage(
     openai_limit: int | None = None,
     copilot_limit: int | None = None,
 ) -> list[UsageStats]:
-    """Fetch usage from all providers."""
-    return [
-        fetch_claude_code_usage(limit=claude_limit),
-        fetch_openai_usage(limit=openai_limit),
-        fetch_copilot_usage(limit=copilot_limit),
-    ]
+    """Fetch usage from all providers.
+
+    OpenAI accounts are discovered dynamically from OPENAI_API_KEY_<LABEL>
+    entries in the environment or .env file. Each gets its own usage row.
+    """
+    results: list[UsageStats] = [fetch_claude_code_usage(limit=claude_limit)]
+
+    openai_accounts = _resolve_openai_keys()
+    if openai_accounts:
+        for label, key, org_id in openai_accounts:
+            results.append(
+                fetch_openai_usage(limit=openai_limit, api_key=key, org_id=org_id, label=label)
+            )
+    else:
+        results.append(fetch_openai_usage(limit=openai_limit))
+
+    results.append(fetch_copilot_usage(limit=copilot_limit))
+    return results
 
 
 def claude_daily_message_buckets(window_days: int = 7) -> list[int]:

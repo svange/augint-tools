@@ -807,6 +807,185 @@ class TestBookmarks:
 
 
 # ---------------------------------------------------------------------------
+# config.py workspace tasks
+# ---------------------------------------------------------------------------
+
+
+class TestParseRepoUrl:
+    def test_ssh_url(self) -> None:
+        from augint_tools.cli.commands.config import _parse_repo_url
+
+        assert _parse_repo_url("git@github.com:owner1/repo-one.git") == ("owner1", "repo-one")
+
+    def test_ssh_url_no_git_suffix(self) -> None:
+        from augint_tools.cli.commands.config import _parse_repo_url
+
+        assert _parse_repo_url("git@github.com:owner1/repo-one") == ("owner1", "repo-one")
+
+    def test_https_url(self) -> None:
+        from augint_tools.cli.commands.config import _parse_repo_url
+
+        assert _parse_repo_url("https://github.com/owner2/repo-two.git") == ("owner2", "repo-two")
+
+    def test_https_url_no_git_suffix(self) -> None:
+        from augint_tools.cli.commands.config import _parse_repo_url
+
+        assert _parse_repo_url("https://github.com/owner2/repo-two") == ("owner2", "repo-two")
+
+    def test_non_github_url_returns_none(self) -> None:
+        from augint_tools.cli.commands.config import _parse_repo_url
+
+        assert _parse_repo_url("https://gitlab.com/owner/repo.git") is None
+
+    def test_empty_string_returns_none(self) -> None:
+        from augint_tools.cli.commands.config import _parse_repo_url
+
+        assert _parse_repo_url("") is None
+
+
+class TestWorkspaceGithubTasks:
+    def test_adds_servers_for_workspace_repos(self, tmp_path: Path) -> None:
+        from augint_tools.cli.commands.config import ConfigContext, _run_workspace_github_tasks
+
+        # Create workspace.yaml
+        (tmp_path / "workspace.yaml").write_text(
+            "repos:\n"
+            "  - name: repo-one\n"
+            "    url: git@github.com:owner1/repo-one.git\n"
+            "  - name: repo-two\n"
+            "    url: https://github.com/owner2/repo-two.git\n"
+        )
+        # Create workspace.xml
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        ws_xml = idea / "workspace.xml"
+        ws_xml.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<project version="4"></project>\n'
+        )
+
+        c = ConfigContext(
+            project_dir=str(tmp_path),
+            project_name="test",
+            venv_path=str(tmp_path / ".venv"),
+            sdk_name="Python 3.12 (test)",
+            full_ver="3.12.0",
+            major_minor="3.12",
+            iml_path=None,
+            workspace_path=str(ws_xml),
+            misc_path=str(idea / "misc.xml"),
+            has_idea=True,
+            has_git=True,
+            has_venv=False,
+            has_pyproject=False,
+            git_remote=None,
+            win_proj=None,
+            win_venv=None,
+            win_python=None,
+            jb_options=None,
+            product_ws=None,
+            gh_token="ghp_test123",
+            external_project_storage=False,
+        )
+
+        result = _run_workspace_github_tasks(c)
+        assert result.status == "ok"
+        assert "owner1/repo-one" in result.message
+        assert "owner2/repo-two" in result.message
+
+        # Verify XML was written
+        content = ws_xml.read_text()
+        assert "owner1" in content
+        assert "repo-one" in content
+        assert "owner2" in content
+        assert "repo-two" in content
+
+    def test_idempotent_skips_existing(self, tmp_path: Path) -> None:
+        from augint_tools.cli.commands.config import ConfigContext, _run_workspace_github_tasks
+
+        (tmp_path / "workspace.yaml").write_text(
+            "repos:\n  - name: repo-one\n    url: git@github.com:owner1/repo-one.git\n"
+        )
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        ws_xml = idea / "workspace.xml"
+        ws_xml.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<project version="4"></project>\n'
+        )
+
+        c = ConfigContext(
+            project_dir=str(tmp_path),
+            project_name="test",
+            venv_path=str(tmp_path / ".venv"),
+            sdk_name="Python 3.12 (test)",
+            full_ver="3.12.0",
+            major_minor="3.12",
+            iml_path=None,
+            workspace_path=str(ws_xml),
+            misc_path=str(idea / "misc.xml"),
+            has_idea=True,
+            has_git=True,
+            has_venv=False,
+            has_pyproject=False,
+            git_remote=None,
+            win_proj=None,
+            win_venv=None,
+            win_python=None,
+            jb_options=None,
+            product_ws=None,
+            gh_token="",
+            external_project_storage=False,
+        )
+
+        # Run once
+        result1 = _run_workspace_github_tasks(c)
+        assert result1.status == "ok"
+
+        # Run again -- should skip
+        result2 = _run_workspace_github_tasks(c)
+        assert result2.status == "skipped"
+        assert "already configured" in result2.message
+
+    def test_empty_repos_list(self, tmp_path: Path) -> None:
+        from augint_tools.cli.commands.config import ConfigContext, _run_workspace_github_tasks
+
+        (tmp_path / "workspace.yaml").write_text("repos: []\n")
+        idea = tmp_path / ".idea"
+        idea.mkdir()
+        ws_xml = idea / "workspace.xml"
+        ws_xml.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<project version="4"></project>\n'
+        )
+
+        c = ConfigContext(
+            project_dir=str(tmp_path),
+            project_name="test",
+            venv_path=str(tmp_path / ".venv"),
+            sdk_name="Python 3.12 (test)",
+            full_ver="3.12.0",
+            major_minor="3.12",
+            iml_path=None,
+            workspace_path=str(ws_xml),
+            misc_path=str(idea / "misc.xml"),
+            has_idea=True,
+            has_git=True,
+            has_venv=False,
+            has_pyproject=False,
+            git_remote=None,
+            win_proj=None,
+            win_venv=None,
+            win_python=None,
+            jb_options=None,
+            product_ws=None,
+            gh_token="",
+            external_project_storage=False,
+        )
+
+        result = _run_workspace_github_tasks(c)
+        assert result.status == "skipped"
+        assert "No repos" in result.message
+
+
+# ---------------------------------------------------------------------------
 # CLI integration
 # ---------------------------------------------------------------------------
 

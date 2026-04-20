@@ -39,7 +39,7 @@ class RenovatePRsPilingCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.HIGH,
-                summary=f"{len(renovate_prs)} Renovate PRs piling up",
+                summary=f"({len(renovate_prs)}) Renovate PRs piling up",
                 link=oldest.html_url,
             )
 

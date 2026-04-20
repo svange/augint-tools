@@ -42,6 +42,7 @@ from augint_tools.ide.detect import (
     resolve_windows_paths,
     upsert_dotenv,
 )
+from augint_tools.ide.steps import _apply_github_tasks
 
 # ---------------------------------------------------------------------------
 # Context: everything the steps might need, detected up front.
@@ -264,6 +265,58 @@ def _run_bookmarks(c: ConfigContext) -> StepResult:
     return step_bookmarks(c.project_dir, c.project_name, c.workspace_path, c.product_ws)
 
 
+def _parse_repo_url(url: str) -> tuple[str, str] | None:
+    """Parse owner/repo from git SSH or HTTPS URL."""
+    import re
+
+    # SSH: git@github.com:owner/repo.git
+    m = re.match(r"git@github\.com:([^/]+)/([^/.]+?)(?:\.git)?$", url)
+    if m:
+        return m.group(1), m.group(2)
+    # HTTPS: https://github.com/owner/repo.git
+    m = re.match(r"https?://github\.com/([^/]+)/([^/.]+?)(?:\.git)?$", url)
+    if m:
+        return m.group(1), m.group(2)
+    return None
+
+
+def _run_workspace_github_tasks(c: ConfigContext) -> StepResult:
+    """Set up GitHub Tasks servers for all repos in workspace.yaml."""
+    import yaml
+
+    ws_path = os.path.join(c.project_dir, "workspace.yaml")
+    with open(ws_path) as f:
+        ws_data = yaml.safe_load(f)
+
+    repos = ws_data.get("repos", [])
+    if not repos:
+        return _skip("workspace_tasks", "No repos found in workspace.yaml")
+
+    added = []
+    skipped = []
+    for repo_entry in repos:
+        url = repo_entry.get("url", "")
+        parsed = _parse_repo_url(url)
+        if parsed is None:
+            continue
+        owner, repo_name = parsed
+        # Apply to both product workspace and project workspace
+        if c.product_ws:
+            _apply_github_tasks(c.product_ws, owner, repo_name, None, False)
+        status = _apply_github_tasks(c.workspace_path, owner, repo_name, c.gh_token, False)
+        if status == "ok":
+            added.append(f"{owner}/{repo_name}")
+        else:
+            skipped.append(f"{owner}/{repo_name}")
+
+    if not added:
+        return _skip(
+            "workspace_tasks",
+            f"All {len(skipped)} workspace repo servers already configured",
+        )
+    return _ok("workspace_tasks", f"Added GitHub Tasks servers for: {', '.join(added)}")
+
+
 def _run_reset_prompt(c: ConfigContext) -> StepResult:
     """Offer to delete the product workspace file so changes take effect."""
     if c.product_ws is None or not os.path.exists(c.product_ws):
@@ -351,6 +404,17 @@ CONFIG_STEPS: list[ConfigStep] = [
             (False, "no GitHub remote in .git/config") if c.git_remote is None else (True, "")
         ),
         run=_run_github_tasks,
+    ),
+    ConfigStep(
+        id="workspace_tasks",
+        label="IDE: workspace GitHub Tasks servers",
+        description="Add GitHub Tasks server entries for all repos found in workspace.yaml.",
+        applicable=lambda c: (
+            (True, "")
+            if os.path.exists(os.path.join(c.project_dir, "workspace.yaml")) and c.has_idea
+            else (False, "no workspace.yaml or no .idea/")
+        ),
+        run=_run_workspace_github_tasks,
     ),
     ConfigStep(
         id="jdk_table",

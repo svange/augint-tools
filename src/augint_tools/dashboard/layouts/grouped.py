@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from ..state import (
     PANEL_WIDTH_DEFAULT,
-    UNASSIGNED_TEAM,
     RepoTeamInfo,
     display_team_label,
 )
+from ..widgets.card_container import _GroupHeader
 from . import LayoutContext, register_layout
 
 
@@ -31,18 +31,13 @@ class GroupedLayout:
             pass
 
         # Bucket cards by their repo's primary team.
-        # Public repos without a team are grouped under a synthetic
-        # "open-source" key so the grouped view labels them clearly.
-        _OPEN_SOURCE_KEY = "__open_source__"
+        # Public repos without an org team are already promoted to the
+        # OPEN_SOURCE_TEAM key by apply_open_source_team() in state.py.
         buckets: dict[str, list] = {}
         order: list[str] = []
         for card in cards:
             info = ctx.state.repo_teams.get(card.repo_full_name, RepoTeamInfo())
             team_key = info.primary
-            # Promote public + unassigned repos into an "Open source" group.
-            health = ctx.state.health_by_name.get(card.repo_full_name)
-            if team_key == UNASSIGNED_TEAM and health and not health.status.private:
-                team_key = _OPEN_SOURCE_KEY
             if team_key not in buckets:
                 buckets[team_key] = []
                 order.append(team_key)
@@ -50,11 +45,16 @@ class GroupedLayout:
 
         headers: dict[str, str] = {}
         for team_key in order:
-            if team_key == _OPEN_SOURCE_KEY:
-                headers[team_key] = "Open source"
-            else:
-                headers[team_key] = display_team_label(team_key, ctx.state.team_labels)
+            headers[team_key] = display_team_label(team_key, ctx.state.team_labels)
         container.set_group_headers(order, headers, buckets)
+
+        # Set column span on headers dynamically to match computed columns.
+        for child in container.children:
+            if isinstance(child, _GroupHeader):
+                try:
+                    child.styles.column_span = columns
+                except Exception:
+                    pass
 
         for card in cards:
             card.styles.width = width

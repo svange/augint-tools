@@ -43,6 +43,7 @@ from .state import (
     SORT_MODES,
     AppState,
     CollectedTeamData,
+    apply_open_source_team,
     bootstrap_from_cache,
     collect_repo_teams,
     ensure_selection,
@@ -1342,6 +1343,7 @@ class DashboardApp(App[None]):
         # Cache-first: load before mounting so the first paint shows data.
         restrict = {r.full_name for r in self._repos} if self._repos else None
         bootstrap_from_cache(self.state, restrict_to=restrict)
+        apply_open_source_team(self.state)
 
         self._main = MainScreen(self.state, self._org_name, owners=self._owners)
         self.push_screen(self._main)
@@ -1576,6 +1578,7 @@ class DashboardApp(App[None]):
                 f"commit: merged team data for {len(team_data)} repos, "
                 f"{len(self.state.team_labels)} known teams"
             )
+        apply_open_source_team(self.state)
         # Carry forward / stamp warning-transition timestamps *before* we swap
         # the healths list, so the card-flash logic can tell whether yellow is
         # new (ok -> warning) or established. Timestamps on the RepoStatus side

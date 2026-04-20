@@ -153,6 +153,20 @@ class StatusBar(Static):
         t = Text()
         owner_label = " + ".join(self._owners) if self._owners else self._org_name or "no-org"
         t.append(f" {owner_label} ", style="bold")
+        # Refresh / staleness first -- most important at a glance.
+        stale_chip = self._staleness_chip(state)
+        if stale_chip:
+            t.append("| ")
+            t.append(stale_chip[0], style=stale_chip[1])
+            t.append(" ")
+        refresh_chip = self._refresh_chip(state)
+        if refresh_chip:
+            t.append("| ")
+            t.append(refresh_chip[0], style=refresh_chip[1])
+            t.append(" ")
+        error_chip = self._error_chip(state)
+        if error_chip:
+            t.append(f"| {error_chip} ", style="bold red")
         filter_label = _describe_active_filters(state.active_filters, state.team_labels)
         t.append(
             f"| sort: {state.sort_mode} "
@@ -160,19 +174,6 @@ class StatusBar(Static):
             f"| layout: {state.layout_name} "
             f"| theme: {state.theme_name}"
         )
-        # Staleness first (brighter): users glance here to see whether data
-        # is current or still loading. Countdown is secondary.
-        stale_chip = self._staleness_chip(state)
-        if stale_chip:
-            t.append(" | ")
-            t.append(stale_chip[0], style=stale_chip[1])
-        refresh_chip = self._refresh_chip(state)
-        if refresh_chip:
-            t.append(" | ")
-            t.append(refresh_chip[0], style=refresh_chip[1])
-        error_chip = self._error_chip(state)
-        if error_chip:
-            t.append(f" | {error_chip}", style="bold red")
         self.update(t)
 
     def _staleness_chip(self, state: AppState) -> tuple[str, str] | None:

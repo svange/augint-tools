@@ -7,7 +7,6 @@ from ..state import (
     RepoTeamInfo,
     display_team_label,
 )
-from ..widgets.card_container import _GroupHeader
 from . import LayoutContext, register_layout
 
 
@@ -46,15 +45,7 @@ class GroupedLayout:
         headers: dict[str, str] = {}
         for team_key in order:
             headers[team_key] = display_team_label(team_key, ctx.state.team_labels)
-        container.set_group_headers(order, headers, buckets)
-
-        # Set column span on headers dynamically to match computed columns.
-        for child in container.children:
-            if isinstance(child, _GroupHeader):
-                try:
-                    child.styles.column_span = columns
-                except Exception:
-                    pass
+        container.set_group_headers(order, headers, buckets, columns=columns)
 
         for card in cards:
             card.styles.width = width

@@ -17,8 +17,25 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-# Rough per-tier weekly message estimates for Claude subscription tiers.
-# These are conservative/approximate; users can still see raw counts when unknown.
+# Approximate Claude subscription caps. Anthropic publishes these in messages
+# per rolling window and they change periodically -- keep them here so they're
+# easy to adjust, and fall back to "no bar, raw count only" when the tier is
+# unknown.
+#
+# Sources (checked 2026-04; re-verify when Anthropic updates the help centre):
+#   https://support.anthropic.com/en/articles/8324991-about-claude-pro-and-team-plans
+#   https://support.anthropic.com/en/articles/11145838-using-claude-code-with-your-subscription
+#
+# The 5-hour window is the active-session cap (resets 5 hours after the first
+# message in a session). The 7-day window is the rolling weekly cap.
+_CLAUDE_TIER_5H_LIMITS: dict[str, int] = {
+    "default_claude_pro": 45,
+    "default_claude_max_5x": 225,
+    "default_claude_max_20x": 900,
+    "default_claude_team": 225,
+    "default_claude_enterprise": 900,
+}
+
 _CLAUDE_TIER_WEEKLY_LIMITS: dict[str, int] = {
     "default_claude_pro": 1500,
     "default_claude_max_5x": 7500,
@@ -26,6 +43,10 @@ _CLAUDE_TIER_WEEKLY_LIMITS: dict[str, int] = {
     "default_claude_team": 10000,
     "default_claude_enterprise": 50000,
 }
+
+# Legacy default weekly window used when a caller doesn't specify one.
+_DEFAULT_WINDOW_DAYS = 7
+_FIVE_HOUR_SECONDS = 5 * 3600
 
 
 @dataclass(frozen=True)
@@ -51,6 +72,14 @@ class UsageStats:
     error: str | None = None
     # Free-form note shown under the progress bar (e.g. data source).
     note: str | None = None
+    # Claude-specific: messages and limits in the rolling 5-hour session window.
+    hour5_used: int | None = None
+    hour5_limit: int | None = None
+    # Claude-specific: messages and limits in the rolling 7-day window.
+    # These mirror ``messages`` / ``limit`` but are named explicitly so the
+    # widget can render both windows side by side.
+    week7_used: int | None = None
+    week7_limit: int | None = None
 
     @property
     def usage_fraction(self) -> float | None:
@@ -58,6 +87,20 @@ class UsageStats:
         if self.limit is None or self.limit <= 0:
             return None
         return min(1.0, self.messages / self.limit)
+
+    @property
+    def hour5_fraction(self) -> float | None:
+        """5-hour window usage as fraction of limit, or None when unknown."""
+        if self.hour5_used is None or self.hour5_limit is None or self.hour5_limit <= 0:
+            return None
+        return min(1.0, self.hour5_used / self.hour5_limit)
+
+    @property
+    def week7_fraction(self) -> float | None:
+        """7-day window usage as fraction of limit, or None when unknown."""
+        if self.week7_used is None or self.week7_limit is None or self.week7_limit <= 0:
+            return None
+        return min(1.0, self.week7_used / self.week7_limit)
 
     @property
     def time_elapsed_fraction(self) -> float | None:
@@ -82,14 +125,17 @@ class _ClaudeSessionAggregate:
     source: str = "session-meta"
 
 
-def _read_claude_sessions(window_days: int = 7) -> _ClaudeSessionAggregate:
-    """Aggregate session-meta files from the last N days, tracking oldest message."""
+def _read_claude_sessions(
+    window_days: int = 7, cutoff: datetime | None = None
+) -> _ClaudeSessionAggregate:
+    """Aggregate session-meta files newer than ``cutoff`` (or last ``window_days``)."""
     agg = _ClaudeSessionAggregate()
     meta_dir = Path.home() / ".claude" / "usage-data" / "session-meta"
     if not meta_dir.is_dir():
         return agg
 
-    cutoff = datetime.now(UTC) - timedelta(days=window_days)
+    if cutoff is None:
+        cutoff = datetime.now(UTC) - timedelta(days=window_days)
 
     for path in meta_dir.glob("*.json"):
         try:
@@ -116,7 +162,9 @@ def _read_claude_sessions(window_days: int = 7) -> _ClaudeSessionAggregate:
     return agg
 
 
-def _read_claude_history(window_days: int = 7) -> _ClaudeSessionAggregate:
+def _read_claude_history(
+    window_days: int = 7, cutoff: datetime | None = None
+) -> _ClaudeSessionAggregate:
     """Parse ``~/.claude/history.jsonl`` for recent message activity.
 
     Claude Code writes one line per user/assistant turn to history.jsonl with
@@ -130,7 +178,9 @@ def _read_claude_history(window_days: int = 7) -> _ClaudeSessionAggregate:
     if not hist_path.is_file():
         return agg
 
-    cutoff_ms = int((datetime.now(UTC) - timedelta(days=window_days)).timestamp() * 1000)
+    if cutoff is None:
+        cutoff = datetime.now(UTC) - timedelta(days=window_days)
+    cutoff_ms = int(cutoff.timestamp() * 1000)
     session_ids: set[str] = set()
     oldest_ms: int | None = None
     count = 0
@@ -210,17 +260,60 @@ def _read_claude_subscription() -> dict[str, str | None]:
         return {"subscription": None, "tier": None}
 
 
+def _read_claude_window(
+    cutoff: datetime, *, allow_stats_cache: bool = True
+) -> _ClaudeSessionAggregate:
+    """Aggregate Claude activity newer than ``cutoff`` from the freshest source.
+
+    Tries session-meta first, then history.jsonl, and finally stats-cache
+    (day-granularity, so only useful for multi-day windows -- callers with a
+    sub-day window should pass ``allow_stats_cache=False``).
+    """
+    agg = _read_claude_sessions(cutoff=cutoff)
+    if agg.messages == 0 and agg.sessions == 0:
+        agg = _read_claude_history(cutoff=cutoff)
+    if allow_stats_cache and agg.messages == 0 and agg.sessions == 0:
+        # stats-cache is day-granular; the window_days arg is what it expects.
+        # The caller only enables this for windows that are >= 1 day.
+        days = max(1, int((datetime.now(UTC) - cutoff).total_seconds() // 86400))
+        agg = _read_claude_stats_cache(window_days=days)
+    return agg
+
+
+def _derive_status(messages: int, sessions: int, limit: int | None) -> str:
+    """Map raw counts + limit to a status bucket used by the renderer."""
+    if messages == 0 and sessions == 0:
+        return "empty"
+    if limit is not None and limit > 0:
+        fraction = messages / limit
+        if fraction >= 0.9:
+            return "critical"
+        if fraction >= 0.7:
+            return "warning"
+    return "ok"
+
+
 def fetch_claude_code_usage(
-    window_days: int = 7,
+    window_days: int = _DEFAULT_WINDOW_DAYS,
     limit: int | None = None,
 ) -> UsageStats:
-    """Claude Code activity from local session-meta (or stats-cache fallback)."""
+    """Claude Code activity with both 5-hour and 7-day rolling windows.
+
+    Claude Max caps apply over two rolling windows: a 5-hour active-session
+    window and a 7-day weekly window. This reads the local session-meta and
+    history.jsonl (stats-cache as a day-granular fallback for the weekly
+    window only) and returns both usages side by side.
+
+    ``window_days`` controls the longer (weekly) window; it stays parametric
+    so test fixtures can shrink it. The 5-hour window is fixed at 5 hours.
+    """
+    now = datetime.now(UTC)
+    week_cutoff = now - timedelta(days=window_days)
+    hour5_cutoff = now - timedelta(seconds=_FIVE_HOUR_SECONDS)
+
     try:
-        agg = _read_claude_sessions(window_days)
-        if agg.messages == 0 and agg.sessions == 0:
-            agg = _read_claude_history(window_days)
-        if agg.messages == 0 and agg.sessions == 0:
-            agg = _read_claude_stats_cache(window_days)
+        week_agg = _read_claude_window(week_cutoff)
+        hour5_agg = _read_claude_window(hour5_cutoff, allow_stats_cache=False)
         sub = _read_claude_subscription()
     except Exception:
         return UsageStats(
@@ -232,26 +325,33 @@ def fetch_claude_code_usage(
         )
 
     tier = sub.get("tier")
-    if limit is None and tier:
-        limit = _CLAUDE_TIER_WEEKLY_LIMITS.get(tier)
+    week_limit = limit
+    if week_limit is None and tier:
+        week_limit = _CLAUDE_TIER_WEEKLY_LIMITS.get(tier)
+    hour5_limit: int | None = None
+    if tier:
+        hour5_limit = _CLAUDE_TIER_5H_LIMITS.get(tier)
 
     window_total_seconds = window_days * 86400
     time_remaining_seconds: int | None = None
-    if agg.oldest_in_window is not None:
-        age = (datetime.now(UTC) - agg.oldest_in_window).total_seconds()
+    if week_agg.oldest_in_window is not None:
+        age = (now - week_agg.oldest_in_window).total_seconds()
         time_remaining_seconds = max(0, int(window_total_seconds - age))
     else:
         time_remaining_seconds = window_total_seconds
 
-    status = "ok"
-    if agg.messages == 0 and agg.sessions == 0:
+    # The overall status is driven by the tighter of the two windows so the
+    # widget's severity colour matches the window the user is actually about
+    # to hit first.
+    week_status = _derive_status(week_agg.messages, week_agg.sessions, week_limit)
+    hour5_status = _derive_status(hour5_agg.messages, hour5_agg.sessions, hour5_limit)
+    severity_order = {"empty": 0, "ok": 1, "warning": 2, "critical": 3}
+    status = (
+        hour5_status if severity_order[hour5_status] >= severity_order[week_status] else week_status
+    )
+    # If both windows are empty, keep the "empty" label.
+    if week_agg.messages == 0 and week_agg.sessions == 0 and hour5_agg.messages == 0:
         status = "empty"
-    elif limit is not None and limit > 0:
-        fraction = agg.messages / limit
-        if fraction >= 0.9:
-            status = "critical"
-        elif fraction >= 0.7:
-            status = "warning"
 
     tier_label = None
     if sub.get("subscription"):
@@ -264,24 +364,28 @@ def fetch_claude_code_usage(
     note: str | None = None
     if status == "empty":
         note = "no local activity tracked (account usage is not exposed via SSO)"
-    elif agg.source == "stats-cache":
+    elif week_agg.source == "stats-cache":
         note = "from stats-cache (session-meta empty)"
 
     return UsageStats(
         provider="claude_code",
         display_name="Claude Code",
         window_days=window_days,
-        messages=agg.messages,
-        sessions=agg.sessions,
-        tool_calls=agg.tool_calls,
-        input_tokens=agg.input_tokens,
-        output_tokens=agg.output_tokens,
-        limit=limit,
+        messages=week_agg.messages,
+        sessions=week_agg.sessions,
+        tool_calls=week_agg.tool_calls,
+        input_tokens=week_agg.input_tokens,
+        output_tokens=week_agg.output_tokens,
+        limit=week_limit,
         time_remaining_seconds=time_remaining_seconds,
         window_total_seconds=window_total_seconds,
         tier=tier_label,
         status=status,
         note=note,
+        hour5_used=hour5_agg.messages,
+        hour5_limit=hour5_limit,
+        week7_used=week_agg.messages,
+        week7_limit=week_limit,
     )
 
 

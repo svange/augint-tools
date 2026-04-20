@@ -1294,6 +1294,10 @@ class TestAppMisc:
                     limit=1000,
                     status="ok",
                     tier="Pro 5x",
+                    hour5_used=10,
+                    hour5_limit=50,
+                    week7_used=500,
+                    week7_limit=1000,
                 ),
                 UsageStats(
                     provider="openai",
@@ -1307,7 +1311,11 @@ class TestAppMisc:
                 assert app._main is not None
                 plain = app._main._org_drawer_middle_content().plain
                 assert "Claude Code" in plain
-                assert "50%" in plain
+                # Both rolling windows are surfaced with labels + percentages.
+                assert "5h" in plain
+                assert "7d" in plain
+                assert "20%" in plain  # 10/50 in 5h window
+                assert "50%" in plain  # 500/1000 in 7d window
                 # The progress bar uses full-block and light-shade characters.
                 assert "\u2588" in plain
                 assert "\u2591" in plain
@@ -1433,6 +1441,88 @@ class TestAppMisc:
         # Buckets API hits the same file; total equals recent entries.
         buckets = panel_usage.claude_daily_message_buckets(window_days=7)
         assert sum(buckets) == 2
+
+    def test_panel_usage_claude_both_windows_from_history(self, tmp_path, monkeypatch):
+        """fetch_claude_code_usage returns distinct 5h and 7d window counts."""
+        import json
+        from datetime import UTC, datetime, timedelta
+
+        from augint_tools.dashboard import usage as panel_usage
+
+        home = tmp_path
+        claude_dir = home / ".claude"
+        claude_dir.mkdir()
+        # Credentials expose the rateLimitTier so both limits resolve.
+        (claude_dir / ".credentials.json").write_text(
+            json.dumps(
+                {
+                    "claudeAiOauth": {
+                        "subscriptionType": "max",
+                        "rateLimitTier": "default_claude_max_20x",
+                    }
+                }
+            )
+        )
+        hist = claude_dir / "history.jsonl"
+        now = datetime.now(UTC)
+        # Three entries inside the 5h window + three outside 5h but inside 7d.
+        inside_5h = [now - timedelta(minutes=30), now - timedelta(hours=1), now]
+        outside_5h = [now - timedelta(hours=8), now - timedelta(days=2), now - timedelta(days=4)]
+        stale = [now - timedelta(days=30)]
+        lines = []
+        for idx, ts in enumerate(inside_5h + outside_5h + stale):
+            ms = int(ts.timestamp() * 1000)
+            lines.append(json.dumps({"timestamp": ms, "sessionId": f"s{idx}", "display": "/x"}))
+        hist.write_text("\n".join(lines))
+        monkeypatch.setattr(panel_usage.Path, "home", classmethod(lambda cls: home))
+
+        stats = panel_usage.fetch_claude_code_usage()
+        assert stats.provider == "claude_code"
+        # 5h window: 3 entries.
+        assert stats.hour5_used == 3
+        # 7d window: 6 entries (3 inside 5h + 3 outside 5h but inside 7d).
+        assert stats.week7_used == 6
+        # Both limits resolved from the tier table.
+        assert stats.hour5_limit == panel_usage._CLAUDE_TIER_5H_LIMITS["default_claude_max_20x"]
+        assert stats.week7_limit == panel_usage._CLAUDE_TIER_WEEKLY_LIMITS["default_claude_max_20x"]
+        # Fractions come out > 0 and <= 1.
+        assert stats.hour5_fraction is not None and 0 < stats.hour5_fraction <= 1.0
+        assert stats.week7_fraction is not None and 0 < stats.week7_fraction <= 1.0
+
+    def test_panel_usage_claude_unknown_tier_leaves_limits_none(self, tmp_path, monkeypatch):
+        """Unknown subscription tier => no bar, raw counts still populated."""
+        import json
+        from datetime import UTC, datetime
+
+        from augint_tools.dashboard import usage as panel_usage
+
+        home = tmp_path
+        claude_dir = home / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / ".credentials.json").write_text(
+            json.dumps(
+                {
+                    "claudeAiOauth": {
+                        "subscriptionType": "mystery",
+                        "rateLimitTier": "some_new_tier_we_dont_know",
+                    }
+                }
+            )
+        )
+        hist = claude_dir / "history.jsonl"
+        now_ms = int(datetime.now(UTC).timestamp() * 1000)
+        hist.write_text(json.dumps({"timestamp": now_ms, "sessionId": "s1", "display": "/x"}))
+        monkeypatch.setattr(panel_usage.Path, "home", classmethod(lambda cls: home))
+
+        stats = panel_usage.fetch_claude_code_usage()
+        # Raw counts are still filled, but limits stay None so the widget
+        # renders the number without a bogus bar.
+        assert stats.hour5_used == 1
+        assert stats.week7_used == 1
+        assert stats.hour5_limit is None
+        assert stats.week7_limit is None
+        assert stats.hour5_fraction is None
+        assert stats.week7_fraction is None
 
     def test_panel_usage_openai_unconfigured_clear_message(self, monkeypatch, tmp_path):
         """Without env/keyring/config, OpenAI reports the SSO-less hint clearly."""

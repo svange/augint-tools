@@ -207,7 +207,7 @@ def _http_check(timeout: float) -> float | None:
     url = "http://connectivitycheck.gstatic.com/generate_204"
     try:
         start = time.perf_counter()
-        resp = urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
+        resp = urllib.request.urlopen(url, timeout=timeout)  # noqa: S310  # nosec B310
         resp.read()
         resp.close()
         elapsed = (time.perf_counter() - start) * 1000.0

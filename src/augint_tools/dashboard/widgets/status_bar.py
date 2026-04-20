@@ -1,7 +1,10 @@
-"""StatusBar -- org, sort/filter/layout/theme, error chip.
+"""StatusBar -- org, sort/filter/layout/theme, staleness + countdown + errors.
 
-The refresh countdown lives on the OrgDrawerHeader (subtle, grey, right-aligned)
-rather than here, so this bar stays focused on structural context.
+The staleness indicator ("loading" or "updated Xs ago") and the countdown
+to the next refresh live here so they are always visible, even when the
+org drawer is closed. The OrgDrawerHeader also renders a dim copy for
+users whose eye goes to the top of the screen, but this bar is the
+canonical source of truth.
 """
 
 from __future__ import annotations
@@ -41,6 +44,19 @@ def describe_filter(mode: str, team_labels: dict[str, str] | None = None) -> str
     if mode.startswith("org:"):
         return f"org: {mode.removeprefix('org:')}"
     return mode
+
+
+def _format_age(seconds: int) -> str:
+    """Format a timedelta in seconds as a compact 'Xs' / 'Xm' / 'Xh' string."""
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    if seconds < 86400:
+        h, m = divmod(seconds, 3600)
+        return f"{h}h{m // 60:02d}m" if m >= 60 else f"{h}h"
+    d, rem = divmod(seconds, 86400)
+    return f"{d}d{rem // 3600}h" if rem >= 3600 else f"{d}d"
 
 
 def _describe_active_filters(active: set[str], team_labels: dict[str, str] | None = None) -> str:
@@ -92,25 +108,59 @@ class StatusBar(Static):
             f"| layout: {state.layout_name} "
             f"| theme: {state.theme_name}"
         )
+        # Staleness first (brighter): users glance here to see whether data
+        # is current or still loading. Countdown is secondary.
+        stale_chip = self._staleness_chip(state)
+        if stale_chip:
+            t.append(" | ")
+            t.append(stale_chip[0], style=stale_chip[1])
         refresh_chip = self._refresh_chip(state)
         if refresh_chip:
-            t.append(f" | {refresh_chip[0]}", style=refresh_chip[1])
+            t.append(" | ")
+            t.append(refresh_chip[0], style=refresh_chip[1])
         error_chip = self._error_chip(state)
         if error_chip:
             t.append(f" | {error_chip}", style="bold red")
         self.update(t)
 
+    def _staleness_chip(self, state: AppState) -> tuple[str, str] | None:
+        """Return ("loading..." | "updated Xs ago", style) to show data freshness.
+
+        Shown at all times so users see a clear "yes we're working"
+        indicator during the 20-30s first-fetch window, and always know
+        roughly how fresh the on-screen data is between refreshes.
+        """
+        if state.is_refreshing and state.last_refresh_at is None:
+            return ("loading data...", "bold yellow")
+        if state.last_refresh_at is None:
+            # No cache and no refresh running -- offline / skipped refresh.
+            return ("no data yet", "bold red")
+        age = int((datetime.now(UTC) - state.last_refresh_at).total_seconds())
+        if age < 0:
+            age = 0
+        label = _format_age(age)
+        # Green while fresh (<=60s), yellow mid (<=10m), dim otherwise.
+        if age <= 60:
+            style = "green"
+        elif age <= 600:
+            style = "yellow"
+        else:
+            style = "dim"
+        return (f"updated {label} ago", style)
+
     def _refresh_chip(self, state: AppState) -> tuple[str, str] | None:
-        if state.is_refreshing:
+        if state.is_refreshing and state.last_refresh_at is not None:
+            # During a refresh that has prior data, staleness chip shows age;
+            # this chip announces that a refresh is in progress.
             return ("refreshing...", "bold yellow")
-        if state.next_refresh_at is not None:
+        if state.next_refresh_at is not None and not state.is_refreshing:
             remaining = int((state.next_refresh_at - datetime.now(UTC)).total_seconds())
             if remaining <= 0:
-                return ("next: now", "dim")
+                return ("next: now", "bold cyan")
             if remaining >= 60:
                 m, s = divmod(remaining, 60)
-                return (f"next: {m}m{s:02d}s", "dim")
-            return (f"next: {remaining}s", "dim")
+                return (f"next: {m}m{s:02d}s", "cyan")
+            return (f"next: {remaining}s", "cyan")
         return None
 
     def _error_chip(self, state: AppState) -> str:

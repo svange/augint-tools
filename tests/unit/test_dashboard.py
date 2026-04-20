@@ -609,6 +609,24 @@ class TestDashboardActions:
 
         asyncio.run(run())
 
+    def test_filter_panel_applies_live(self):
+        """Toggling a checkbox in the FilterPanel updates the grid NOW.
+
+        Prior behaviour required dismissing the panel before anything
+        happened, which felt like the TUI had hung.  The
+        FilterChanged message flows straight into
+        on_filter_panel_filter_changed and mutates active_filters.
+        """
+        from augint_tools.dashboard.screens.filter_panel import FilterPanel
+
+        app = DashboardApp(repos=[], skip_refresh=True)
+        # Direct invocation of the message handler -- no TUI needed.
+        assert app.state.active_filters == set()
+        app.on_filter_panel_filter_changed(FilterPanel.FilterChanged({"broken-ci"}))
+        assert app.state.active_filters == {"broken-ci"}
+        app.on_filter_panel_filter_changed(FilterPanel.FilterChanged(set()))
+        assert app.state.active_filters == set()
+
     def test_toggle_workspace(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
@@ -1088,6 +1106,61 @@ class TestAppMisc:
 
         asyncio.run(run())
 
+    def test_card_single_click_only_selects(self):
+        """A single click must not post DrilldownRequested.
+
+        Previously every left click posted both Selected and
+        DrilldownRequested, so any click -- including unintentional
+        ones after dismissing the filter panel -- pushed a modal that
+        trapped the user and looked like a hang.
+        """
+        from augint_tools.dashboard.widgets.repo_card import RepoCard
+
+        posted: list = []
+
+        class _FakeEvent:
+            button = 1
+            meta = False
+            chain = 1
+
+            def stop(self):
+                pass
+
+            def prevent_default(self):
+                pass
+
+        theme = get_theme("default")
+        card = RepoCard(health=_health(full_name="org/r0"), theme_spec=theme)
+        card.post_message = posted.append  # type: ignore[assignment]
+        card.on_click(_FakeEvent())
+        kinds = [type(m).__name__ for m in posted]
+        assert "Selected" in kinds
+        assert "DrilldownRequested" not in kinds
+
+    def test_card_double_click_opens_drilldown(self):
+        """Double-click still opens the drilldown -- use chord=2."""
+        from augint_tools.dashboard.widgets.repo_card import RepoCard
+
+        posted: list = []
+
+        class _FakeEvent:
+            button = 1
+            meta = False
+            chain = 2
+
+            def stop(self):
+                pass
+
+            def prevent_default(self):
+                pass
+
+        theme = get_theme("default")
+        card = RepoCard(health=_health(full_name="org/r0"), theme_spec=theme)
+        card.post_message = posted.append  # type: ignore[assignment]
+        card.on_click(_FakeEvent())
+        kinds = [type(m).__name__ for m in posted]
+        assert "DrilldownRequested" in kinds
+
     def test_run_dashboard_invokes_app_run(self):
         from augint_tools.dashboard import app as _app_mod
 
@@ -1411,6 +1484,90 @@ class TestAppMisc:
         # method is deterministic: verify the refresh-phrase branch.
         assert app_state.next_refresh_at is None
         assert not app_state.is_refreshing
+
+    def test_status_bar_staleness_loading(self):
+        """With is_refreshing=True and no prior data, show "loading...".
+
+        This is the "first-launch, no cache" UX: the user pressed r /
+        ran the CLI and is waiting for the initial GitHub fetch. We
+        must show a visible "we're working on it" chip instead of
+        leaving the bar blank for 20-30 seconds.
+        """
+        from augint_tools.dashboard.widgets.status_bar import StatusBar
+
+        app_state = AppState()
+        app_state.is_refreshing = True
+        app_state.last_refresh_at = None
+        bar = StatusBar()
+        bar.bind_state(app_state, "testorg")
+        chip = bar._staleness_chip(app_state)
+        assert chip is not None
+        label, style = chip
+        assert "loading" in label.lower()
+        assert "bold" in style
+
+    def test_status_bar_staleness_updated_ago(self):
+        """With a prior refresh, the chip shows the age of that data."""
+        from datetime import UTC, datetime, timedelta
+
+        from augint_tools.dashboard.widgets.status_bar import StatusBar
+
+        app_state = AppState()
+        app_state.last_refresh_at = datetime.now(UTC) - timedelta(seconds=30)
+        bar = StatusBar()
+        bar.bind_state(app_state, "testorg")
+        chip = bar._staleness_chip(app_state)
+        assert chip is not None
+        label, _ = chip
+        assert "updated" in label and "ago" in label
+        # 30s-old data should be fresh-green, not dim.
+        assert chip[1] == "green"
+
+    def test_status_bar_format_age(self):
+        """The compact age formatter covers s/m/h/d units."""
+        from augint_tools.dashboard.widgets.status_bar import _format_age
+
+        assert _format_age(0) == "0s"
+        assert _format_age(5) == "5s"
+        assert _format_age(59) == "59s"
+        assert _format_age(60) == "1m"
+        assert _format_age(3599) == "59m"
+        assert _format_age(3600) == "1h"
+        assert _format_age(7200) == "2h"
+        assert _format_age(86400) == "1d"
+
+    def test_bootstrap_seeds_last_refresh_at(self, tmp_path):
+        """bootstrap_from_cache must set last_refresh_at from cache ts.
+
+        Without this the staleness indicator reads "loading..." even
+        when we painted the screen from a fresh on-disk cache -- the
+        user would have no idea the cards they see are already a few
+        minutes old.
+        """
+        import json
+        from datetime import UTC, datetime
+
+        from augint_tools.dashboard import _data
+        from augint_tools.dashboard.state import bootstrap_from_cache
+
+        cache_file = tmp_path / "tui_cache.json"
+        ts = datetime.now(UTC).isoformat()
+        status = _status(name="x", full_name="org/x")
+        from dataclasses import asdict
+
+        cache_file.write_text(
+            json.dumps(
+                {
+                    "repos": {"org/x": asdict(status)},
+                    "health": {},
+                    "health_ts": ts,
+                }
+            )
+        )
+        s = AppState()
+        with patch.object(_data, "CACHE_FILE", cache_file):
+            assert bootstrap_from_cache(s) is True
+        assert s.last_refresh_at is not None
 
     def test_sparkline_renders_block_heights(self):
         from augint_tools.dashboard.app import _sparkline

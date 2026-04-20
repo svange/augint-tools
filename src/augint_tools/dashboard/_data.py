@@ -183,6 +183,29 @@ def load_health_cache(
         return {}
 
 
+def load_cache_timestamp() -> datetime | None:
+    """Return the timestamp of the cached health data, or ``None``.
+
+    Used by the dashboard to seed ``last_refresh_at`` when bootstrapping
+    from disk, so the staleness indicator ("updated Xm ago") shows a real
+    value from the first paint instead of going blank until the first
+    fresh refresh completes.
+    """
+    if not CACHE_FILE.exists():
+        return None
+    try:
+        data = json.loads(CACHE_FILE.read_text())
+        ts = data.get("health_ts")
+        if not ts:
+            return None
+        parsed = datetime.fromisoformat(ts)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+    except (json.JSONDecodeError, TypeError, KeyError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Data fetching
 # ---------------------------------------------------------------------------

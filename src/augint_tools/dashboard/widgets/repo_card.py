@@ -360,5 +360,11 @@ class RepoCard(Widget):
                 self.post_message(self.ActionsRequested(self.repo_full_name))
             return
         if event.button == 1:
+            # Single click only selects -- a plain click must never
+            # trap the user in a modal drilldown screen.  Use a
+            # double-click (chord), the Enter key, or 'o' to open full
+            # detail; ``event.chain`` is 2 on the second click of a
+            # double-click.
             self.post_message(self.Selected(self.repo_full_name))
-            self.post_message(self.DrilldownRequested(self.repo_full_name))
+            if getattr(event, "chain", 1) >= 2:
+                self.post_message(self.DrilldownRequested(self.repo_full_name))

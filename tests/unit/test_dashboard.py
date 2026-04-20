@@ -1441,10 +1441,11 @@ class TestAppMisc:
                 known = list(app.state.team_labels)
                 platform_accent = team_accent("platform", known)
                 growth_accent = team_accent("growth", known)
+                os_accent = team_accent(state.OPEN_SOURCE_TEAM, known)
                 assert platform_accent in name_spans["repo-a"]
                 assert growth_accent in name_spans["repo-b"]
-                # repo-c has no team entry -> default grey.
-                assert "#808080" in name_spans["repo-c"]
+                # repo-c is public with no org team -> Open Source group.
+                assert os_accent in name_spans["repo-c"]
                 # Different teams should produce different accents.
                 assert platform_accent != growth_accent
 

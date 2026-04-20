@@ -28,6 +28,7 @@ PANEL_WIDTH_MAX = 60
 PANEL_WIDTH_STEP = 2
 
 UNASSIGNED_TEAM = "unassigned"
+OPEN_SOURCE_TEAM = "__open_source__"
 
 SORT_MODES: tuple[str, ...] = ("health", "alpha", "problem")
 
@@ -165,6 +166,8 @@ def owner_of(full_name: str) -> str:
 def display_team_label(team_key: str, team_labels: dict[str, str]) -> str:
     if team_key == UNASSIGNED_TEAM:
         return "Unassigned"
+    if team_key == OPEN_SOURCE_TEAM:
+        return "Open Source"
     return team_labels.get(team_key, team_key.replace("-", " ").title())
 
 
@@ -289,6 +292,18 @@ def merge_team_data(state: AppState, collected: list[CollectedTeamData]) -> None
             continue
         state.repo_teams[td.full_name] = td.info
         state.team_labels.update(td.labels)
+
+
+def apply_open_source_team(state: AppState) -> None:
+    """Promote personal public repos with no team to the Open Source group."""
+    state.team_labels[OPEN_SOURCE_TEAM] = "Open Source"
+    for full_name, health in state.health_by_name.items():
+        info = state.repo_teams.get(full_name, RepoTeamInfo())
+        if info.primary == UNASSIGNED_TEAM and not health.status.private:
+            state.repo_teams[full_name] = RepoTeamInfo(
+                primary=OPEN_SOURCE_TEAM,
+                all=(OPEN_SOURCE_TEAM,),
+            )
 
 
 # ---------------------------------------------------------------------------

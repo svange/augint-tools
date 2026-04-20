@@ -13,6 +13,7 @@ dependencies = [
     "loguru>=0.7.3,<0.8",
     "rich>=13.9.4,<15.0",
     "pygithub>=2.5.0,<3",
+    "github-fine-grained-token-client>=1.0.9,<2",
 ]
 
 [project.optional-dependencies]

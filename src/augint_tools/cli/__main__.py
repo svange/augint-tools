@@ -9,6 +9,7 @@ from augint_tools import __version__
 from augint_tools.cli.commands.config import config_cmd
 from augint_tools.cli.commands.env import gh, sync
 from augint_tools.cli.commands.init import init
+from augint_tools.cli.commands.pat import pat
 from augint_tools.dashboard.cmd import dashboard_command
 
 
@@ -31,6 +32,7 @@ cli.add_command(sync)
 cli.add_command(init)
 cli.add_command(config_cmd)
 cli.add_command(dashboard_command)
+cli.add_command(pat)
 
 
 def main():

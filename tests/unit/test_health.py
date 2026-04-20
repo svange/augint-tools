@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-from github.GithubException import GithubException
+from github.GithubException import GithubException, UnknownObjectException
 
 from augint_tools.dashboard._data import RepoStatus
 from augint_tools.dashboard.health import (
@@ -377,6 +378,37 @@ class TestSecurityAlerts:
         result = get_check("security_alerts").evaluate(repo, _status(), config={})
         assert result.severity == Severity.OK
         assert "unavailable" in result.summary
+
+    def test_dependabot_not_enabled_404(self, caplog):
+        """A 404 means Dependabot isn't enabled (e.g. uv/Renovate projects).
+
+        Must be OK severity with a quiet summary, and must not log at INFO
+        level -- those logs are what flashes across the top of the TUI.
+        """
+        repo = _mock_repo()
+        repo.get_dependabot_alerts.side_effect = GithubException(404, "not found", None)
+
+        with caplog.at_level(logging.INFO, logger="augint_tools"):
+            result = get_check("security_alerts").evaluate(repo, _status(), config={})
+
+        assert result.severity == Severity.OK
+        assert "not enabled" in result.summary.lower()
+        # Nothing at INFO or above from our check -- DEBUG only.
+        offending = [r for r in caplog.records if r.levelno >= logging.INFO]
+        assert offending == []
+
+    def test_dependabot_not_enabled_unknown_object(self, caplog):
+        """``UnknownObjectException`` (subclass of GithubException) also means disabled."""
+        repo = _mock_repo()
+        repo.get_dependabot_alerts.side_effect = UnknownObjectException(404, "not found", None)
+
+        with caplog.at_level(logging.INFO, logger="augint_tools"):
+            result = get_check("security_alerts").evaluate(repo, _status(), config={})
+
+        assert result.severity == Severity.OK
+        assert "not enabled" in result.summary.lower()
+        offending = [r for r in caplog.records if r.levelno >= logging.INFO]
+        assert offending == []
 
 
 class TestStalePRs:

@@ -54,7 +54,6 @@ CardContainer.layout--dense {
 }
 
 .group-header {
-    column-span: 4;
     height: 1;
     background: #2a2824;
     color: #e8dcb1;

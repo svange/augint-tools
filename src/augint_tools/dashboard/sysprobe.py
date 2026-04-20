@@ -209,7 +209,7 @@ def _http_check(timeout: float) -> float | None:
         # Hardcoded URL -- Google's captive-portal endpoint, purpose-built
         # for connectivity checks.  Inline so static analysers (Semgrep,
         # Bandit) can verify the scheme is safe.
-        resp = urllib.request.urlopen(  # noqa: S310  # nosec B310
+        resp = urllib.request.urlopen(  # nosemgrep: dynamic-urllib-use-detected  # noqa: S310  # nosec B310
             "http://connectivitycheck.gstatic.com/generate_204",
             timeout=timeout,
         )

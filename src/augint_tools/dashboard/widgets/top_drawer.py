@@ -115,17 +115,57 @@ class TopDrawer(Container):
         self._set_column(self._right, _normalise(right))
 
     def _set_column(self, column: Container, sections: list[Section]) -> None:
-        """Rebuild a column to host exactly ``sections`` in order."""
-        # Remove any existing child widgets before re-mounting.
+        """Update a column to host exactly *sections* in order.
+
+        Reconciles in place: existing widgets with matching section ids
+        have their content updated via ``Static.update()``; only truly
+        new/removed sections trigger ``mount()``/``remove()``.  This
+        avoids the flicker caused by tearing down all children and the
+        ``DuplicateIds`` crash caused by async ``remove()`` not finishing
+        before the next ``mount()`` with the same id.
+        """
+        prefix = _SECTION_ID_PREFIX
+
+        # 1. Index existing section widgets by their section id.
+        existing: dict[str, Static] = {}
         for child in list(column.children):
-            child.remove()
+            wid = getattr(child, "id", None) or ""
+            if isinstance(child, Static) and wid.startswith(prefix):
+                existing[wid[len(prefix) :]] = child
+            else:
+                child.remove()
+
+        desired_ids = {sid for sid, _ in sections}
+
+        # 2. Remove stale sections no longer in the desired list.
+        for stale_id in [sid for sid in existing if sid not in desired_ids]:
+            existing.pop(stale_id).remove()
+
+        # 3. Update or mount each desired section.
         for section_id, text in sections:
-            static = Static(
-                text,
-                id=f"{_SECTION_ID_PREFIX}{section_id}",
-                classes="top-drawer-section",
-            )
-            column.mount(static)
+            widget = existing.get(section_id)
+            if widget is not None:
+                widget.update(text)
+            else:
+                static = Static(
+                    text,
+                    id=f"{prefix}{section_id}",
+                    classes="top-drawer-section",
+                )
+                try:
+                    column.mount(static)
+                except Exception:
+                    # Guard against race: an old widget with the same id
+                    # may not have been fully removed yet.
+                    pass
+
+        # 4. Ensure order matches the desired sequence.
+        for idx, (section_id, _) in enumerate(sections):
+            try:
+                w = existing.get(section_id) or column.query_one(f"#{prefix}{section_id}", Static)
+                column.move_child(w, before=idx)
+            except Exception:
+                pass  # Settles on the next refresh cycle.
 
     def toggle(
         self,

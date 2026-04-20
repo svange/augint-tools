@@ -44,7 +44,7 @@ _INFRA_BASE_NAMES = (
 )
 
 KEY_ALWAYS_VAR = frozenset(
-    {name for name in _INFRA_BASE_NAMES}
+    set(_INFRA_BASE_NAMES)
     | {f"STAGING_{name}" for name in _INFRA_BASE_NAMES}
     | {f"PROD_{name}" for name in _INFRA_BASE_NAMES}
 )

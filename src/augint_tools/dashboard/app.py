@@ -58,6 +58,7 @@ from .usage import claude_daily_message_buckets, fetch_all_usage
 from .widgets.card_container import CardContainer
 from .widgets.dashboard_footer import DashboardFooter
 from .widgets.drawer import Drawer
+from .widgets.effect_sprite import SPRITE_WIDTH, EffectKind, EffectSprite
 from .widgets.error_drawer import ErrorDrawer
 from .widgets.highlight_bar import HighlightBar
 from .widgets.repo_card import RepoCard
@@ -133,7 +134,7 @@ def _card_severity_class(health: RepoHealth | None) -> str | None:
     worst = health.worst_severity
     if worst == _Sev.CRITICAL:
         return "critical"
-    if worst in (_Sev.HIGH, _Sev.MEDIUM) or status.open_prs > 0:
+    if worst in (_Sev.HIGH, _Sev.MEDIUM):
         return "warning"
     return "ok"
 
@@ -228,6 +229,10 @@ class MainScreen(Screen[None]):
         self._top_drawer = TopDrawer()
         self._error_drawer = ErrorDrawer()
         self._cards_by_name: dict[str, RepoCard] = {}
+        # Active effect sprites keyed by repo full_name. Persistent until
+        # the user clicks anywhere; positioned over the matching card's
+        # top-right corner via screen-relative offset.
+        self._effects_by_name: dict[str, EffectSprite] = {}
 
     def compose(self):
         yield self._header
@@ -244,6 +249,11 @@ class MainScreen(Screen[None]):
     def on_mount(self) -> None:
         self.rerender()
 
+    def on_resize(self, _event: events.Resize) -> None:
+        # Terminal resize reflows the card grid; keep sprites snapped.
+        if self._effects_by_name:
+            self.call_after_refresh(self._reposition_all_effects)
+
     # ---- public API called from DashboardApp ----
 
     def rerender(self) -> None:
@@ -259,6 +269,11 @@ class MainScreen(Screen[None]):
                 self._org_drawer_middle_sections(),
                 self._org_drawer_right_sections(),
             )
+        # Card regions can change between rerenders (filter, sort, layout
+        # toggle) so re-anchor any persistent sprites. call_after_refresh
+        # so we read regions after the layout pass has actually run.
+        if self._effects_by_name:
+            self.call_after_refresh(self._reposition_all_effects)
 
     def rerender_usage_only(self) -> None:
         """Update only the usage-derived UI (HighlightBar + open usage/org drawer)."""
@@ -281,6 +296,73 @@ class MainScreen(Screen[None]):
         """Propagate the global flash phase to each card."""
         for card in self._cards_by_name.values():
             card.apply_flash_phase(phase, window_seconds=window_seconds)
+
+    def spawn_effect(self, full_name: str, kind: EffectKind) -> None:
+        """Mount (or replace) a pixel-art sprite for ``full_name``.
+
+        Sprites are layered above the card grid via ``layer: effects`` and
+        anchored to the card's top-right corner. Replacing an existing sprite
+        avoids stacking when a card flips back-and-forth between states.
+        """
+        existing = self._effects_by_name.pop(full_name, None)
+        if existing is not None:
+            try:
+                existing.remove()
+            except Exception:
+                pass
+        sprite = EffectSprite(kind)
+        self._effects_by_name[full_name] = sprite
+        self.mount(sprite)
+        # Position once now and again after the next refresh so the sprite
+        # lands in the right spot whether or not card regions are settled.
+        self._position_effect(full_name)
+        self.call_after_refresh(self._position_effect, full_name)
+
+    def dismiss_all_effects(self) -> bool:
+        """Remove every active sprite. Returns True if anything was cleared."""
+        if not self._effects_by_name:
+            return False
+        for sprite in list(self._effects_by_name.values()):
+            try:
+                sprite.remove()
+            except Exception:
+                pass
+        self._effects_by_name.clear()
+        return True
+
+    def _position_effect(self, full_name: str) -> None:
+        """Snap one sprite to its target card's top-right corner.
+
+        Removes the sprite if the target card has been filtered out or
+        unmounted -- a sprite without a card has nowhere to anchor.
+        """
+        sprite = self._effects_by_name.get(full_name)
+        if sprite is None:
+            return
+        card = self._cards_by_name.get(full_name)
+        if card is None:
+            self._effects_by_name.pop(full_name, None)
+            try:
+                sprite.remove()
+            except Exception:
+                pass
+            return
+        try:
+            region = card.region
+        except Exception:
+            return
+        if region.width <= 0 or region.height <= 0:
+            return
+        x = region.x + max(0, region.width - SPRITE_WIDTH)
+        y = region.y
+        try:
+            sprite.styles.offset = (x, y)
+        except Exception:
+            pass
+
+    def _reposition_all_effects(self) -> None:
+        for full_name in list(self._effects_by_name.keys()):
+            self._position_effect(full_name)
 
     def _countdown_text(self) -> str:
         """Format the right-header countdown.
@@ -1119,7 +1201,7 @@ class DashboardApp(App[None]):
     ANIMATION_LEVEL = "full"
     CSS = """
     Screen {
-        layers: base overlay;
+        layers: base overlay effects;
     }
     """
 
@@ -1489,6 +1571,10 @@ class DashboardApp(App[None]):
         # new (ok -> warning) or established. Timestamps on the RepoStatus side
         # (main_failing_since / dev_failing_since) come straight from GitHub.
         self._update_warning_since(healths)
+        # Detect ok<->critical transitions against the previous snapshot
+        # before we overwrite it. Sprite spawning has to happen *after* the
+        # rerender below so the card it anchors to has a fresh region.
+        transitions = self._detect_severity_transitions(healths)
         self.state.healths = healths
         self.state.health_by_name = {h.status.full_name: h for h in healths}
         self.state.stale_repos = failed_repos or set()
@@ -1501,6 +1587,37 @@ class DashboardApp(App[None]):
             f"sort={self.state.sort_mode}, errors={len(self.state.errors)}"
         )
         self._rerender()
+        if transitions and self._main is not None:
+            for full_name, kind in transitions:
+                self._main.spawn_effect(full_name, kind)
+
+    def _detect_severity_transitions(
+        self, healths: list[RepoHealth]
+    ) -> list[tuple[str, EffectKind]]:
+        """Return (full_name, sprite_kind) for cards that just flipped class.
+
+        Fireworks fire on any non-ok -> ok transition; mushroom clouds fire
+        on any non-critical -> critical transition. Skips the first commit
+        (no prior data) so we don't fireworks-spam every card on startup.
+        """
+        prior = self.state.health_by_name
+        if not prior:
+            return []
+        out: list[tuple[str, EffectKind]] = []
+        for h in healths:
+            full_name = h.status.full_name
+            prev = prior.get(full_name)
+            if prev is None:
+                continue
+            prev_class = _card_severity_class(prev)
+            new_class = _card_severity_class(h)
+            if prev_class == new_class:
+                continue
+            if new_class == "ok":
+                out.append((full_name, "fireworks"))
+            elif new_class == "critical":
+                out.append((full_name, "mushroom"))
+        return out
 
     def _update_warning_since(self, healths: list[RepoHealth]) -> None:
         """Stamp ``warning_since`` on the incoming healths.
@@ -1716,6 +1833,13 @@ class DashboardApp(App[None]):
         if self._main is not None:
             self._main._apply_layout()
         self._save_prefs()
+
+    def on_click(self, _event: events.Click) -> None:
+        # Any click anywhere clears persistent effect sprites. Don't stop
+        # the event -- card click handlers (selection, drilldown) still
+        # need it. If no sprites are active this is a no-op.
+        if self._main is not None:
+            self._main.dismiss_all_effects()
 
     def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
         if event.ctrl:

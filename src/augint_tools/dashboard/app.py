@@ -62,7 +62,7 @@ from .widgets.effect_sprite import SPRITE_WIDTH, EffectKind, EffectSprite
 from .widgets.error_drawer import ErrorDrawer
 from .widgets.highlight_bar import HighlightBar
 from .widgets.repo_card import RepoCard
-from .widgets.status_bar import StatusBar
+from .widgets.status_bar import StatusBar, format_header_refresh_text
 from .widgets.top_drawer import TopDrawer
 
 if TYPE_CHECKING:
@@ -177,7 +177,7 @@ class OrgDrawerHeader(Container):
     }
     OrgDrawerHeader > #hdr-countdown {
         width: auto;
-        max-width: 24;
+        max-width: 44;
         padding: 0 1;
         color: #d0d0d8;
         overflow: hidden;
@@ -365,27 +365,37 @@ class MainScreen(Screen[None]):
             self._position_effect(full_name)
 
     def _countdown_text(self) -> str:
-        """Format the right-header countdown.
+        """Format the right-header refresh indicator.
 
-        Prefers the loading / refreshing state so users have an
-        unmistakable "we're working on it" indicator during the 20-30
-        second first fetch.  Otherwise shows the time until the next
-        auto-refresh.
+        Shows both "last: Xs ago" and "next: in Ys" so users see at a
+        glance both how fresh the on-screen data is and when the next
+        auto-refresh will fire.  Prefers loading / refreshing state so
+        users have an unmistakable "we're working on it" indicator
+        during the 20-30 second first fetch.
+
+        Drift note: ``next_refresh_at`` is set when ``_trigger_refresh``
+        starts a refresh, so during a long-running refresh the displayed
+        countdown briefly reflects the cycle that's already in flight.
+        We mask this by showing "refreshing..." while ``is_refreshing``
+        is true rather than a misleading countdown.
         """
         state = self._state
-        if state.is_refreshing and state.last_refresh_at is None:
-            return "loading data..."
-        if state.is_refreshing:
-            return "refreshing..."
-        if state.next_refresh_at is None:
-            return "auto-refresh off"
-        remaining = int((state.next_refresh_at - datetime.now(UTC)).total_seconds())
-        if remaining <= 0:
-            return "next: now"
-        if remaining >= 60:
-            m, s = divmod(remaining, 60)
-            return f"next refresh: {m}m{s:02d}s"
-        return f"next refresh: {remaining}s"
+        now = datetime.now(UTC)
+        last_age = (
+            int((now - state.last_refresh_at).total_seconds())
+            if state.last_refresh_at is not None
+            else None
+        )
+        remaining = (
+            int((state.next_refresh_at - now).total_seconds())
+            if state.next_refresh_at is not None
+            else None
+        )
+        return format_header_refresh_text(
+            is_refreshing=state.is_refreshing,
+            last_refresh_age_seconds=last_age,
+            next_refresh_remaining_seconds=remaining,
+        )
 
     def _rebuild_cards(self) -> None:
         theme_spec = get_theme(self._state.theme_name)

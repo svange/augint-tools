@@ -59,6 +59,57 @@ def _format_age(seconds: int) -> str:
     return f"{d}d{rem // 3600}h" if rem >= 3600 else f"{d}d"
 
 
+def _format_countdown(seconds: int) -> str:
+    """Format a remaining-time countdown as 'Xs' or 'MmSSs'."""
+    if seconds < 0:
+        seconds = 0
+    if seconds >= 60:
+        m, s = divmod(seconds, 60)
+        return f"{m}m{s:02d}s"
+    return f"{seconds}s"
+
+
+def format_header_refresh_text(
+    *,
+    is_refreshing: bool,
+    last_refresh_age_seconds: int | None,
+    next_refresh_remaining_seconds: int | None,
+) -> str:
+    """Build the right-aligned header refresh indicator.
+
+    Shows both halves -- "last: Xs ago" and "next: in Ys" -- so users can
+    see at a glance both how fresh the on-screen data is and when the
+    next auto-refresh will fire.
+
+    Special states (first-launch loading, mid-refresh, auto-refresh
+    disabled) collapse to a single phrase rather than padding the line
+    with stale or meaningless values.
+
+    Inputs are pre-computed integers so this function can be unit-tested
+    without freezing time.
+    """
+    if is_refreshing and last_refresh_age_seconds is None:
+        return "loading data..."
+    if is_refreshing:
+        # Mid-refresh with prior data: keep showing how stale the visible
+        # data is; suppress the "next" half because it's about to reset.
+        if last_refresh_age_seconds is not None:
+            return f"last: {_format_age(max(0, last_refresh_age_seconds))} ago · refreshing..."
+        return "refreshing..."
+    if next_refresh_remaining_seconds is None:
+        if last_refresh_age_seconds is not None:
+            return f"last: {_format_age(max(0, last_refresh_age_seconds))} ago · auto-refresh off"
+        return "auto-refresh off"
+    last_part = (
+        f"last: {_format_age(max(0, last_refresh_age_seconds))} ago"
+        if last_refresh_age_seconds is not None
+        else "last: --"
+    )
+    remaining = max(0, next_refresh_remaining_seconds)
+    next_part = "next: now" if remaining == 0 else f"next: in {_format_countdown(remaining)}"
+    return f"{last_part} · {next_part}"
+
+
 def _describe_active_filters(active: set[str], team_labels: dict[str, str] | None = None) -> str:
     """Summarise the active filter set for the status bar."""
     if not active:

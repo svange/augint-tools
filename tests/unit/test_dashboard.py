@@ -1536,6 +1536,95 @@ class TestAppMisc:
         assert _format_age(7200) == "2h"
         assert _format_age(86400) == "1d"
 
+    def test_header_refresh_text_loading(self):
+        """First-launch with no prior data shows a loading phrase."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_text
+
+        assert (
+            format_header_refresh_text(
+                is_refreshing=True,
+                last_refresh_age_seconds=None,
+                next_refresh_remaining_seconds=None,
+            )
+            == "loading data..."
+        )
+
+    def test_header_refresh_text_mid_refresh_with_prior_data(self):
+        """Mid-refresh with prior data shows last-age plus a 'refreshing' tag.
+
+        The next-refresh half is suppressed because ``next_refresh_at``
+        was just rolled forward by ``_trigger_refresh`` and would otherwise
+        show a misleading countdown to the cycle that's already in flight.
+        """
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_text
+
+        text = format_header_refresh_text(
+            is_refreshing=True,
+            last_refresh_age_seconds=12,
+            next_refresh_remaining_seconds=600,
+        )
+        assert "last: 12s ago" in text
+        assert "refreshing" in text
+        assert "next:" not in text
+
+    def test_header_refresh_text_idle_shows_both_halves(self):
+        """Steady state: both 'last: ... ago' and 'next: in ...' are shown."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_text
+
+        text = format_header_refresh_text(
+            is_refreshing=False,
+            last_refresh_age_seconds=12,
+            next_refresh_remaining_seconds=18,
+        )
+        assert "last: 12s ago" in text
+        assert "next: in 18s" in text
+
+    def test_header_refresh_text_idle_minutes(self):
+        """Countdown rolls over to MmSSs once it's at least a minute out."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_text
+
+        text = format_header_refresh_text(
+            is_refreshing=False,
+            last_refresh_age_seconds=45,
+            next_refresh_remaining_seconds=125,
+        )
+        assert "last: 45s ago" in text
+        assert "next: in 2m05s" in text
+
+    def test_header_refresh_text_due_now(self):
+        """Zero remaining seconds renders as 'next: now', not 'in 0s'."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_text
+
+        text = format_header_refresh_text(
+            is_refreshing=False,
+            last_refresh_age_seconds=30,
+            next_refresh_remaining_seconds=0,
+        )
+        assert "next: now" in text
+
+    def test_header_refresh_text_negative_remaining_clamped(self):
+        """A late tick (clock drift, scheduler hiccup) clamps to 'next: now'."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_text
+
+        text = format_header_refresh_text(
+            is_refreshing=False,
+            last_refresh_age_seconds=30,
+            next_refresh_remaining_seconds=-3,
+        )
+        assert "next: now" in text
+
+    def test_header_refresh_text_auto_refresh_off(self):
+        """No scheduled next-refresh collapses the second half."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_text
+
+        text = format_header_refresh_text(
+            is_refreshing=False,
+            last_refresh_age_seconds=120,
+            next_refresh_remaining_seconds=None,
+        )
+        assert "last: 2m ago" in text
+        assert "auto-refresh off" in text
+
     def test_bootstrap_seeds_last_refresh_at(self, tmp_path):
         """bootstrap_from_cache must set last_refresh_at from cache ts.
 

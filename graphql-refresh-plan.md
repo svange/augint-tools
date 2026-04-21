@@ -62,7 +62,7 @@ One batched GraphQL query per refresh fetches almost everything for every repo a
 | Why | What |
 |---|---|
 | `statusCheckRollup.state` gives PASS/FAIL/PENDING but not a failing-job/step name | On failure, one REST call to get the failing run's `jobs()` for error detail. Only for repos currently failing — a small fraction. |
-| Teams API is cheap per repo and org-scoped | Keep `collect_repo_teams` on REST for now. Revisit only if the dashboard is consistently limited by team calls (it isn't today). |
+| ~~Teams API is cheap per repo and org-scoped~~ | ~~Keep `collect_repo_teams` on REST for now~~. **Revised during implementation**: teams moved to GraphQL (`organization.teams.repositories` with edges for permissions) on a 5-minute cache. Per-repo REST calls dropped from 20/min to 0 at steady state. |
 | Org + viewer enumeration | `list_repos_multi` and `list_user_orgs` — bootstrap only, not per-refresh hot path. |
 
 ## Scope of code changes

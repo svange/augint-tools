@@ -220,7 +220,7 @@ class MainScreen(Screen[None]):
         yield self._header
         self._status_bar.bind_state(self._state, self._org_name, owners=self._owners)
         yield self._status_bar
-        self._highlight_bar.bind_state(self._state)
+        self._highlight_bar.bind_state(self._state, refresh_seconds=self._refresh_seconds)
         yield self._highlight_bar
         yield self._top_drawer
         yield Container(self._card_container)
@@ -271,6 +271,10 @@ class MainScreen(Screen[None]):
     def tick_status(self) -> None:
         self._status_bar.tick()
         self._header.set_refresh_line(self._refresh_line_text())
+        # Drive the HighlightBar's second-line countdown every second so
+        # the user sees a live "next: in Xs" tick down -- proof that the
+        # refresh loop is running even when the data itself hasn't changed.
+        self._highlight_bar.rerender()
 
     def apply_flash_phase(self, phase: bool, *, window_seconds: int) -> None:
         """Propagate the global flash phase to each card."""

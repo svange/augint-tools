@@ -452,31 +452,6 @@ class TestDashboardApp:
         assert app.state.theme_name == "nord"
         assert app.state.layout_name == "dense"
 
-    def test_app_does_not_fetch_usage_in_init(self):
-        # Usage must NOT block __init__ -- it runs in a post-mount worker.
-        with patch("augint_tools.dashboard.app.fetch_all_usage", return_value=[]) as mock_fetch:
-            DashboardApp(repos=[], skip_refresh=True)
-            mock_fetch.assert_not_called()
-
-    @tui
-    def test_app_records_usage_error_after_mount(self):
-        async def run():
-            with patch(
-                "augint_tools.dashboard.app.fetch_all_usage",
-                side_effect=RuntimeError("boom"),
-            ):
-                app = DashboardApp(repos=[], skip_refresh=True)
-                async with app.run_test() as pilot:
-                    await pilot.pause()
-                    # skip_refresh=True suppresses the automatic usage
-                    # fetch, so trigger it manually to exercise the
-                    # error-handling path in _refresh_usage_sync.
-                    app._refresh_usage()
-                    await app.workers.wait_for_complete()
-                    assert any(e.source == "usage" for e in app.state.errors)
-
-        asyncio.run(run())
-
 
 # ---------------------------------------------------------------------------
 # Pilot-driven integration
@@ -692,19 +667,6 @@ class TestDashboardActions:
                 await pilot.pause()
                 # Refresh should not flip is_refreshing when there are no repos.
                 assert app.state.is_refreshing is False
-
-        asyncio.run(run())
-
-    def test_usage_drawer(self):
-        async def run():
-            app = DashboardApp(repos=[], skip_refresh=True)
-            _seed_state(app)
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                drawer = app.query_one("#drawer")
-                await pilot.press("u")
-                await pilot.pause()
-                assert drawer.has_class("open")
 
         asyncio.run(run())
 
@@ -972,15 +934,31 @@ class TestStateHelpers:
         out = apply_filter([piling, _health(name="ok", full_name="org/ok")], "renovate-prs-piling")
         assert [h.status.name for h in out] == ["p"]
 
-    def test_apply_sort_problem(self):
+    def test_apply_sort_health_team_secondary(self):
+        """Health sort groups by team within the same severity."""
+        from augint_tools.dashboard.state import RepoTeamInfo
+
         critical = HealthCheckResult(
             check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
         )
         bad = _health(name="bad", full_name="org/bad", checks=[critical])
         good = _health(name="good", full_name="org/good")
-        out = apply_sort([good, bad], "problem")
+        out = apply_sort([good, bad], "health")
         # CRITICAL sorts first (lower int -> worst).
         assert out[0].status.name == "bad"
+
+        # Within same severity, team groups together.
+        med = HealthCheckResult(check_name="c", severity=Severity.MEDIUM, summary="x")
+        a = _health(name="a", full_name="org/a", checks=[med])
+        b = _health(name="b", full_name="org/b", checks=[med])
+        teams = {
+            "org/a": RepoTeamInfo(primary="zeta"),
+            "org/b": RepoTeamInfo(primary="alpha"),
+        }
+        out = apply_sort([a, b], "health", repo_teams=teams)
+        # "alpha" < "zeta", so b sorts first.
+        assert out[0].status.name == "b"
+        assert out[1].status.name == "a"
 
 
 class TestDetectRepoMetadata:
@@ -1361,13 +1339,12 @@ class TestAppMisc:
                 right = app._main._org_drawer_right_content().plain
                 # Left column: CI matrix.
                 assert "ci matrix" in left
-                # Middle column: org stats, weather, usage.
+                # Middle column: org stats, weather.
                 assert "nerds" in middle
                 assert "3 repos" in middle
                 assert "health" in middle
                 assert "repos" in middle
                 assert "weather" in middle
-                assert "usage" in middle
                 # Right column: leaderboard.
                 assert "worst 5" in right
                 assert "broken" in right
@@ -1429,52 +1406,6 @@ class TestAppMisc:
         asyncio.run(run())
 
     @tui
-    def test_usage_block_renders_meter(self):
-        async def run():
-            from augint_tools.dashboard.usage import UsageStats
-
-            app = DashboardApp(repos=[], skip_refresh=True, org_name="o")
-            app.state.healths = [_health(full_name="org/a")]
-            app.state.health_by_name = {"org/a": app.state.healths[0]}
-            app.state.usage_stats = [
-                UsageStats(
-                    provider="claude_code",
-                    display_name="Claude Code",
-                    messages=500,
-                    limit=1000,
-                    status="ok",
-                    tier="Pro 5x",
-                    hour5_used=10,
-                    hour5_limit=50,
-                    week7_used=500,
-                    week7_limit=1000,
-                ),
-                UsageStats(
-                    provider="openai",
-                    display_name="OpenAI",
-                    status="unconfigured",
-                    error="set OPENAI_API_KEY",
-                ),
-            ]
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                assert app._main is not None
-                plain = app._main._org_drawer_middle_content().plain
-                assert "Claude Code" in plain
-                # Both rolling windows are surfaced with labels + percentages.
-                assert "5h" in plain
-                assert "7d" in plain
-                assert "20%" in plain  # 10/50 in 5h window
-                assert "50%" in plain  # 500/1000 in 7d window
-                # The progress bar uses full-block and light-shade characters.
-                assert "\u2588" in plain
-                assert "\u2591" in plain
-                # Unconfigured providers are hidden from the usage block.
-                assert "OpenAI" not in plain
-
-        asyncio.run(run())
-
-    @tui
     def test_countdown_seeded_at_mount_with_repos(self):
         async def run():
             repo = _mock_repo(full_name="org/x")
@@ -1484,7 +1415,6 @@ class TestAppMisc:
                     return_value=False,
                 ),
                 patch.object(DashboardApp, "_trigger_refresh"),
-                patch.object(DashboardApp, "_refresh_usage"),
             ):
                 app = DashboardApp(repos=[repo], refresh_seconds=300)
                 async with app.run_test() as pilot:
@@ -1682,17 +1612,6 @@ class TestAppMisc:
             assert bootstrap_from_cache(s) is True
         assert s.last_refresh_at is not None
 
-    def test_sparkline_renders_block_heights(self):
-        from augint_tools.dashboard.app import _sparkline
-
-        # Ascending values produce ascending-height glyphs.
-        result = _sparkline([0, 1, 2, 3, 4])
-        assert len(result) == 5
-        # All-zero input returns a flat baseline (no division-by-zero).
-        assert _sparkline([0, 0, 0]) == "\u2581" * 3
-        # Empty input is empty.
-        assert _sparkline([]) == ""
-
     def test_strip_dotfile_repos_filters_leading_dot(self):
         from augint_tools.dashboard._helpers import strip_dotfile_repos
 
@@ -1733,197 +1652,11 @@ class TestAppMisc:
                 middle = app._main._org_drawer_middle_content().plain
                 right = app._main._org_drawer_right_content().plain
                 # Widgets are spread across columns.
-                for label in ("weather", "activity", "pr ages", "teams"):
+                for label in ("weather", "pr ages", "teams"):
                     assert label in middle, f"{label!r} missing from middle column"
                 assert "worst 5" in right, "'worst 5' missing from right column"
 
         asyncio.run(run())
-
-    def test_panel_usage_history_fallback(self, tmp_path, monkeypatch):
-        """history.jsonl is the primary source now; verify it is parsed."""
-        from datetime import UTC, datetime
-
-        from augint_tools.dashboard import usage as panel_usage
-
-        home = tmp_path
-        claude_dir = home / ".claude"
-        claude_dir.mkdir()
-        hist = claude_dir / "history.jsonl"
-        now_ms = int(datetime.now(UTC).timestamp() * 1000)
-        # Two recent entries on the same sessionId + one stale entry outside window.
-        lines = [
-            f'{{"timestamp": {now_ms}, "sessionId": "s1", "display": "/hi"}}',
-            f'{{"timestamp": {now_ms - 1000}, "sessionId": "s1", "display": "/again"}}',
-            '{"timestamp": 1, "sessionId": "ancient", "display": "/old"}',
-        ]
-        hist.write_text("\n".join(lines))
-        monkeypatch.setattr(panel_usage.Path, "home", classmethod(lambda cls: home))
-        agg = panel_usage._read_claude_history(window_days=7)
-        assert agg.messages == 2
-        assert agg.sessions == 1
-        # Buckets API hits the same file; total equals recent entries.
-        buckets = panel_usage.claude_daily_message_buckets(window_days=7)
-        assert sum(buckets) == 2
-
-    def test_panel_usage_claude_both_windows_from_history(self, tmp_path, monkeypatch):
-        """fetch_claude_code_usage returns distinct 5h and 7d window counts."""
-        import json
-        from datetime import UTC, datetime, timedelta
-
-        from augint_tools.dashboard import usage as panel_usage
-
-        home = tmp_path
-        claude_dir = home / ".claude"
-        claude_dir.mkdir()
-        # Credentials expose the rateLimitTier so both limits resolve.
-        (claude_dir / ".credentials.json").write_text(
-            json.dumps(
-                {
-                    "claudeAiOauth": {
-                        "subscriptionType": "max",
-                        "rateLimitTier": "default_claude_max_20x",
-                    }
-                }
-            )
-        )
-        hist = claude_dir / "history.jsonl"
-        now = datetime.now(UTC)
-        # Three entries inside the 5h window + three outside 5h but inside 7d.
-        inside_5h = [now - timedelta(minutes=30), now - timedelta(hours=1), now]
-        outside_5h = [now - timedelta(hours=8), now - timedelta(days=2), now - timedelta(days=4)]
-        stale = [now - timedelta(days=30)]
-        lines = []
-        for idx, ts in enumerate(inside_5h + outside_5h + stale):
-            ms = int(ts.timestamp() * 1000)
-            lines.append(json.dumps({"timestamp": ms, "sessionId": f"s{idx}", "display": "/x"}))
-        hist.write_text("\n".join(lines))
-        monkeypatch.setattr(panel_usage.Path, "home", classmethod(lambda cls: home))
-
-        stats = panel_usage.fetch_claude_code_usage()
-        assert stats.provider == "claude_code"
-        # 5h window: 3 entries.
-        assert stats.hour5_used == 3
-        # 7d window: 6 entries (3 inside 5h + 3 outside 5h but inside 7d).
-        assert stats.week7_used == 6
-        # Both limits resolved from the tier table.
-        assert stats.hour5_limit == panel_usage._CLAUDE_TIER_5H_LIMITS["default_claude_max_20x"]
-        assert stats.week7_limit == panel_usage._CLAUDE_TIER_WEEKLY_LIMITS["default_claude_max_20x"]
-        # Fractions come out > 0 and <= 1.
-        assert stats.hour5_fraction is not None and 0 < stats.hour5_fraction <= 1.0
-        assert stats.week7_fraction is not None and 0 < stats.week7_fraction <= 1.0
-
-    def test_panel_usage_claude_unknown_tier_leaves_limits_none(self, tmp_path, monkeypatch):
-        """Unknown subscription tier => no bar, raw counts still populated."""
-        import json
-        from datetime import UTC, datetime
-
-        from augint_tools.dashboard import usage as panel_usage
-
-        home = tmp_path
-        claude_dir = home / ".claude"
-        claude_dir.mkdir()
-        (claude_dir / ".credentials.json").write_text(
-            json.dumps(
-                {
-                    "claudeAiOauth": {
-                        "subscriptionType": "mystery",
-                        "rateLimitTier": "some_new_tier_we_dont_know",
-                    }
-                }
-            )
-        )
-        hist = claude_dir / "history.jsonl"
-        now_ms = int(datetime.now(UTC).timestamp() * 1000)
-        hist.write_text(json.dumps({"timestamp": now_ms, "sessionId": "s1", "display": "/x"}))
-        monkeypatch.setattr(panel_usage.Path, "home", classmethod(lambda cls: home))
-
-        stats = panel_usage.fetch_claude_code_usage()
-        # Raw counts are still filled, but limits stay None so the widget
-        # renders the number without a bogus bar.
-        assert stats.hour5_used == 1
-        assert stats.week7_used == 1
-        assert stats.hour5_limit is None
-        assert stats.week7_limit is None
-        assert stats.hour5_fraction is None
-        assert stats.week7_fraction is None
-
-    def test_panel_usage_openai_unconfigured_clear_message(self, monkeypatch, tmp_path):
-        """Without env/keyring/config, OpenAI reports the SSO-less hint clearly."""
-        from augint_tools.dashboard import usage as panel_usage
-
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.setattr(panel_usage.Path, "home", classmethod(lambda cls: tmp_path))
-        stats = panel_usage.fetch_openai_usage()
-        assert stats.status == "unconfigured"
-        assert stats.error and "SSO" in stats.error
-
-    def test_panel_usage_openai_resolves_env_key(self, monkeypatch):
-        from augint_tools.dashboard import usage as panel_usage
-
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-        assert panel_usage._resolve_openai_key() == "sk-test"
-
-    def test_panel_usage_openai_resolves_config_file(self, monkeypatch, tmp_path):
-        from augint_tools.dashboard import usage as panel_usage
-
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        home = tmp_path
-        cfg_dir = home / ".openai"
-        cfg_dir.mkdir()
-        (cfg_dir / "api_key").write_text("sk-from-file\n")
-        monkeypatch.setattr(panel_usage.Path, "home", classmethod(lambda cls: home))
-        assert panel_usage._resolve_openai_key() == "sk-from-file"
-
-    def test_panel_usage_copilot_no_gh_cli(self, monkeypatch):
-        from augint_tools.dashboard import usage as panel_usage
-
-        monkeypatch.setattr(panel_usage.shutil, "which", lambda _cmd: None)
-        stats = panel_usage.fetch_copilot_usage()
-        assert stats.status == "unconfigured"
-        assert "gh CLI" in (stats.note or "")
-
-    def test_panel_usage_copilot_billing_path(self, monkeypatch):
-        from augint_tools.dashboard import usage as panel_usage
-
-        monkeypatch.setattr(panel_usage.shutil, "which", lambda _cmd: "/usr/bin/gh")
-        monkeypatch.setattr(
-            panel_usage,
-            "_gh_copilot_billing",
-            lambda: {
-                "copilot_plan": "business",
-                "last_activity_at": "2026-04-10T10:00:00Z",
-            },
-        )
-        stats = panel_usage.fetch_copilot_usage()
-        assert stats.status == "ok"
-        assert stats.tier == "business"
-        assert "2026-04-10" in (stats.note or "")
-
-    def test_panel_usage_daily_buckets_stats_cache_fallback(self, monkeypatch, tmp_path):
-        """With no history.jsonl, fall back to stats-cache for daily buckets."""
-        import json
-        from datetime import UTC, datetime, timedelta
-
-        from augint_tools.dashboard import usage as panel_usage
-
-        today = datetime.now(UTC).date()
-        home = tmp_path
-        claude_dir = home / ".claude"
-        claude_dir.mkdir()
-        cache_path = claude_dir / "stats-cache.json"
-        cache_path.write_text(
-            json.dumps(
-                {
-                    "dailyActivity": [
-                        {"date": (today - timedelta(days=1)).isoformat(), "messageCount": 42},
-                        {"date": (today - timedelta(days=3)).isoformat(), "messageCount": 10},
-                    ]
-                }
-            )
-        )
-        monkeypatch.setattr(panel_usage.Path, "home", classmethod(lambda cls: home))
-        buckets = panel_usage.claude_daily_message_buckets(window_days=7)
-        assert sum(buckets) == 52
 
 
 class TestPrefs:
@@ -2028,7 +1761,7 @@ class TestPrefs:
         from augint_tools.dashboard.prefs import DashboardPrefs
 
         prefs = DashboardPrefs(
-            sort_mode="problem",
+            sort_mode="alpha",
             active_filters=["broken-ci"],
             panel_width=50,
             flash_enabled=False,
@@ -2038,7 +1771,7 @@ class TestPrefs:
             app = DashboardApp(repos=[], skip_refresh=True, saved_prefs=prefs)
             async with app.run_test() as pilot:
                 await pilot.pause()
-                assert app.state.sort_mode == "problem"
+                assert app.state.sort_mode == "alpha"
                 assert app.state.active_filters == {"broken-ci"}
                 assert app.state.panel_width == 50
                 assert app._flash_enabled is False

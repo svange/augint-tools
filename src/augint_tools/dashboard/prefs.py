@@ -43,6 +43,9 @@ class DashboardPrefs:
             filtered["active_filters"] = [
                 "non-workspace" if f == "no-workspace" else f for f in filters
             ]
+        # Migrate removed "problem" sort mode -> "health".
+        if filtered.get("sort_mode") == "problem":
+            filtered["sort_mode"] = "health"
         return cls(**filtered)
 
 

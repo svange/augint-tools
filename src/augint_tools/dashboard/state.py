@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from .awsprobe import AwsState
     from .sysmeter import GpuStats, RamStats
     from .sysprobe import SystemSnapshot
-    from .usage import UsageStats
 
 # Panel sizing -- mirrors v1 constraints (lesson #13).
 PANEL_WIDTH_DEFAULT = 38
@@ -32,7 +31,7 @@ PANEL_WIDTH_STEP = 2
 UNASSIGNED_TEAM = "unassigned"
 OPEN_SOURCE_TEAM = "__open_source__"
 
-SORT_MODES: tuple[str, ...] = ("health", "alpha", "problem")
+SORT_MODES: tuple[str, ...] = ("health", "alpha")
 
 # --- Filter categories ---------------------------------------------------
 VISIBILITY_FILTERS: tuple[str, ...] = ("private", "public")
@@ -96,7 +95,6 @@ class AppState:
     health_by_name: dict[str, RepoHealth] = field(default_factory=dict)
     repo_teams: dict[str, RepoTeamInfo] = field(default_factory=dict)
     team_labels: dict[str, str] = field(default_factory=lambda: {UNASSIGNED_TEAM: "Unassigned"})
-    usage_stats: list[UsageStats] = field(default_factory=list)
     gpu_stats: GpuStats | None = None
     ram_stats: RamStats | None = None
     system_snapshot: SystemSnapshot | None = None
@@ -316,12 +314,23 @@ def apply_open_source_team(state: AppState) -> None:
 # ---------------------------------------------------------------------------
 
 
-def apply_sort(healths: list[RepoHealth], mode: str) -> list[RepoHealth]:
+def apply_sort(
+    healths: list[RepoHealth],
+    mode: str,
+    repo_teams: dict[str, RepoTeamInfo] | None = None,
+) -> list[RepoHealth]:
     if mode == "alpha":
         return sorted(healths, key=lambda h: h.status.name.lower())
-    if mode == "problem":
-        return sorted(healths, key=lambda h: (int(h.worst_severity), h.status.name.lower()))
-    return sorted(healths, key=lambda h: h.score)
+    # "health": primary=severity, secondary=team, tertiary=problem count.
+    teams = repo_teams or {}
+    return sorted(
+        healths,
+        key=lambda h: (
+            int(h.worst_severity),
+            teams.get(h.status.full_name, RepoTeamInfo()).primary,
+            h.score,
+        ),
+    )
 
 
 def _matches_filter(h: RepoHealth, mode: str, repo_teams: dict[str, RepoTeamInfo]) -> bool:
@@ -434,6 +443,7 @@ def visible_healths(state: AppState) -> list[RepoHealth]:
     return apply_sort(
         apply_active_filters(state.healths, state.active_filters, state.repo_teams),
         state.sort_mode,
+        state.repo_teams,
     )
 
 

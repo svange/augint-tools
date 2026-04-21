@@ -56,7 +56,6 @@ from .state import (
 from .sysmeter import probe_gpu, probe_ram
 from .sysprobe import probe_system
 from .themes import get_theme, list_themes
-from .usage import claude_daily_message_buckets, fetch_all_usage
 from .widgets.aws_drawer import AwsDrawer
 from .widgets.card_container import CardContainer
 from .widgets.dashboard_footer import DashboardFooter
@@ -81,10 +80,6 @@ def _progress_bar(fraction: float, width: int) -> str:
     return "\u2588" * filled + "\u2591" * (width - filled)
 
 
-# Unicode 'lower N eighth blocks' for sparkline rendering (U+2581..U+2588).
-_SPARK_GLYPHS = " \u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"
-
-
 def _concat_sections(sections: list[tuple[str, Text]]) -> Text:
     """Concatenate a list of named sections into a single ``Text``.
 
@@ -96,21 +91,6 @@ def _concat_sections(sections: list[tuple[str, Text]]) -> Text:
     for _, chunk in sections:
         out.append_text(chunk)
     return out
-
-
-def _sparkline(values: list[int]) -> str:
-    """Render an N-char sparkline for ``values`` using block-height glyphs."""
-    if not values:
-        return ""
-    peak = max(values)
-    if peak <= 0:
-        return "\u2581" * len(values)
-    out: list[str] = []
-    for v in values:
-        idx = int(round((v / peak) * (len(_SPARK_GLYPHS) - 1)))
-        idx = max(0, min(len(_SPARK_GLYPHS) - 1, idx))
-        out.append(_SPARK_GLYPHS[idx])
-    return "".join(out)
 
 
 # How long a newly-broken (or newly-degraded-to-yellow) repo keeps flashing
@@ -141,18 +121,6 @@ def _card_severity_class(health: RepoHealth | None) -> str | None:
     if worst in (_Sev.HIGH, _Sev.MEDIUM):
         return "warning"
     return "ok"
-
-
-def _usage_status_color(status: str, spec) -> str:
-    """Map a UsageStats.status onto the active theme's severity palette."""
-    from .health import Severity as _Sev
-
-    mapping: dict[str, str] = {
-        "ok": spec.severity_colors[_Sev.OK],
-        "warning": spec.severity_colors[_Sev.MEDIUM],
-        "critical": spec.severity_colors[_Sev.CRITICAL],
-    }
-    return mapping.get(status, "dim")
 
 
 class OrgDrawerHeader(Container):
@@ -283,13 +251,9 @@ class MainScreen(Screen[None]):
         if self._effects_by_name:
             self.call_after_refresh(self._reposition_all_effects)
 
-    def rerender_usage_only(self) -> None:
-        """Update only the usage-derived UI (HighlightBar + open usage/org drawer)."""
-        self._highlight_bar.rerender()
-        if self._drawer.is_open and self._drawer.mode == "usage":
-            self._drawer.set_content(self._usage_drawer_content())
+    def rerender_org_drawer(self) -> None:
+        """Refresh the org drawer system meters when probes update."""
         if self._top_drawer.is_open:
-            # Org drawer embeds a usage block; refresh it in place.
             self._top_drawer.set_content(
                 self._org_drawer_left_sections(),
                 self._org_drawer_middle_sections(),
@@ -489,10 +453,6 @@ class MainScreen(Screen[None]):
         content = self._detail_drawer_content(health)
         self._drawer.toggle("detail", content)
 
-    def toggle_usage_drawer(self) -> None:
-        content = self._usage_drawer_content()
-        self._drawer.toggle("usage", content)
-
     def toggle_org_drawer(self) -> None:
         self._top_drawer.toggle(
             self._org_drawer_left_sections(),
@@ -632,10 +592,6 @@ class MainScreen(Screen[None]):
             header.append(f"{title} -- org dashboard\n\n", style="bold")
             header.append("no data yet. press r to refresh.\n\n", style="dim")
             sections.append(("empty", header))
-            usage = Text()
-            self._append_usage_block(usage, spec)
-            if usage.plain:
-                sections.append(("usage", usage))
             return sections
 
         by_sev: dict[_Sev, int] = {}
@@ -664,10 +620,6 @@ class MainScreen(Screen[None]):
         self._append_weather(weather, by_sev, state.healths, spec)
         sections.append(("weather", weather))
 
-        activity = Text()
-        self._append_activity_spark(activity, spec)
-        sections.append(("activity", activity))
-
         pr_ages = Text()
         self._append_pr_ages(pr_ages, state.healths, spec)
         sections.append(("pr_ages", pr_ages))
@@ -676,11 +628,6 @@ class MainScreen(Screen[None]):
         self._append_team_mix(team_mix, state, spec)
         if team_mix.plain:
             sections.append(("team_mix", team_mix))
-
-        usage = Text()
-        self._append_usage_block(usage, spec)
-        if usage.plain:
-            sections.append(("usage", usage))
 
         hint = Text()
         hint.append("press i or click header to close.", style="dim")
@@ -914,24 +861,6 @@ class MainScreen(Screen[None]):
         t.append("   " + " · ".join(bits), style="dim")
         t.append("\n\n")
 
-    def _append_activity_spark(self, t: Text, spec) -> None:
-        """7-day Claude-message-per-day sparkline + totals."""
-        try:
-            buckets = claude_daily_message_buckets(7)
-        except Exception:
-            buckets = []
-        t.append("activity ", style="bold")
-        if not buckets or not any(buckets):
-            t.append("no recent Claude activity", style="dim")
-            t.append("\n\n")
-            return
-        bar = _sparkline(buckets)
-        peak = max(buckets)
-        total = sum(buckets)
-        t.append(bar, style="cyan")
-        t.append(f"  7d: {total:,} msgs   peak {peak:,}/day", style="dim")
-        t.append("\n\n")
-
     def _append_pr_ages(self, t: Text, healths: list, spec) -> None:
         """Approximate PR-age histogram using the state's open_prs + stale findings."""
         from .health import Severity as _Sev
@@ -1092,98 +1021,6 @@ class MainScreen(Screen[None]):
         if len(self._state.healths) > 50:
             t.append(f"  (+{len(self._state.healths) - 50} more)", style="dim")
 
-    def _append_usage_block(self, t: Text, spec) -> None:
-        """Usage meters for Claude Code / OpenAI / Copilot."""
-        stats_list = self._state.usage_stats
-        if not stats_list:
-            t.append("usage\n", style="bold")
-            t.append("  loading...\n", style="dim")
-            return
-        # Only show providers that are actually configured.
-        configured = [s for s in stats_list if s.status != "unconfigured"]
-        if not configured:
-            return
-        t.append("usage\n", style="bold")
-        for stats in configured:
-            if stats.provider == "claude_code":
-                self._append_claude_usage_rows(t, stats, spec)
-            else:
-                self._append_single_usage_row(t, stats, spec)
-        t.append("\n")
-
-    def _append_single_usage_row(self, t: Text, stats, spec) -> None:
-        """Render a one-line provider row (used for OpenAI / Copilot)."""
-        t.append(f"  {stats.display_name:<12}")
-        fraction = stats.usage_fraction
-        if fraction is not None and stats.limit:
-            bar = _progress_bar(fraction, 14)
-            color = _usage_status_color(stats.status, spec)
-            t.append(bar, style=color)
-            pct = int(fraction * 100)
-            t.append(f" {pct}%", style="dim")
-            if stats.tier:
-                t.append(f" {stats.tier}", style="dim")
-        elif stats.status == "empty":
-            t.append("no data", style="dim")
-        elif stats.status == "unknown":
-            if stats.tier:
-                t.append(f"{stats.tier}", style="dim")
-            elif stats.note:
-                t.append(stats.note, style="dim")
-        else:
-            t.append(f"{stats.messages} msgs", style="dim")
-            if stats.tier:
-                t.append(f" {stats.tier}", style="dim")
-        t.append("\n")
-
-    def _append_claude_usage_rows(self, t: Text, stats, spec) -> None:
-        """Render Claude with both 5-hour and 7-day rolling windows.
-
-        A single provider row is not enough context on a Max plan -- the user
-        needs to see both the session window (5h) and the weekly window (7d)
-        so they can tell which one they're about to hit. We render a header
-        line with the tier label, then an indented line per window.
-        """
-        t.append(f"  {stats.display_name:<12}", style="bold")
-        if stats.tier:
-            t.append(f"{stats.tier}", style="dim")
-        t.append("\n")
-
-        windows = (
-            ("5h", stats.hour5_used, stats.hour5_limit, stats.hour5_fraction),
-            ("7d", stats.week7_used, stats.week7_limit, stats.week7_fraction),
-        )
-        color = _usage_status_color(stats.status, spec)
-        rendered_any = False
-        for label, used, win_limit, fraction in windows:
-            if used is None and win_limit is None:
-                continue
-            rendered_any = True
-            t.append(f"    {label:<3}")
-            if fraction is not None:
-                t.append(_progress_bar(fraction, 10), style=color)
-                pct = int(fraction * 100)
-                t.append(f" {pct}%", style="dim")
-                if used is not None and win_limit:
-                    t.append(f"  {used}/{win_limit}", style="dim")
-            elif used is not None and used > 0:
-                # Known count but unknown limit -- show the raw number.
-                t.append(f"{used} msgs", style="dim")
-            else:
-                t.append("no data", style="dim")
-            t.append("\n")
-
-        if not rendered_any:
-            # Extreme fallback: no window data at all.
-            t.append("    ")
-            if stats.status == "empty":
-                t.append("no data", style="dim")
-            elif stats.note:
-                t.append(stats.note, style="dim")
-            else:
-                t.append(f"{stats.messages} msgs", style="dim")
-            t.append("\n")
-
     def _append_system_block(self, t: Text, spec) -> None:
         """Host-system meters: RAM (always, when /proc/meminfo is readable)
         and GPU (only when nvidia-smi is present and returns data).
@@ -1250,26 +1087,6 @@ class MainScreen(Screen[None]):
             t.append(f" {vram_pct}% {gpu.vram_used_gb:.0f}/{gpu.vram_total_gb:.0f}G\n")
         t.append("\n")
 
-    def _usage_drawer_content(self) -> Text:
-        t = Text("usage (local data only)\n\n", style="bold")
-        if not self._state.usage_stats:
-            t.append("no usage data available.\n", style="dim")
-            return t
-        for stats in self._state.usage_stats:
-            t.append(f"{stats.display_name}\n", style="bold")
-            t.append(f"  status:   {stats.status}\n")
-            if stats.tier:
-                t.append(f"  tier:     {stats.tier}\n")
-            t.append(f"  messages: {stats.messages}\n")
-            t.append(f"  sessions: {stats.sessions}\n")
-            if stats.note:
-                t.append(f"  note:     {stats.note}\n", style="dim")
-            if stats.error:
-                t.append(f"  error:    {stats.error}\n", style="red")
-            t.append("\n")
-        t.append("press u to close.", style="dim")
-        return t
-
 
 class DashboardApp(App[None]):
     """V2 interactive health dashboard for GitHub repositories."""
@@ -1291,7 +1108,6 @@ class DashboardApp(App[None]):
         Binding("t", "cycle_theme", "Theme"),
         Binding("b", "toggle_flash", "Blink"),
         Binding("d", "toggle_drawer", "Detail"),
-        Binding("u", "toggle_usage", "Usage"),
         Binding("i", "toggle_org", "Org"),
         Binding("e", "toggle_errors", "Errors"),
         Binding("E", "clear_errors", "Clear Errors", show=False),
@@ -1430,10 +1246,6 @@ class DashboardApp(App[None]):
             # for the 20-30s the initial GitHub fetch takes.
             self.set_interval(self._refresh_seconds, self._trigger_refresh)
             self._trigger_refresh()
-            # Usage fetch in the background -- never block the first paint.
-            self._refresh_usage()
-            self.set_interval(60.0, self._refresh_usage)
-
         self.set_interval(1.0, self._tick_status)
         self.set_interval(_FLASH_TICK_SECONDS, self._tick_flash)
         # Probe host RAM / GPU in the background: once at startup so the
@@ -1742,33 +1554,6 @@ class DashboardApp(App[None]):
             else:
                 h.warning_since = None
 
-    def _refresh_usage(self) -> None:
-        """Periodic usage refresh -- only repaints the usage UI, not the grid."""
-        self.run_worker(self._refresh_usage_sync, thread=True, exit_on_error=False)
-
-    def _refresh_usage_sync(self) -> None:
-        try:
-            stats = fetch_all_usage()
-        except Exception as exc:
-            # fetch_all_usage handles per-provider errors internally and returns
-            # graceful "unavailable" stats. Only truly unexpected errors (bugs)
-            # reach here -- log those so they surface in the error drawer.
-            import subprocess
-            import urllib.error
-
-            expected_types = (
-                urllib.error.HTTPError,
-                urllib.error.URLError,
-                subprocess.SubprocessError,
-                OSError,
-                TimeoutError,
-            )
-            if not isinstance(exc, expected_types):
-                self.state.log_error("usage", f"{exc.__class__.__name__}: {exc}")
-            return
-        self.state.usage_stats = stats
-        self.call_from_thread(self._rerender_usage_only)
-
     def _tick_sysmeter(self) -> None:
         """Re-probe host system meters only while the org drawer is open.
 
@@ -1794,7 +1579,7 @@ class DashboardApp(App[None]):
             return
         self.state.gpu_stats = gpu
         self.state.ram_stats = ram
-        self.call_from_thread(self._rerender_usage_only)
+        self.call_from_thread(self._rerender_org_drawer)
 
     # ---- system probe worker ----
 
@@ -1862,10 +1647,10 @@ class DashboardApp(App[None]):
             except Exception as exc:
                 self.state.log_error("ui", f"{exc.__class__.__name__}: {exc}")
 
-    def _rerender_usage_only(self) -> None:
+    def _rerender_org_drawer(self) -> None:
         if self._main is not None:
             try:
-                self._main.rerender_usage_only()
+                self._main.rerender_org_drawer()
             except Exception as exc:
                 self.state.log_error("ui", f"{exc.__class__.__name__}: {exc}")
 
@@ -1964,10 +1749,6 @@ class DashboardApp(App[None]):
     def action_toggle_drawer(self) -> None:
         if self._main is not None:
             self._main.toggle_detail_drawer()
-
-    def action_toggle_usage(self) -> None:
-        if self._main is not None:
-            self._main.toggle_usage_drawer()
 
     def action_toggle_org(self) -> None:
         if self._main is None:

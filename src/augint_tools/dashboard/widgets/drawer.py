@@ -9,7 +9,7 @@ from textual import events
 from textual.containers import Container
 from textual.widgets import Static
 
-DrawerMode = Literal["detail", "usage"]
+DrawerMode = Literal["detail"]
 
 
 class Drawer(Container):

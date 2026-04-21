@@ -190,6 +190,7 @@ class TestRegistry:
         assert "renovate_prs_piling" in names
         assert "stale_prs" in names
         assert "open_issues" in names
+        assert "open_prs" in names
 
     def test_all_checks_returns_instances(self):
         checks = all_checks()
@@ -302,7 +303,7 @@ class TestRenovatePRsPiling:
         assert result.severity == Severity.OK
 
     def test_below_threshold(self):
-        pulls = [_mock_pr(login="renovate[bot]") for _ in range(2)]
+        pulls = [_mock_pr(login="renovate[bot]")]
         result = get_check("renovate_prs_piling").evaluate(
             _mock_repo(), _status(), config={}, pulls=pulls
         )
@@ -325,9 +326,9 @@ class TestRenovatePRsPiling:
         assert result.link is not None
 
     def test_custom_threshold(self):
-        pulls = [_mock_pr(login="renovate[bot]") for _ in range(2)]
+        pulls = [_mock_pr(login="renovate[bot]") for _ in range(3)]
         result = get_check("renovate_prs_piling").evaluate(
-            _mock_repo(), _status(), config={"renovate_pr_threshold": 2}, pulls=pulls
+            _mock_repo(), _status(), config={"renovate_pr_threshold": 3}, pulls=pulls
         )
         assert result.severity == Severity.HIGH
 
@@ -411,39 +412,69 @@ def _mock_issue(login="human-user", is_pr=False):
 
 class TestOpenIssues:
     def test_below_threshold(self):
-        result = get_check("open_issues").evaluate(_mock_repo(), _status(open_issues=5), config={})
+        result = get_check("open_issues").evaluate(_mock_repo(), _status(open_issues=0), config={})
         assert result.severity == Severity.OK
 
     def test_above_threshold_all_human(self):
         repo = _mock_repo()
-        repo.get_issues.return_value = [_mock_issue() for _ in range(15)]
-        result = get_check("open_issues").evaluate(repo, _status(open_issues=15), config={})
-        assert result.severity == Severity.LOW
-        assert "(15) open issues" in result.summary
+        repo.get_issues.return_value = [_mock_issue() for _ in range(3)]
+        result = get_check("open_issues").evaluate(repo, _status(open_issues=3), config={})
+        assert result.severity == Severity.MEDIUM
+        assert "(3) open issues" in result.summary
         assert result.link is not None
 
     def test_bot_issues_excluded(self):
         repo = _mock_repo()
-        issues = [_mock_issue() for _ in range(5)] + [
+        # Only bot-filed issues (e.g. Renovate Dependency Dashboard) should not flip yellow.
+        issues = [
             _mock_issue(login="renovate[bot]"),
             _mock_issue(login="dependabot[bot]"),
             _mock_issue(login="github-actions[bot]"),
         ]
-        # Total is 8 but only 5 are human-filed.
-        # Even though open_issues=12 triggers the API fetch,
-        # the filtered count (5) is below the default threshold (10).
         repo.get_issues.return_value = issues
-        result = get_check("open_issues").evaluate(repo, _status(open_issues=12), config={})
+        result = get_check("open_issues").evaluate(repo, _status(open_issues=3), config={})
         assert result.severity == Severity.OK
-        assert "(5) open issues" in result.summary
+        assert "(0) open issues" in result.summary
 
     def test_custom_threshold(self):
         repo = _mock_repo()
         repo.get_issues.return_value = [_mock_issue() for _ in range(3)]
         result = get_check("open_issues").evaluate(
-            repo, _status(open_issues=3), config={"open_issues_threshold": 3}
+            repo, _status(open_issues=3), config={"open_issues_threshold": 5}
         )
-        assert result.severity == Severity.LOW
+        assert result.severity == Severity.OK
+
+
+class TestOpenPRs:
+    def test_no_prs(self):
+        result = get_check("open_prs").evaluate(_mock_repo(), _status(open_prs=0), config={})
+        assert result.severity == Severity.OK
+
+    def test_one_pr_triggers(self):
+        result = get_check("open_prs").evaluate(_mock_repo(), _status(open_prs=1), config={})
+        assert result.severity == Severity.MEDIUM
+        assert "(1) open PR" in result.summary
+        assert result.link is not None
+
+    def test_drafts_excluded(self):
+        # Two open PRs but both are drafts -- should not flip yellow.
+        result = get_check("open_prs").evaluate(
+            _mock_repo(), _status(open_prs=2, draft_prs=2), config={}
+        )
+        assert result.severity == Severity.OK
+
+    def test_non_draft_counted(self):
+        result = get_check("open_prs").evaluate(
+            _mock_repo(), _status(open_prs=3, draft_prs=2), config={}
+        )
+        assert result.severity == Severity.MEDIUM
+        assert "(1) open PR" in result.summary
+
+    def test_custom_threshold(self):
+        result = get_check("open_prs").evaluate(
+            _mock_repo(), _status(open_prs=1), config={"open_prs_threshold": 2}
+        )
+        assert result.severity == Severity.OK
 
 
 # ---------------------------------------------------------------------------

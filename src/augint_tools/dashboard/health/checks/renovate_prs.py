@@ -27,7 +27,7 @@ class RenovatePRsPilingCheck:
         config: dict,
         pulls: list | None = None,
     ) -> HealthCheckResult:
-        threshold = config.get("renovate_pr_threshold", 3)
+        threshold = config.get("renovate_pr_threshold", 2)
 
         if pulls is None:
             pulls = list(repo.get_pulls(state="open"))

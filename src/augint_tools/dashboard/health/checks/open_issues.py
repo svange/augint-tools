@@ -27,7 +27,7 @@ class OpenIssuesCheck:
         config: dict,
         pulls: list | None = None,
     ) -> HealthCheckResult:
-        threshold = config.get("open_issues_threshold", 10)
+        threshold = config.get("open_issues_threshold", 1)
 
         # Fast path: if the total (including bots) is below threshold,
         # the human-only count can't exceed it either.
@@ -55,7 +55,7 @@ class OpenIssuesCheck:
         if human_count >= threshold:
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.LOW,
+                severity=Severity.MEDIUM,
                 summary=f"({human_count}) open issues (excl. bots)",
                 link=f"https://github.com/{status.full_name}/issues",
             )

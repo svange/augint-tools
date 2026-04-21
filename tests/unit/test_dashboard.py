@@ -789,6 +789,45 @@ class TestRepoCardRender:
         card.apply_theme(nord)
         assert card._theme_spec is nord
 
+    def test_counts_line_no_hint_when_no_issues(self):
+        RepoCard, spec = self._spec()
+        card = RepoCard(_health(), theme_spec=spec)
+        line = card._counts_line(card.health)
+        # No style override should be applied -- the spans inherit from the
+        # surrounding card text.
+        assert all(span.style in ("", "dim") for span in line.spans)
+
+    def test_counts_line_blue_hint_under_threshold(self):
+        from datetime import UTC, datetime, timedelta
+
+        RepoCard, spec = self._spec()
+        status = _status(open_issues=3)
+        status.human_open_issues = 3
+        status.oldest_issue_created_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        health = RepoHealth(status=status)
+        card = RepoCard(health, theme_spec=spec)
+        line = card._counts_line(health)
+        # paper theme maps Severity.LOW to "bright_black".
+        low_color = spec.severity_colors[Severity.LOW]
+        assert any(low_color in str(span.style) for span in line.spans)
+
+    def test_counts_line_yellow_hint_when_stale(self):
+        from datetime import UTC, datetime, timedelta
+
+        RepoCard, spec = self._spec()
+        status = _status(open_issues=2)
+        status.human_open_issues = 2
+        status.oldest_issue_created_at = (datetime.now(UTC) - timedelta(days=5)).isoformat()
+        health = RepoHealth(status=status)
+        card = RepoCard(health, theme_spec=spec)
+        line = card._counts_line(health)
+        # paper theme maps Severity.MEDIUM to "yellow"; stale overrides blue.
+        medium_color = spec.severity_colors[Severity.MEDIUM]
+        low_color = spec.severity_colors[Severity.LOW]
+        styles = [str(span.style) for span in line.spans]
+        assert any(medium_color in s for s in styles)
+        assert not any(low_color in s for s in styles if low_color != medium_color)
+
 
 class TestDrillDown:
     def test_drilldown_renders_findings(self):

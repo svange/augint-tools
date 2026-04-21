@@ -22,6 +22,8 @@ from loguru import logger
 CACHE_DIR = Path.home() / ".cache" / "ai-gh"
 CACHE_FILE = CACHE_DIR / "tui_cache.json"
 
+_BOT_LOGINS = {"renovate[bot]", "renovate-bot", "dependabot[bot]", "github-actions[bot]"}
+
 
 def has_dev_branch(repo: Repository) -> bool:
     """Check if the repository has a dev branch."""
@@ -112,6 +114,13 @@ class RepoStatus:
     tags: tuple[str, ...] = ()
     # Whether the repo is private on GitHub.
     private: bool = False
+    # Human-filed open issues (bots + PRs filtered out). Populated only when
+    # open_issues > 0 -- otherwise zero and skipped to save an API call.
+    human_open_issues: int = 0
+    # ISO-8601 UTC creation timestamp of the oldest human-filed open issue.
+    # None when there are no human-filed open issues. Drives the "stale" tint
+    # on the counts line when any issue is older than three days.
+    oldest_issue_created_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +275,32 @@ def _to_iso_utc(when) -> str | None:
         return None
 
 
+def _fetch_human_issue_summary(repo: Repository, open_issues: int) -> tuple[int, str | None]:
+    """Count human-filed open issues and find the oldest one's creation time.
+
+    Skipped entirely when ``open_issues == 0`` to avoid an API call. On any
+    error we return ``(0, None)`` rather than degrading the whole refresh.
+    """
+    if open_issues <= 0:
+        return 0, None
+    try:
+        issues = repo.get_issues(state="open")
+        human_count = 0
+        oldest: datetime | None = None
+        for issue in issues:
+            if issue.pull_request is not None:
+                continue
+            if issue.user and issue.user.login in _BOT_LOGINS:
+                continue
+            human_count += 1
+            created = getattr(issue, "created_at", None)
+            if created is not None and (oldest is None or created < oldest):
+                oldest = created
+        return human_count, _to_iso_utc(oldest)
+    except GithubException:
+        return 0, None
+
+
 def fetch_repo_status(
     repo: Repository,
     previous: RepoStatus | None = None,
@@ -305,6 +340,8 @@ def fetch_repo_status_with_pulls(
         # open_issues_count includes PRs in GitHub's API
         open_issues = max(0, repo.open_issues_count - open_prs)
 
+        human_open_issues, oldest_issue_created_at = _fetch_human_issue_summary(repo, open_issues)
+
         return (
             RepoStatus(
                 name=repo.name,
@@ -322,6 +359,8 @@ def fetch_repo_status_with_pulls(
                 is_workspace=is_workspace,
                 tags=tags,
                 private=getattr(repo, "private", False) or False,
+                human_open_issues=human_open_issues,
+                oldest_issue_created_at=oldest_issue_created_at,
             ),
             pulls_list,
         )

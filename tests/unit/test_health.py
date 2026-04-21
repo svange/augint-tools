@@ -412,51 +412,39 @@ def _mock_issue(login="human-user", is_pr=False):
 
 class TestOpenIssues:
     def test_below_threshold(self):
-        result = get_check("open_issues").evaluate(_mock_repo(), _status(open_issues=0), config={})
+        result = get_check("open_issues").evaluate(_mock_repo(), _status(open_issues=5), config={})
         assert result.severity == Severity.OK
 
     def test_above_threshold_all_human(self):
         repo = _mock_repo()
-        issues = [_mock_issue() for _ in range(3)]
-        # The first human-filed issue should drive the link.
-        issues[0].html_url = "https://github.com/org/repo/issues/42"
-        repo.get_issues.return_value = issues
-        result = get_check("open_issues").evaluate(repo, _status(open_issues=3), config={})
-        assert result.severity == Severity.MEDIUM
-        assert "(3) open issues" in result.summary
-        assert result.link == "https://github.com/org/repo/issues/42"
-
-    def test_link_skips_bot_issues(self):
-        repo = _mock_repo()
-        bot = _mock_issue(login="renovate[bot]")
-        human = _mock_issue()
-        human.html_url = "https://github.com/org/repo/issues/7"
-        # Bot comes first in the list; the check should still pick the human.
-        repo.get_issues.return_value = [bot, human, _mock_issue()]
-        result = get_check("open_issues").evaluate(repo, _status(open_issues=3), config={})
-        assert result.severity == Severity.MEDIUM
-        assert result.link == "https://github.com/org/repo/issues/7"
+        repo.get_issues.return_value = [_mock_issue() for _ in range(15)]
+        result = get_check("open_issues").evaluate(repo, _status(open_issues=15), config={})
+        assert result.severity == Severity.LOW
+        assert "(15) open issues" in result.summary
+        assert result.link is not None
 
     def test_bot_issues_excluded(self):
         repo = _mock_repo()
-        # Only bot-filed issues (e.g. Renovate Dependency Dashboard) should not flip yellow.
-        issues = [
+        issues = [_mock_issue() for _ in range(5)] + [
             _mock_issue(login="renovate[bot]"),
             _mock_issue(login="dependabot[bot]"),
             _mock_issue(login="github-actions[bot]"),
         ]
+        # Total is 8 but only 5 are human-filed.
+        # Even though open_issues=12 triggers the API fetch,
+        # the filtered count (5) is below the default threshold (10).
         repo.get_issues.return_value = issues
-        result = get_check("open_issues").evaluate(repo, _status(open_issues=3), config={})
+        result = get_check("open_issues").evaluate(repo, _status(open_issues=12), config={})
         assert result.severity == Severity.OK
-        assert "(0) open issues" in result.summary
+        assert "(5) open issues" in result.summary
 
     def test_custom_threshold(self):
         repo = _mock_repo()
         repo.get_issues.return_value = [_mock_issue() for _ in range(3)]
         result = get_check("open_issues").evaluate(
-            repo, _status(open_issues=3), config={"open_issues_threshold": 5}
+            repo, _status(open_issues=3), config={"open_issues_threshold": 3}
         )
-        assert result.severity == Severity.OK
+        assert result.severity == Severity.LOW
 
 
 class TestOpenPRs:

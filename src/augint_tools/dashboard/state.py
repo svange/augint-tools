@@ -9,15 +9,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from github.GithubException import GithubException
 from loguru import logger
 
 from ._data import RepoStatus, load_cache, load_cache_timestamp, load_health_cache
 from .health import RepoHealth, Severity
 
 if TYPE_CHECKING:
-    from github.Repository import Repository
-
+    from ._gql import TeamsSnapshot
     from .awsprobe import AwsState
     from .sysmeter import GpuStats, RamStats
     from .sysprobe import SystemSnapshot
@@ -50,7 +48,6 @@ FILTER_MODES: tuple[str, ...] = (
 
 _TEAM_FILTER_PREFIX = "team:"
 _ORG_FILTER_PREFIX = "org:"
-_TEAM_PERMISSION_ORDER = {"admin": 0, "maintain": 1, "push": 2, "triage": 3, "pull": 4}
 
 
 @dataclass(frozen=True)
@@ -209,90 +206,37 @@ def team_accent(team_key: str, known_teams: Iterable[str] | None = None) -> str:
     return _hsl_hex(idx * _GOLDEN_ANGLE)
 
 
-def _team_sort_key(team: object) -> tuple[int, str]:
-    permission = getattr(team, "permission", "") or ""
-    slug = getattr(team, "slug", "") or getattr(team, "name", "") or ""
-    return _TEAM_PERMISSION_ORDER.get(permission, 99), slug.lower()
+def merge_teams_snapshot(
+    state: AppState,
+    snapshot: TeamsSnapshot,
+    known_repos: Iterable[str],
+) -> None:
+    """Apply a batched GraphQL teams snapshot to state.
 
+    Replaces the previous REST-per-repo ``merge_team_data`` flow: one GraphQL
+    query covers every team in every org, and the snapshot already contains
+    the sorted (primary-first) assignment list. Must run on the main thread.
 
-@dataclass(frozen=True)
-class CollectedTeamData:
-    """Thread-safe snapshot of team data for a single repo.
-
-    Collected in worker threads, merged into ``AppState`` on the main
-    thread to avoid concurrent dict mutation.
+    Args:
+        state: AppState to mutate (repo_teams, team_labels).
+        snapshot: Fresh TeamsSnapshot from ``_gql.fetch_workspace_teams``.
+        known_repos: All repo full_names currently in the workspace. Repos
+            with no GraphQL team assignment get a default ``RepoTeamInfo()``
+            so the filter panel still lists them (apply_open_source_team
+            promotes unassigned personal repos afterward).
     """
-
-    full_name: str
-    info: RepoTeamInfo = RepoTeamInfo()
-    labels: dict[str, str] = field(default_factory=dict)
-    error: str | None = None
-
-
-def collect_repo_teams(repo: Repository) -> CollectedTeamData:
-    """Fetch team data for a repo without mutating shared state.
-
-    Safe to call from worker threads.  Returns a ``CollectedTeamData``
-    snapshot that the caller merges on the main thread via
-    ``merge_team_data``.
-    """
-    full_name = getattr(repo, "full_name", "")
-    if not full_name:
-        return CollectedTeamData(full_name="")
-    try:
-        teams = sorted(repo.get_teams(), key=_team_sort_key)
-    except GithubException as exc:
-        # 403/404 are expected for personal (non-org) repos -- the Teams API
-        # doesn't apply to user repos.  Treat as "no teams" without logging
-        # a user-visible error that would flash the error drawer.
-        if exc.status in (403, 404):
-            logger.debug(
-                f"collect_repo_teams: {full_name}: expected {exc.status} (not an org repo)"
-            )
-            return CollectedTeamData(full_name=full_name)
-        logger.debug(f"collect_repo_teams: {full_name}: {exc.__class__.__name__}: {exc}")
-        return CollectedTeamData(
-            full_name=full_name,
-            error=f"{full_name}: teams: {exc.__class__.__name__}: {exc}",
-        )
-    except Exception as exc:
-        logger.debug(f"collect_repo_teams: {full_name}: {exc.__class__.__name__}: {exc}")
-        return CollectedTeamData(
-            full_name=full_name,
-            error=f"{full_name}: teams: {exc.__class__.__name__}: {exc}",
-        )
-
-    team_keys: list[str] = []
-    labels: dict[str, str] = {}
-    for team in teams:
-        slug = getattr(team, "slug", "") or ""
-        if not slug:
+    state.team_labels.update(snapshot.labels)
+    for full_name in known_repos:
+        assignments = snapshot.by_full_name.get(full_name)
+        if not assignments:
+            # Personal repo, or org repo with no team access grants.
+            state.repo_teams[full_name] = RepoTeamInfo()
             continue
-        name = getattr(team, "name", "") or slug
-        team_keys.append(slug)
-        labels[slug] = name
-
-    if not team_keys:
-        return CollectedTeamData(full_name=full_name, labels=labels)
-    return CollectedTeamData(
-        full_name=full_name,
-        info=RepoTeamInfo(primary=team_keys[0], all=tuple(team_keys)),
-        labels=labels,
-    )
-
-
-def merge_team_data(state: AppState, collected: list[CollectedTeamData]) -> None:
-    """Apply collected team snapshots to state. Must run on the main thread."""
-    for td in collected:
-        if not td.full_name:
-            continue
-        if td.error:
-            # Keep previous data if we have it; otherwise mark unassigned.
-            if td.full_name not in state.repo_teams:
-                state.repo_teams[td.full_name] = RepoTeamInfo()
-            continue
-        state.repo_teams[td.full_name] = td.info
-        state.team_labels.update(td.labels)
+        slugs = tuple(a.slug for a in assignments)
+        state.repo_teams[full_name] = RepoTeamInfo(primary=slugs[0], all=slugs)
+    if snapshot.errored:
+        for owner, err in snapshot.errored.items():
+            logger.debug(f"teams fetch for {owner}: {err}")
 
 
 def apply_open_source_team(state: AppState) -> None:

@@ -26,7 +26,12 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from ._data import RepoStatus, build_status_from_snapshot, fetch_failing_run_detail, save_cache
-from ._gql import fetch_workspace_snapshot, pick_pipeline_yaml, pick_renovate_config
+from ._gql import (
+    fetch_workspace_snapshot,
+    fetch_workspace_teams,
+    pick_pipeline_yaml,
+    pick_renovate_config,
+)
 from ._helpers import get_viewer_login, list_repos_multi, list_user_orgs, strip_dotfile_repos
 from .health import FetchContext, RepoHealth, run_health_checks
 from .layouts import list_layouts
@@ -43,12 +48,10 @@ from .state import (
     PANEL_WIDTH_STEP,
     SORT_MODES,
     AppState,
-    CollectedTeamData,
     apply_open_source_team,
     bootstrap_from_cache,
-    collect_repo_teams,
     ensure_selection,
-    merge_team_data,
+    merge_teams_snapshot,
     move_selection,
     selected_health,
     team_accent,
@@ -72,6 +75,8 @@ from .widgets.top_drawer import TopDrawer
 if TYPE_CHECKING:
     from github import Github
     from github.Repository import Repository
+
+    from ._gql import TeamsSnapshot
 
 
 def _progress_bar(fraction: float, width: int) -> str:
@@ -1306,6 +1311,21 @@ class DashboardApp(App[None]):
         # Disabled orgs -- excluded from auto-discovery (like disabled_repos).
         self._disabled_orgs: set[str] = set()
 
+        # Team assignments change rarely, so we fetch them on a much slower
+        # cadence than the main refresh. Keeps the GraphQL point-cost bounded
+        # even when the user drops --refresh-seconds into the tens of seconds.
+        self._teams_ttl_seconds: int = 300
+        self._last_teams_refresh_at: datetime | None = None
+
+        # Cache for failing-run detail keyed by (full_name, branch, head_sha).
+        # A failing branch keeps the same head commit until someone pushes a
+        # fix or a retry -- so after the first detail fetch we never hit REST
+        # again for the same failure.
+        self._failing_detail_cache: dict[
+            tuple[str, str, str],
+            tuple[str | None, str | None],
+        ] = {}
+
         # Apply remaining saved preferences (sort, filters, panel width, flash).
         # Theme and layout are already applied via initial_theme/initial_layout
         # which the caller resolves from saved prefs + CLI overrides.
@@ -1508,7 +1528,6 @@ class DashboardApp(App[None]):
             return
 
         ordered_names: list[str] = [r.full_name for r in self._repos]
-        team_data: list[CollectedTeamData] = []
         failed_repos: set[str] = set()
 
         # Phase 1: batched GraphQL fetch -- one query per 25 repos covers
@@ -1571,52 +1590,112 @@ class DashboardApp(App[None]):
             if status.is_service and status.dev_status == "failure":
                 failing_targets.append((repo, "dev"))
 
-        # Phase 2b: REST fallback for failing-run detail. GraphQL's
-        # statusCheckRollup doesn't expose the failing job/step name; this
-        # is the only per-repo REST call and only fires for failing branches.
+        # Phase 2b: populate failing-run detail. GraphQL's statusCheckRollup
+        # doesn't expose the failing job/step name, so we fall back to REST
+        # -- but cache keyed by (full_name, branch, head_sha) so each failing
+        # commit costs exactly one REST call regardless of how many refresh
+        # cycles it stays failing.
         if failing_targets and not self.state.cancel_requested:
-            logger.debug(f"refresh: fetching failure detail for {len(failing_targets)} branch(es)")
-            detail_workers = min(4, len(failing_targets))
-            with ThreadPoolExecutor(max_workers=detail_workers) as pool:
-                detail_futures = {
-                    pool.submit(fetch_failing_run_detail, repo, branch): (repo.full_name, branch)
-                    for repo, branch in failing_targets
-                }
-                for detail_fut in as_completed(detail_futures):
-                    if self.state.cancel_requested:
-                        pool.shutdown(wait=False, cancel_futures=True)
-                        return
-                    detail_full_name, detail_branch = detail_futures[detail_fut]
-                    try:
-                        detail_err, detail_since = detail_fut.result()
-                    except Exception:
-                        continue
-                    detail_status = status_by_name.get(detail_full_name)
-                    if detail_status is None:
-                        continue
-                    if detail_branch == detail_status.default_branch:
-                        detail_status.main_error = detail_err
-                        detail_status.main_failing_since = detail_since
-                    elif detail_branch == "dev":
-                        detail_status.dev_error = detail_err
-                        detail_status.dev_failing_since = detail_since
+            to_fetch: list[tuple[Repository, str]] = []
+            for repo, branch in failing_targets:
+                snapshot = snapshot_by_name.get(repo.full_name)
+                if snapshot is None:
+                    continue
+                head_sha = (
+                    snapshot.dev_head_sha if branch == "dev" else snapshot.main_head_sha
+                ) or ""
+                cache_key = (repo.full_name, branch, head_sha)
+                cached = self._failing_detail_cache.get(cache_key)
+                if cached is not None:
+                    self._apply_failing_detail(status_by_name, repo.full_name, branch, *cached)
+                else:
+                    to_fetch.append((repo, branch))
 
-        # Phase 3: team data (still REST; small, cheap, not the hot path).
-        team_workers = min(8, len(self._repos) or 1)
-        with ThreadPoolExecutor(max_workers=team_workers) as pool:
-            team_futures = {pool.submit(collect_repo_teams, repo): repo for repo in self._repos}
-            for team_fut in as_completed(team_futures):
-                if self.state.cancel_requested:
-                    pool.shutdown(wait=False, cancel_futures=True)
-                    return
+            if to_fetch:
+                logger.debug(
+                    f"refresh: failing-run detail cache miss for {len(to_fetch)} branch(es)"
+                )
+                detail_workers = min(4, len(to_fetch))
+                with ThreadPoolExecutor(max_workers=detail_workers) as pool:
+                    detail_futures = {
+                        pool.submit(fetch_failing_run_detail, repo, branch): (
+                            repo.full_name,
+                            branch,
+                        )
+                        for repo, branch in to_fetch
+                    }
+                    for detail_fut in as_completed(detail_futures):
+                        if self.state.cancel_requested:
+                            pool.shutdown(wait=False, cancel_futures=True)
+                            return
+                        detail_full_name, detail_branch = detail_futures[detail_fut]
+                        try:
+                            detail_err, detail_since = detail_fut.result()
+                        except Exception:
+                            continue
+                        snapshot = snapshot_by_name.get(detail_full_name)
+                        head_sha = (
+                            (
+                                snapshot.dev_head_sha
+                                if detail_branch == "dev"
+                                else snapshot.main_head_sha
+                            )
+                            if snapshot is not None
+                            else ""
+                        ) or ""
+                        self._failing_detail_cache[(detail_full_name, detail_branch, head_sha)] = (
+                            detail_err,
+                            detail_since,
+                        )
+                        self._apply_failing_detail(
+                            status_by_name,
+                            detail_full_name,
+                            detail_branch,
+                            detail_err,
+                            detail_since,
+                        )
+
+            # Trim cache entries for branches that are no longer failing so it
+            # doesn't grow unbounded over a long session.
+            live_keys = {
+                (repo.full_name, branch, snapshot_by_name[repo.full_name].dev_head_sha or "")
+                if branch == "dev"
+                else (repo.full_name, branch, snapshot_by_name[repo.full_name].main_head_sha or "")
+                for repo, branch in failing_targets
+                if repo.full_name in snapshot_by_name
+            }
+            stale_keys = set(self._failing_detail_cache) - live_keys
+            for key in stale_keys:
+                self._failing_detail_cache.pop(key, None)
+
+        # Phase 3: team assignments -- one batched GraphQL query per owner,
+        # fetched on a slow cadence (teams_ttl_seconds) because team
+        # membership changes rarely. Fresh snapshot replaces state.repo_teams
+        # in the commit step.
+        teams_snapshot = None
+        if self._owners and not self.state.cancel_requested:
+            now = datetime.now(UTC)
+            is_stale = (
+                self._last_teams_refresh_at is None
+                or (now - self._last_teams_refresh_at).total_seconds() >= self._teams_ttl_seconds
+            )
+            if is_stale:
+                logger.debug(f"refresh: graphql teams fetch for {len(self._owners)} owner(s)")
                 try:
-                    td = team_fut.result()
-                    team_data.append(td)
-                    if td.error:
-                        self.state.log_error("refresh", td.error)
-                        logger.warning(f"refresh: {td.error}")
-                except Exception as team_exc:
-                    logger.warning(f"refresh: team fetch failed: {team_exc}")
+                    teams_snapshot = fetch_workspace_teams(self._github_client, self._owners)
+                    self._last_teams_refresh_at = now
+                    logger.debug(
+                        f"refresh: teams graphql cost={teams_snapshot.rate_limit_cost} "
+                        f"remaining={teams_snapshot.rate_limit_remaining}"
+                    )
+                    for owner, err in teams_snapshot.errored.items():
+                        self.state.log_error("refresh", f"teams {owner}: {err}")
+                        logger.warning(f"refresh: teams {owner}: {err}")
+                except Exception as exc:
+                    self.state.log_error(
+                        "refresh", f"teams graphql: {exc.__class__.__name__}: {exc}"
+                    )
+                    logger.error(f"refresh: teams graphql failed: {exc}")
 
         # Preserve original repo ordering.
         statuses = [status_by_name[n] for n in ordered_names]
@@ -1659,21 +1738,40 @@ class DashboardApp(App[None]):
 
         # Commit the new state on the main thread so action handlers don't
         # observe healths and health_by_name in a half-updated state.
-        self.call_from_thread(self._commit_refresh, healths, team_data, failed_repos)
+        self.call_from_thread(self._commit_refresh, healths, teams_snapshot, failed_repos)
+
+    def _apply_failing_detail(
+        self,
+        status_by_name: dict[str, RepoStatus],
+        full_name: str,
+        branch: str,
+        err: str | None,
+        failing_since: str | None,
+    ) -> None:
+        """Write failing-run detail onto the status for the given branch."""
+        status = status_by_name.get(full_name)
+        if status is None:
+            return
+        if branch == status.default_branch:
+            status.main_error = err
+            status.main_failing_since = failing_since
+        elif branch == "dev":
+            status.dev_error = err
+            status.dev_failing_since = failing_since
 
     def _commit_refresh(
         self,
         healths: list[RepoHealth],
-        team_data: list[CollectedTeamData] | None = None,
+        teams_snapshot: TeamsSnapshot | None = None,
         failed_repos: set[str] | None = None,
     ) -> None:
-        # Merge team data collected by worker threads. This is the only place
-        # repo_teams / team_labels are mutated, so the main thread never
-        # races against a background dict modification.
-        if team_data:
-            merge_team_data(self.state, team_data)
+        # Merge the batched teams snapshot if this refresh rebuilt it. The
+        # main thread is the only place that mutates repo_teams / team_labels.
+        if teams_snapshot is not None:
+            known_repos = [h.status.full_name for h in healths]
+            merge_teams_snapshot(self.state, teams_snapshot, known_repos)
             logger.debug(
-                f"commit: merged team data for {len(team_data)} repos, "
+                f"commit: merged teams for {len(teams_snapshot.by_full_name)} repos, "
                 f"{len(self.state.team_labels)} known teams"
             )
         apply_open_source_team(self.state)

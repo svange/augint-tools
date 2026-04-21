@@ -326,7 +326,14 @@ class RepoCard(Widget):
         return ""
 
     def _findings_lines(self, health: RepoHealth, limit: int) -> list[tuple[Text, str]]:
-        """Return up to ``limit`` finding rows paired with their click-target URLs."""
+        """Return up to ``limit`` finding rows paired with their click-target URLs.
+
+        When there are no real findings we still want the slot to carry useful
+        signal rather than a flat "all green" string, so we emit OK-severity
+        info lines summarising what work is sitting on this repo (open issues,
+        open PRs, drafts). Each info line routes to the matching GitHub page
+        so the user can click straight in to start working.
+        """
         spec = self._theme_spec
         actions_url = self._actions_url(health)
         lines: list[tuple[Text, str]] = []
@@ -352,13 +359,59 @@ class RepoCard(Widget):
             if len(lines) >= limit:
                 return lines
         if not lines:
-            lines.append(
+            lines.extend(self._healthy_info_lines(health, limit))
+        return lines
+
+    def _healthy_info_lines(self, health: RepoHealth, limit: int) -> list[tuple[Text, str]]:
+        """Informative OK-severity rows used when this repo has zero findings.
+
+        Surfaces open issues / PRs / drafts with click targets, so a green card
+        still offers a jumping-off point. Falls back to a single "healthy"
+        line linking to the repo home when there's nothing to show at all.
+        """
+        spec = self._theme_spec
+        status = health.status
+        ok_style = spec.severity_colors[Severity.OK]
+        full_name = status.full_name
+        issues_url = f"https://github.com/{full_name}/issues"
+        pulls_url = f"https://github.com/{full_name}/pulls"
+
+        info: list[tuple[Text, str]] = []
+        if status.open_issues > 0:
+            noun = "issue" if status.open_issues == 1 else "issues"
+            info.append(
                 (
-                    Text("all checks green", style=spec.severity_colors[Severity.OK]),
+                    Text(f"{status.open_issues} open {noun}", style=ok_style),
+                    issues_url,
+                )
+            )
+        # "open PRs" here means non-draft PRs -- drafts get their own line so
+        # the reader can tell at a glance which ones are actually review-ready.
+        ready_prs = max(0, status.open_prs - status.draft_prs)
+        if ready_prs > 0:
+            noun = "pr" if ready_prs == 1 else "prs"
+            info.append(
+                (
+                    Text(f"{ready_prs} open {noun}", style=ok_style),
+                    pulls_url,
+                )
+            )
+        if status.draft_prs > 0:
+            noun = "draft" if status.draft_prs == 1 else "drafts"
+            info.append(
+                (
+                    Text(f"{status.draft_prs} {noun}", style=ok_style),
+                    pulls_url,
+                )
+            )
+        if not info:
+            info.append(
+                (
+                    Text("healthy", style=ok_style),
                     self._repo_url(health),
                 )
             )
-        return lines
+        return info[:limit] if limit > 0 else info
 
     def _render_packed(self, health: RepoHealth) -> Text:
         self._click_map = {}

@@ -546,16 +546,67 @@ class MainScreen(Screen[None]):
         t.append(f"main ci: {status.main_status}\n")
         if status.is_service and status.dev_status:
             t.append(f"dev ci:  {status.dev_status}\n")
-        t.append(f"issues:  {status.open_issues}\n")
-        t.append(f"prs:     {status.open_prs} ({status.draft_prs} drafts)\n\n")
+        # issues + PRs counts are emitted as OSC-8 hyperlinks so clicking the
+        # number opens the matching GitHub listing. Matches the card's click
+        # routing in spirit -- drawer widgets don't support per-line click
+        # handlers, so the terminal's native link handler carries the click.
+        issues_url = f"https://github.com/{status.full_name}/issues"
+        pulls_url = f"https://github.com/{status.full_name}/pulls"
+        t.append("issues:  ")
+        t.append(str(status.open_issues), style=f"link {issues_url}")
+        t.append("\n")
+        t.append("prs:     ")
+        t.append(
+            f"{status.open_prs} ({status.draft_prs} drafts)",
+            style=f"link {pulls_url}",
+        )
+        t.append("\n\n")
         if health.findings:
             t.append("findings:\n", style="bold")
             for finding in health.findings:
                 t.append(f"  • {finding.check_name}: {finding.summary}\n")
         else:
-            t.append("all checks green.\n", style="dim")
+            # Mirror the card's OK-state summary so the drawer is useful even
+            # when the repo is fully green. Empty body -> just the closing hint.
+            summary = self._healthy_summary_line(status, issues_url, pulls_url)
+            if summary.plain:
+                t.append_text(summary)
+                t.append("\n")
         t.append("\npress d to close, enter for full drilldown.", style="dim")
         return t
+
+    def _healthy_summary_line(
+        self,
+        status: RepoStatus,
+        issues_url: str,
+        pulls_url: str,
+    ) -> Text:
+        """Single-line OK-state summary with clickable counts.
+
+        Each count is wrapped in an OSC-8 hyperlink via ``style="link ..."`` so
+        the terminal treats the number as directly clickable. Drafts share the
+        PRs URL since GitHub's /pulls page lists both.
+        """
+        line = Text()
+        pieces: list[tuple[str, str]] = []
+        if status.open_issues > 0:
+            noun = "issue" if status.open_issues == 1 else "issues"
+            pieces.append((f"{status.open_issues} {noun}", issues_url))
+        ready_prs = max(0, status.open_prs - status.draft_prs)
+        if ready_prs > 0:
+            noun = "pr" if ready_prs == 1 else "prs"
+            pieces.append((f"{ready_prs} {noun}", pulls_url))
+        if status.draft_prs > 0:
+            noun = "draft" if status.draft_prs == 1 else "drafts"
+            pieces.append((f"{status.draft_prs} {noun}", pulls_url))
+        if not pieces:
+            return line
+        line.append("no findings. open: ", style="dim")
+        for idx, (label, url) in enumerate(pieces):
+            if idx:
+                line.append(", ", style="dim")
+            line.append(label, style=f"dim link {url}")
+        return line
 
     # ------------------------------------------------------------------
     # Org drawer content
@@ -619,7 +670,7 @@ class MainScreen(Screen[None]):
         sections.append(("header", header))
 
         sev_bar = Text()
-        self._append_severity_bar(sev_bar, by_sev, total, spec)
+        self._append_severity_bar(sev_bar, by_sev, total, spec, healths=state.healths)
         sections.append(("severity_bar", sev_bar))
 
         glyphs = Text()
@@ -981,8 +1032,15 @@ class MainScreen(Screen[None]):
         spec,  # ThemeSpec
         *,
         width: int = 24,
+        healths: list | None = None,
     ) -> None:
-        """Render a colour-segmented block bar representing severity distribution."""
+        """Render a colour-segmented block bar representing severity distribution.
+
+        When every repo is green we still surface useful OK-severity info by
+        aggregating open-issue and open-PR counts across the whole workspace
+        and rendering them as clickable hyperlinks to the user's GitHub
+        dashboard (which scopes to repos they can see).
+        """
         from .health import Severity as _Sev
 
         order = [
@@ -1013,13 +1071,61 @@ class MainScreen(Screen[None]):
             if n > 0:
                 t.append("\u2588" * n, style=spec.severity_colors[sev])
         t.append("]   ")
-        pieces: list[str] = []
+        non_ok_pieces: list[tuple[str, str | None]] = []
         for sev, label in order:
+            if sev is _Sev.OK:
+                continue
             count = by_sev.get(sev, 0)
             if count:
-                pieces.append(f"{label} {count}")
-        t.append("  ".join(pieces) if pieces else "all green")
+                non_ok_pieces.append((f"{label} {count}", None))
+        pieces: list[tuple[str, str | None]] = list(non_ok_pieces)
+        # When nothing is wrong, surface aggregated OK-state info (open issues
+        # / PRs) as clickable totals instead of a flat "all green" string. The
+        # legend keeps a trailing "ok N" chip for continuity with the prior
+        # behaviour.
+        ok_count = by_sev.get(_Sev.OK, 0)
+        if not non_ok_pieces and healths:
+            pieces.extend(self._healthy_org_pieces(healths))
+        if ok_count:
+            pieces.append((f"ok {ok_count}", None))
+        if pieces:
+            for idx, (label, url) in enumerate(pieces):
+                if idx:
+                    t.append("  ")
+                if url:
+                    t.append(label, style=f"link {url}")
+                else:
+                    t.append(label)
+        else:
+            t.append("all green")
         t.append("\n\n")
+
+    def _healthy_org_pieces(self, healths: list) -> list[tuple[str, str | None]]:
+        """Aggregate OK-state totals across all healths into clickable labels.
+
+        Returns ``(label, url)`` pairs; ``url`` is attached as an OSC-8 link on
+        the rendered text. Targets GitHub's global issues/pulls dashboard --
+        when signed in this scopes to repos the user can see, giving a single
+        click-through that works across all the owners shown in the header.
+        """
+        total_issues = sum(max(0, h.status.open_issues) for h in healths)
+        total_prs = sum(max(0, h.status.open_prs) for h in healths)
+        pieces: list[tuple[str, str | None]] = []
+        if total_issues > 0:
+            pieces.append(
+                (
+                    f"issues {total_issues}",
+                    "https://github.com/issues?q=is%3Aopen+is%3Aissue",
+                )
+            )
+        if total_prs > 0:
+            pieces.append(
+                (
+                    f"prs {total_prs}",
+                    "https://github.com/pulls?q=is%3Aopen+is%3Apr",
+                )
+            )
+        return pieces
 
     def _append_repo_glyphs(self, t: Text, spec) -> None:
         """One coloured dot per repo (worst severity), capped so we don't overflow."""

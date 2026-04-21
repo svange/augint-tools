@@ -1,9 +1,10 @@
 """Built-in health checks. Importing this module triggers registration."""
 
-from . import broken_ci, open_issues, open_prs, renovate, renovate_prs, stale_prs
+from . import broken_ci, coverage, open_issues, open_prs, renovate, renovate_prs, stale_prs
 
 __all__ = [
     "broken_ci",
+    "coverage",
     "open_issues",
     "open_prs",
     "renovate",

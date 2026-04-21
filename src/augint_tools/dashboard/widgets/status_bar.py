@@ -109,6 +109,53 @@ def format_header_refresh_text(
     return f"{last_part} · {next_part}"
 
 
+def _format_interval(seconds: int) -> str:
+    """Format the auto-refresh interval as "Xs", "Xm", or "XhYYm"."""
+    if seconds <= 0:
+        return "off"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        m, s = divmod(seconds, 60)
+        return f"{m}m{s:02d}s" if s else f"{m}m"
+    h, rem = divmod(seconds, 3600)
+    m = rem // 60
+    return f"{h}h{m:02d}m" if m else f"{h}h"
+
+
+def format_header_refresh_line(
+    *,
+    is_refreshing: bool,
+    last_refresh_label: str | None,
+    next_refresh_remaining_seconds: int | None,
+    interval_seconds: int,
+) -> str:
+    """Build the prominent two-line-header second row.
+
+    Unlike ``format_header_refresh_text`` (the narrow right-aligned chip),
+    this line always names all three facts the user cares about:
+    when the last refresh completed, when the next one fires, and the
+    configured auto-refresh interval. The interval in particular is
+    otherwise invisible to the user and easy to forget.
+
+    Inputs are pre-computed so this can be unit-tested without freezing
+    time. ``last_refresh_label`` is the caller's choice of timestamp
+    format (typically local-time "HH:MM:SS").
+    """
+    interval_label = _format_interval(interval_seconds)
+    interval_part = f"interval: {interval_label}"
+    if is_refreshing and last_refresh_label is None:
+        return f"loading data...  ·  {interval_part}"
+    last_part = f"last refresh: {last_refresh_label}" if last_refresh_label else "last refresh: --"
+    if is_refreshing:
+        return f"{last_part}  ·  refreshing...  ·  {interval_part}"
+    if next_refresh_remaining_seconds is None:
+        return f"{last_part}  ·  auto-refresh off"
+    remaining = max(0, next_refresh_remaining_seconds)
+    next_label = "now" if remaining == 0 else _format_countdown(remaining)
+    return f"{last_part}  ·  next: in {next_label}  ·  {interval_part}"
+
+
 def _describe_active_filters(active: set[str], team_labels: dict[str, str] | None = None) -> str:
     """Summarise the active filter set for the status bar."""
     if not active:

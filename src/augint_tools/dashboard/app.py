@@ -64,7 +64,7 @@ from .widgets.effect_sprite import SPRITE_WIDTH, EffectKind, EffectSprite
 from .widgets.error_drawer import ErrorDrawer
 from .widgets.highlight_bar import HighlightBar
 from .widgets.repo_card import RepoCard
-from .widgets.status_bar import StatusBar, format_header_refresh_text
+from .widgets.status_bar import StatusBar, format_header_refresh_line
 from .widgets.system_drawer import SystemDrawer
 from .widgets.top_drawer import TopDrawer
 
@@ -124,34 +124,36 @@ def _card_severity_class(health: RepoHealth | None) -> str | None:
 
 
 class OrgDrawerHeader(Container):
-    """Top-docked title bar with a subtle right-aligned refresh countdown.
+    """Top-docked two-line header: title + prominent refresh status.
 
     Clicking anywhere on the bar posts :class:`Toggle`, which the main
     screen maps onto the same action as the ``i`` key (open/close the org
-    drawer). We don't subclass ``Header`` because Textual's built-in
-    header widget tall-mode click handling fights our needs, and we want
-    to inject a tiny countdown label on the right.
+    drawer). Line 1 holds the app title. Line 2 shows the time of the
+    last refresh, a live countdown to the next auto-refresh, and the
+    configured interval -- making "yes, refreshes are happening" an
+    unmissable, always-visible fact.
     """
 
     DEFAULT_CSS = """
     OrgDrawerHeader {
         dock: top;
-        height: 1;
-        layout: horizontal;
+        height: 2;
+        layout: vertical;
         background: #1a1a22;
         overflow: hidden;
     }
     OrgDrawerHeader > #hdr-title {
-        width: 1fr;
+        width: 100%;
+        height: 1;
         content-align: center middle;
         text-style: bold;
         overflow: hidden;
     }
-    OrgDrawerHeader > #hdr-countdown {
-        width: auto;
-        max-width: 44;
-        padding: 0 1;
-        color: #d0d0d8;
+    OrgDrawerHeader > #hdr-refresh {
+        width: 100%;
+        height: 1;
+        content-align: center middle;
+        color: #c8c8d2;
         overflow: hidden;
     }
     """
@@ -163,11 +165,11 @@ class OrgDrawerHeader(Container):
         super().__init__(id="org-drawer-header")
         self._initial_title = title
         self._title_widget = Static("", id="hdr-title")
-        self._countdown_widget = Static("", id="hdr-countdown")
+        self._refresh_widget = Static("", id="hdr-refresh")
 
     def compose(self):
         yield self._title_widget
-        yield self._countdown_widget
+        yield self._refresh_widget
 
     def on_mount(self) -> None:
         # App title isn't available until mount; set it once here.
@@ -178,21 +180,27 @@ class OrgDrawerHeader(Container):
         event.stop()
         self.post_message(self.Toggle())
 
-    def set_countdown(self, text: str) -> None:
-        """Update the right-side countdown label."""
-        self._countdown_widget.update(text)
+    def set_refresh_line(self, text: str) -> None:
+        """Update the second-line refresh status text."""
+        self._refresh_widget.update(text)
 
 
 class MainScreen(Screen[None]):
     """Primary screen: header, status bar, highlight bar, card grid, footer, drawer."""
 
     def __init__(
-        self, state: AppState, org_name: str = "", owners: list[str] | None = None
+        self,
+        state: AppState,
+        org_name: str = "",
+        owners: list[str] | None = None,
+        *,
+        refresh_seconds: int = 0,
     ) -> None:
         super().__init__(id="main-screen")
         self._state = state
         self._org_name = org_name
         self._owners: list[str] = owners or ([org_name] if org_name else [])
+        self._refresh_seconds = refresh_seconds
         self._header = OrgDrawerHeader()
         self._status_bar = StatusBar()
         self._highlight_bar = HighlightBar()
@@ -238,7 +246,7 @@ class MainScreen(Screen[None]):
         self._update_selection_styling()
         self._highlight_bar.rerender()
         self._status_bar.tick()
-        self._header.set_countdown(self._countdown_text())
+        self._header.set_refresh_line(self._refresh_line_text())
         if self._top_drawer.is_open:
             self._top_drawer.set_content(
                 self._org_drawer_left_sections(),
@@ -262,7 +270,7 @@ class MainScreen(Screen[None]):
 
     def tick_status(self) -> None:
         self._status_bar.tick()
-        self._header.set_countdown(self._countdown_text())
+        self._header.set_refresh_line(self._refresh_line_text())
 
     def apply_flash_phase(self, phase: bool, *, window_seconds: int) -> None:
         """Propagate the global flash phase to each card."""
@@ -336,25 +344,24 @@ class MainScreen(Screen[None]):
         for full_name in list(self._effects_by_name.keys()):
             self._position_effect(full_name)
 
-    def _countdown_text(self) -> str:
-        """Format the right-header refresh indicator.
+    def _refresh_line_text(self) -> str:
+        """Format the second-line refresh status shown in the header.
 
-        Shows both "last: Xs ago" and "next: in Ys" so users see at a
-        glance both how fresh the on-screen data is and when the next
-        auto-refresh will fire.  Prefers loading / refreshing state so
-        users have an unmistakable "we're working on it" indicator
-        during the 20-30 second first fetch.
+        Names all three facts in plain language (time of last refresh,
+        countdown to next, interval) so auto-refresh is always legible
+        at a glance.  Local-time is used for the last-refresh stamp
+        because clock-on-wall is what users are comparing against.
 
         Drift note: ``next_refresh_at`` is set when ``_trigger_refresh``
         starts a refresh, so during a long-running refresh the displayed
-        countdown briefly reflects the cycle that's already in flight.
-        We mask this by showing "refreshing..." while ``is_refreshing``
-        is true rather than a misleading countdown.
+        countdown briefly reflects the cycle already in flight. We mask
+        this by showing "refreshing..." while ``is_refreshing`` is true
+        rather than a misleading countdown.
         """
         state = self._state
         now = datetime.now(UTC)
-        last_age = (
-            int((now - state.last_refresh_at).total_seconds())
+        last_label = (
+            state.last_refresh_at.astimezone().strftime("%H:%M:%S")
             if state.last_refresh_at is not None
             else None
         )
@@ -363,10 +370,11 @@ class MainScreen(Screen[None]):
             if state.next_refresh_at is not None
             else None
         )
-        return format_header_refresh_text(
+        return format_header_refresh_line(
             is_refreshing=state.is_refreshing,
-            last_refresh_age_seconds=last_age,
+            last_refresh_label=last_label,
             next_refresh_remaining_seconds=remaining,
+            interval_seconds=self._refresh_seconds,
         )
 
     def _rebuild_cards(self) -> None:
@@ -1230,7 +1238,12 @@ class DashboardApp(App[None]):
         bootstrap_from_cache(self.state, restrict_to=restrict)
         apply_open_source_team(self.state)
 
-        self._main = MainScreen(self.state, self._org_name, owners=self._owners)
+        self._main = MainScreen(
+            self.state,
+            self._org_name,
+            owners=self._owners,
+            refresh_seconds=(0 if self._skip_refresh else self._refresh_seconds),
+        )
         self.push_screen(self._main)
 
         if self._repos and not self._skip_refresh:

@@ -39,25 +39,33 @@ class OpenIssuesCheck:
             )
 
         # Fetch issues to filter out bot-created noise.
+        first_human_issue = None
         try:
             issues = repo.get_issues(state="open")
-            human_count = sum(
-                bool(
-                    issue.pull_request is None
-                    and (not issue.user or issue.user.login not in _BOT_LOGINS)
-                )
-                for issue in issues
-            )
+            human_count = 0
+            for issue in issues:
+                if issue.pull_request is not None:
+                    continue
+                if issue.user and issue.user.login in _BOT_LOGINS:
+                    continue
+                human_count += 1
+                if first_human_issue is None:
+                    first_human_issue = issue
         except Exception:
             # Fall back to the unfiltered count on API error.
             human_count = status.open_issues
 
         if human_count >= threshold:
+            link = (
+                first_human_issue.html_url
+                if first_human_issue is not None
+                else f"https://github.com/{status.full_name}/issues"
+            )
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.MEDIUM,
                 summary=f"({human_count}) open issues (excl. bots)",
-                link=f"https://github.com/{status.full_name}/issues",
+                link=link,
             )
 
         return HealthCheckResult(

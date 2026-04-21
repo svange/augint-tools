@@ -417,11 +417,25 @@ class TestOpenIssues:
 
     def test_above_threshold_all_human(self):
         repo = _mock_repo()
-        repo.get_issues.return_value = [_mock_issue() for _ in range(3)]
+        issues = [_mock_issue() for _ in range(3)]
+        # The first human-filed issue should drive the link.
+        issues[0].html_url = "https://github.com/org/repo/issues/42"
+        repo.get_issues.return_value = issues
         result = get_check("open_issues").evaluate(repo, _status(open_issues=3), config={})
         assert result.severity == Severity.MEDIUM
         assert "(3) open issues" in result.summary
-        assert result.link is not None
+        assert result.link == "https://github.com/org/repo/issues/42"
+
+    def test_link_skips_bot_issues(self):
+        repo = _mock_repo()
+        bot = _mock_issue(login="renovate[bot]")
+        human = _mock_issue()
+        human.html_url = "https://github.com/org/repo/issues/7"
+        # Bot comes first in the list; the check should still pick the human.
+        repo.get_issues.return_value = [bot, human, _mock_issue()]
+        result = get_check("open_issues").evaluate(repo, _status(open_issues=3), config={})
+        assert result.severity == Severity.MEDIUM
+        assert result.link == "https://github.com/org/repo/issues/7"
 
     def test_bot_issues_excluded(self):
         repo = _mock_repo()
@@ -454,7 +468,31 @@ class TestOpenPRs:
         result = get_check("open_prs").evaluate(_mock_repo(), _status(open_prs=1), config={})
         assert result.severity == Severity.MEDIUM
         assert "(1) open PR" in result.summary
-        assert result.link is not None
+        # No pulls context available -> fall back to the listing page.
+        assert result.link == "https://github.com/org/myrepo/pulls"
+
+    def test_links_to_oldest_non_draft_pr(self):
+        oldest = _mock_pr(
+            created_at=datetime.now(UTC) - timedelta(days=10),
+            html_url="https://github.com/org/repo/pull/100",
+        )
+        newer = _mock_pr(
+            created_at=datetime.now(UTC) - timedelta(days=1),
+            html_url="https://github.com/org/repo/pull/200",
+        )
+        draft = _mock_pr(
+            created_at=datetime.now(UTC) - timedelta(days=20),
+            html_url="https://github.com/org/repo/pull/50",
+        )
+        draft.draft = True
+        result = get_check("open_prs").evaluate(
+            _mock_repo(),
+            _status(open_prs=3, draft_prs=1),
+            config={},
+            pulls=[newer, draft, oldest],
+        )
+        assert result.severity == Severity.MEDIUM
+        assert result.link == "https://github.com/org/repo/pull/100"
 
     def test_drafts_excluded(self):
         # Two open PRs but both are drafts -- should not flip yellow.

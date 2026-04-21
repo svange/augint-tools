@@ -322,8 +322,12 @@ class TestFetchWorkspaceSnapshot:
 class TestTeamsQueryAndParse:
     def test_build_teams_query_includes_owner_alias(self):
         query = build_teams_query(["svange", "some-org"])
-        assert "o0: organization" in query
-        assert "o1: organization" in query
+        # repositoryOwner lets personal accounts resolve to User without
+        # triggering a GraphQL error; the Organization fields are wrapped
+        # in an inline fragment.
+        assert "o0: repositoryOwner" in query
+        assert "o1: repositoryOwner" in query
+        assert "... on Organization" in query
         assert 'login: "svange"' in query
         assert 'login: "some-org"' in query
         assert "teams(first:" in query
@@ -378,11 +382,23 @@ class TestTeamsQueryAndParse:
         assert [a.slug for a in assignments] == ["admins", "readers"]
         assert snapshot.labels["admins"] == "Admins"
 
-    def test_parse_teams_handles_personal_owner_null_org(self):
-        response = {"data": {"o0": None}}
+    def test_parse_teams_handles_personal_user_owner(self):
+        # repositoryOwner resolves to a User -- no teams field, no error.
+        response = {
+            "data": {
+                "o0": {"__typename": "User", "login": "svange"},
+            }
+        }
         snapshot = parse_teams_response(response, ["svange"])
         assert snapshot.by_full_name == {}
         assert snapshot.labels == {}
+        assert snapshot.errored == {}
+
+    def test_parse_teams_handles_null_owner_payload(self):
+        # Defensive: even if the server returns null for the alias, don't crash.
+        response = {"data": {"o0": None}}
+        snapshot = parse_teams_response(response, ["svange"])
+        assert snapshot.by_full_name == {}
 
     def test_parse_teams_records_owner_errors(self):
         response = {

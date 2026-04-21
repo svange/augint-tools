@@ -42,8 +42,10 @@ WIDGET_HELP: dict[str, tuple[str, str]] = {
         (
             "Horizontal stacked bar showing what fraction of repos sit in each "
             "severity bucket: critical, high, medium, low, and ok. The legend on "
-            "the right lists every non-zero bucket with its count; if nothing is "
-            'wrong it simply reads "all green".'
+            "the right lists every non-zero bucket with its count; when nothing "
+            "is wrong it falls back to an aggregated view of open issues and "
+            "PRs across the workspace, each clickable through to GitHub so you "
+            "can pick up work directly from here."
         ),
     ),
     "repo_glyphs": (

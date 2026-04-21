@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 from github.GithubException import GithubException
+from rich.text import Text
 
 from augint_tools.cli.__main__ import cli as main
 from augint_tools.dashboard import state
@@ -827,6 +828,196 @@ class TestRepoCardRender:
         styles = [str(span.style) for span in line.spans]
         assert any(medium_color in s for s in styles)
         assert not any(low_color in s for s in styles if low_color != medium_color)
+
+
+class TestFindingsLinesHealthyInfo:
+    """When no real findings, _findings_lines returns OK-severity info with URLs."""
+
+    def _spec(self):
+        from augint_tools.dashboard.widgets.repo_card import RepoCard
+
+        return RepoCard, get_theme("paper")
+
+    def test_no_findings_no_info_returns_healthy_line_linking_to_repo(self):
+        RepoCard, spec = self._spec()
+        card = RepoCard(_health(full_name="org/quiet"), theme_spec=spec)
+        lines = card._findings_lines(card.health, limit=2)
+        assert len(lines) == 1
+        text, url = lines[0]
+        assert text.plain == "healthy"
+        assert url == "https://github.com/org/quiet"
+
+    def test_no_findings_with_open_issues_returns_issues_line(self):
+        RepoCard, spec = self._spec()
+        status = _status(full_name="org/busy", open_issues=4)
+        health = RepoHealth(status=status)
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=2)
+        assert any(
+            line.plain == "4 open issues" and url == "https://github.com/org/busy/issues"
+            for line, url in lines
+        )
+
+    def test_no_findings_single_issue_uses_singular_noun(self):
+        RepoCard, spec = self._spec()
+        status = _status(full_name="org/busy", open_issues=1)
+        health = RepoHealth(status=status)
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=2)
+        assert lines[0][0].plain == "1 open issue"
+
+    def test_no_findings_with_issues_and_prs_returns_both_lines(self):
+        RepoCard, spec = self._spec()
+        status = _status(full_name="org/busy", open_issues=2, open_prs=3)
+        health = RepoHealth(status=status)
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=4)
+        plain = [(line.plain, url) for line, url in lines]
+        assert ("2 open issues", "https://github.com/org/busy/issues") in plain
+        assert ("3 open prs", "https://github.com/org/busy/pulls") in plain
+
+    def test_no_findings_drafts_line_separate_from_ready_prs(self):
+        RepoCard, spec = self._spec()
+        status = _status(full_name="org/busy", open_prs=3)
+        status.draft_prs = 2
+        health = RepoHealth(status=status)
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=4)
+        plain = [(line.plain, url) for line, url in lines]
+        # 3 open total, 2 drafts -> 1 ready PR, 2 drafts.
+        assert ("1 open pr", "https://github.com/org/busy/pulls") in plain
+        assert ("2 drafts", "https://github.com/org/busy/pulls") in plain
+
+    def test_no_findings_respects_limit(self):
+        RepoCard, spec = self._spec()
+        status = _status(full_name="org/busy", open_issues=4, open_prs=3)
+        status.draft_prs = 1
+        health = RepoHealth(status=status)
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=1)
+        assert len(lines) == 1
+
+    def test_healthy_line_uses_ok_severity_color(self):
+        RepoCard, spec = self._spec()
+        card = RepoCard(_health(), theme_spec=spec)
+        lines = card._findings_lines(card.health, limit=2)
+        ok_style = spec.severity_colors[Severity.OK]
+        assert lines[0][0].style == ok_style
+
+    def test_real_findings_still_take_precedence(self):
+        RepoCard, spec = self._spec()
+        warning = HealthCheckResult(
+            check_name="stale_prs", severity=Severity.MEDIUM, summary="2 stale"
+        )
+        status = _status(full_name="org/busy", open_issues=5)
+        health = RepoHealth(status=status, checks=[warning])
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=2)
+        # First line is the real finding; no "N open issues" line when findings exist.
+        assert "stale" in lines[0][0].plain
+        assert not any("open issues" in line.plain for line, _ in lines)
+
+
+class TestDetailDrawerHealthySummary:
+    """_detail_drawer_content surfaces OK info with clickable links when green."""
+
+    def _app_and_health(self, **status_kwargs):
+        from augint_tools.dashboard.app import MainScreen
+
+        status = _status(**status_kwargs)
+        health = RepoHealth(status=status)
+        state = AppState()
+        state.healths = [health]
+        screen = MainScreen(state)
+        return screen, health
+
+    def test_no_findings_with_issues_includes_clickable_summary(self):
+        screen, health = self._app_and_health(full_name="org/quiet", open_issues=3)
+        text = screen._detail_drawer_content(health)
+        plain = text.plain
+        assert "no findings. open:" in plain
+        assert "3 issues" in plain
+        # The summary line should carry an OSC-8 hyperlink to the issues page.
+        link_styles = [str(span.style) for span in text.spans]
+        assert any("link https://github.com/org/quiet/issues" in s for s in link_styles)
+
+    def test_no_findings_no_info_hides_summary(self):
+        screen, health = self._app_and_health(full_name="org/quiet")
+        plain = screen._detail_drawer_content(health).plain
+        assert "no findings. open:" not in plain
+        # Previous wording must not leak back in.
+        assert "all checks green" not in plain
+
+    def test_counts_row_is_always_clickable(self):
+        screen, health = self._app_and_health(full_name="org/quiet", open_issues=2, open_prs=1)
+        text = screen._detail_drawer_content(health)
+        link_styles = [str(span.style) for span in text.spans]
+        assert any("link https://github.com/org/quiet/issues" in s for s in link_styles)
+        assert any("link https://github.com/org/quiet/pulls" in s for s in link_styles)
+
+
+class TestOrgSeverityBarHealthyInfo:
+    """_append_severity_bar aggregates OK info when there are zero findings."""
+
+    def _screen(self):
+        from augint_tools.dashboard.app import MainScreen
+
+        return MainScreen(AppState())
+
+    def test_all_green_with_issues_renders_clickable_totals(self):
+        screen = self._screen()
+        spec = get_theme("paper")
+        h1 = RepoHealth(status=_status(full_name="org/a", open_issues=3, open_prs=0))
+        h2 = RepoHealth(status=_status(full_name="org/b", open_issues=2, open_prs=4))
+        by_sev = {Severity.OK: 2}
+        t = Text()
+        screen._append_severity_bar(t, by_sev, total=2, spec=spec, healths=[h1, h2])
+        plain = t.plain
+        assert "issues 5" in plain
+        assert "prs 4" in plain
+        # "all green" literal is reserved for the truly-nothing-to-show case.
+        assert "all green" not in plain
+        styles = [str(span.style) for span in t.spans]
+        assert any("link https://github.com/issues" in s for s in styles)
+        assert any("link https://github.com/pulls" in s for s in styles)
+
+    def test_all_green_with_no_info_still_renders_ok_chip(self):
+        screen = self._screen()
+        spec = get_theme("paper")
+        h = RepoHealth(status=_status(full_name="org/a"))
+        by_sev = {Severity.OK: 1}
+        t = Text()
+        screen._append_severity_bar(t, by_sev, total=1, spec=spec, healths=[h])
+        plain = t.plain
+        # No issues / PRs to link -- still shows the OK count chip; no stray
+        # clickable links get emitted.
+        assert "ok 1" in plain
+        styles = [str(span.style) for span in t.spans]
+        assert not any("link https://github.com/issues" in s for s in styles)
+        assert not any("link https://github.com/pulls" in s for s in styles)
+
+    def test_non_green_pieces_take_precedence(self):
+        screen = self._screen()
+        spec = get_theme("paper")
+        h = RepoHealth(status=_status(full_name="org/a", open_issues=5))
+        by_sev = {Severity.CRITICAL: 1}
+        t = Text()
+        screen._append_severity_bar(t, by_sev, total=1, spec=spec, healths=[h])
+        plain = t.plain
+        assert "crit 1" in plain
+        # Don't duplicate aggregated OK info when there's real severity to show.
+        assert "issues 5" not in plain
+
+    def test_all_green_carries_trailing_ok_chip(self):
+        screen = self._screen()
+        spec = get_theme("paper")
+        h = RepoHealth(status=_status(full_name="org/a", open_issues=2))
+        by_sev = {Severity.OK: 1}
+        t = Text()
+        screen._append_severity_bar(t, by_sev, total=1, spec=spec, healths=[h])
+        plain = t.plain
+        # Aggregated chip comes first, ok chip trails for continuity.
+        assert plain.index("issues 2") < plain.index("ok 1")
 
 
 class TestDrillDown:

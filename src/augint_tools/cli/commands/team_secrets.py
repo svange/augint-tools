@@ -46,18 +46,62 @@ def _resolve_org(ctx: click.Context) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Top-level group: ai-tools team-secrets <team> ...
+# Top-level group: ai-tools team-secrets [TEAM] ...
 # ---------------------------------------------------------------------------
 
 
-@click.group("team-secrets")
-@click.argument("team")
+def _auto_detect_team() -> str | None:
+    """Auto-detect team from config when there's exactly one team."""
+    from augint_tools.team_secrets.keys import load_teams_config
+
+    teams = load_teams_config()
+    if len(teams) == 1:
+        return next(iter(teams))
+    return None
+
+
+class _TeamSecretsGroup(click.Group):
+    """Custom group that accepts an optional TEAM positional argument.
+
+    If the first argument matches a known subcommand or flag, team is
+    auto-detected from config. Otherwise the first argument is consumed
+    as the team name.
+    """
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        ctx.ensure_object(dict)
+        if args and args[0] not in self.commands and not args[0].startswith("-"):
+            ctx.obj["_explicit_team"] = args.pop(0)
+        return super().parse_args(ctx, args)
+
+    def format_usage(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        formatter.write_usage(ctx.command_path, "[TEAM] [OPTIONS] COMMAND [ARGS]...")
+
+
+@click.group("team-secrets", cls=_TeamSecretsGroup)
 @click.option("--org", default=None, help=f"GitHub org (default: {DEFAULT_ORG}).")
 @click.pass_context
-def team_secrets_group(ctx, team, org):
-    """Team shared secrets management (SOPS + age)."""
+def team_secrets_group(ctx, org):
+    """Team shared secrets management (SOPS + age).
+
+    TEAM is optional if exactly one team is configured in ~/.augint-tools/teams.yaml.
+    """
     ctx.ensure_object(dict)
-    ctx.obj["team"] = team
+    explicit_team = ctx.obj.get("_explicit_team")
+    if explicit_team:
+        ctx.obj["team"] = explicit_team
+    else:
+        detected = _auto_detect_team()
+        if detected:
+            ctx.obj["team"] = detected
+        elif sys.stdin.isatty():
+            ctx.obj["team"] = click.prompt("Team name (no default configured)")
+        else:
+            raise click.UsageError(
+                "TEAM argument required. Either pass it explicitly "
+                "(ai-tools team-secrets woxom ...) or configure a default "
+                "via: ai-tools team-secrets <team> setup"
+            )
     ctx.obj["org"] = org
 
 

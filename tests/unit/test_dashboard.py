@@ -1194,77 +1194,51 @@ class TestStateHelpers:
         assert out[1].status.name == "a"
 
 
-class TestDetectRepoMetadata:
-    def test_detect_language_tag(self):
-        from augint_tools.dashboard._data import detect_repo_metadata
+class TestDetectTags:
+    """Tag detection operates on pre-fetched GraphQL data (no REST)."""
 
-        repo = _mock_repo()
-        repo.language = "Python"
-        repo.get_contents.return_value = []
-        is_ws, tags = detect_repo_metadata(repo)
+    def test_detect_language_tag(self):
+        from augint_tools.dashboard._data import _detect_tags
+
+        is_ws, tags = _detect_tags("Python", ())
         assert not is_ws
         assert "py" in tags
 
     def test_detect_workspace(self):
-        from augint_tools.dashboard._data import detect_repo_metadata
+        from augint_tools.dashboard._data import _detect_tags
 
-        repo = _mock_repo()
-        repo.language = None
-        item = MagicMock()
-        item.name = "workspace.yaml"
-        repo.get_contents.return_value = [item]
-        is_ws, tags = detect_repo_metadata(repo)
+        is_ws, _ = _detect_tags(None, ("workspace.yaml",))
         assert is_ws
 
     def test_detect_framework_and_iac(self):
-        from augint_tools.dashboard._data import detect_repo_metadata
+        from augint_tools.dashboard._data import _detect_tags
 
-        repo = _mock_repo()
-        repo.language = "TypeScript"
-        items = [MagicMock(name=n) for n in ("cdk.json", "main.tf", "src")]
-        for item, n in zip(items, ("cdk.json", "main.tf", "src"), strict=True):
-            item.name = n
-        repo.get_contents.return_value = items
-        is_ws, tags = detect_repo_metadata(repo)
+        is_ws, tags = _detect_tags("TypeScript", ("cdk.json", "main.tf", "src"))
         assert not is_ws
         assert "ts" in tags
         assert "cdk" in tags
         assert "tf" in tags
 
     def test_detect_sam_framework(self):
-        from augint_tools.dashboard._data import detect_repo_metadata
+        from augint_tools.dashboard._data import _detect_tags
 
-        repo = _mock_repo()
-        repo.language = "Python"
-        items = [MagicMock(), MagicMock()]
-        items[0].name = "template.yaml"
-        items[1].name = "samconfig.toml"
-        repo.get_contents.return_value = items
-        is_ws, tags = detect_repo_metadata(repo)
+        _, tags = _detect_tags("Python", ("template.yaml", "samconfig.toml"))
         assert "py" in tags
         assert "sam" in tags
 
-    def test_detect_api_failure_graceful(self):
-        from augint_tools.dashboard._data import detect_repo_metadata
-
-        repo = _mock_repo()
-        repo.language = "Go"
-        repo.get_contents.side_effect = GithubException(500, "error", None)
-        is_ws, tags = detect_repo_metadata(repo)
-        assert not is_ws
-        assert tags == ("go",)
-
     def test_detect_next_framework(self):
-        from augint_tools.dashboard._data import detect_repo_metadata
+        from augint_tools.dashboard._data import _detect_tags
 
-        repo = _mock_repo()
-        repo.language = "TypeScript"
-        item = MagicMock()
-        item.name = "next.config.mjs"
-        repo.get_contents.return_value = [item]
-        is_ws, tags = detect_repo_metadata(repo)
+        _, tags = _detect_tags("TypeScript", ("next.config.mjs",))
         assert "ts" in tags
         assert "next" in tags
+
+    def test_unknown_language_and_empty_tree(self):
+        from augint_tools.dashboard._data import _detect_tags
+
+        is_ws, tags = _detect_tags(None, ())
+        assert not is_ws
+        assert tags == ()
 
 
 class TestBootstrapCache:

@@ -136,16 +136,26 @@ def list_repos_multi(g: Github, owners: list[str]) -> list[Repository]:
 
 
 def warn_rate_limit(repo_count: int, refresh_seconds: int) -> None:
-    """Warn if estimated API usage would exceed GitHub rate limits."""
-    calls_per_repo = 7
-    hourly = repo_count * calls_per_repo * (3600 // refresh_seconds)
-    if hourly > 4000:
+    """Warn if the configured refresh would make rate-limit pressure likely.
+
+    With the GraphQL workspace fetcher, each refresh costs ~1 query per 25
+    repos plus a tiny per-failing-repo REST detail lookup. Budget is GitHub's
+    5000-point/hour GraphQL cap shared with the user's other tooling. The
+    threshold below is conservative -- it warns well before the user would
+    actually hit a block.
+    """
+    if refresh_seconds <= 0:
+        return
+    refreshes_per_hour = 3600 // refresh_seconds
+    queries_per_refresh = max(1, (repo_count + 24) // 25)
+    estimated_hourly = refreshes_per_hour * queries_per_refresh
+    if estimated_hourly > 1200:
         logger.warning(
-            f"Estimated ~{hourly} API calls/hour for {repo_count} repos at "
-            f"{refresh_seconds}s refresh. GitHub allows 5000/hour. "
+            f"~{estimated_hourly} GraphQL queries/hour estimated for {repo_count} repos "
+            f"at {refresh_seconds}s refresh. Budget is 5000 points/hour. "
             f"Consider increasing --refresh-seconds."
         )
         print(
-            f"[yellow]Warning: ~{hourly} API calls/hour estimated. "
-            f"Consider using --refresh-seconds {max(refresh_seconds, 120)}.[/yellow]"
+            f"[yellow]Warning: ~{estimated_hourly} GraphQL queries/hour estimated. "
+            f"Consider using --refresh-seconds {max(refresh_seconds, 60)}.[/yellow]"
         )

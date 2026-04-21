@@ -1,10 +1,14 @@
-"""Health check: Renovate configuration presence and validity."""
+"""Health check: Renovate configuration presence and validity.
+
+Reads the pre-fetched config text from ``FetchContext.renovate_config_text``
+(populated by the batched GraphQL workspace query, which probes every
+canonical path in the same round-trip as every other field). No per-repo
+REST call.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-
-from github.GithubException import GithubException
 
 from .._models import HealthCheckResult, Severity
 from .._registry import register
@@ -13,15 +17,7 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
     from ..._data import RepoStatus
-
-_CONFIG_PATHS = (
-    "renovate.json5",  # canonical path -- probe first for short-circuit
-    "renovate.json",
-    ".github/renovate.json5",
-    ".github/renovate.json",
-    ".renovaterc",
-    ".renovaterc.json",
-)
+    from .. import FetchContext
 
 
 class RenovateEnabledCheck:
@@ -30,26 +26,21 @@ class RenovateEnabledCheck:
 
     def evaluate(
         self,
-        repo: Repository,
+        repo: Repository,  # noqa: ARG002
         status: RepoStatus,
         *,
-        config: dict,
-        pulls: list | None = None,
+        config: dict,  # noqa: ARG002
+        context: FetchContext,
     ) -> HealthCheckResult:
-        for path in _CONFIG_PATHS:
-            try:
-                content_file = repo.get_contents(path)
-                if isinstance(content_file, list):
-                    continue
-                raw = content_file.decoded_content.decode("utf-8").strip()
-                if len(raw) > 2:
-                    return HealthCheckResult(
-                        check_name=self.name,
-                        severity=Severity.OK,
-                        summary=f"Renovate configured ({path})",
-                    )
-            except GithubException:
-                continue
+        path = context.renovate_config_path
+        text = (context.renovate_config_text or "").strip()
+
+        if path and len(text) > 2:
+            return HealthCheckResult(
+                check_name=self.name,
+                severity=Severity.OK,
+                summary=f"Renovate configured ({path})",
+            )
 
         return HealthCheckResult(
             check_name=self.name,

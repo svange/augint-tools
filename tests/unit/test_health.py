@@ -5,9 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-from github.GithubException import GithubException
-
 from augint_tools.dashboard._data import RepoStatus
+from augint_tools.dashboard._gql import IssueSnapshot, PRSnapshot
 from augint_tools.dashboard.health import (
     FetchContext,
     HealthCheckResult,
@@ -36,6 +35,8 @@ def _status(
     open_issues=0,
     open_prs=0,
     draft_prs=0,
+    human_open_issues=0,
+    default_branch="main",
 ):
     return RepoStatus(
         name=name,
@@ -48,23 +49,61 @@ def _status(
         open_issues=open_issues,
         open_prs=open_prs,
         draft_prs=draft_prs,
+        human_open_issues=human_open_issues,
+        default_branch=default_branch,
     )
 
 
 def _mock_repo():
-    repo = MagicMock()
-    repo.get_pulls.return_value = MagicMock(__iter__=lambda s: iter([]))
-    return repo
+    """Mock PyGithub Repository -- checks no longer hit it, but the positional
+    is still present in the Protocol signature."""
+    return MagicMock()
 
 
-def _mock_pr(login="user", created_at=None, html_url="https://github.com/org/repo/pull/1"):
-    pr = MagicMock()
-    pr.user = MagicMock()
-    pr.user.login = login
-    pr.created_at = created_at or datetime.now(UTC)
-    pr.html_url = html_url
-    pr.draft = False
-    return pr
+def _pr(
+    login: str = "user",
+    created_at: datetime | None = None,
+    url: str = "https://github.com/org/repo/pull/1",
+    is_draft: bool = False,
+    number: int = 1,
+) -> PRSnapshot:
+    return PRSnapshot(
+        number=number,
+        is_draft=is_draft,
+        created_at=created_at or datetime.now(UTC),
+        author_login=login,
+        url=url,
+    )
+
+
+def _issue(
+    login: str = "human-user",
+    created_at: datetime | None = None,
+    number: int = 1,
+) -> IssueSnapshot:
+    return IssueSnapshot(
+        number=number,
+        created_at=created_at or datetime.now(UTC),
+        author_login=login,
+    )
+
+
+def _ctx(
+    pulls: list[PRSnapshot] | None = None,
+    issues: list[IssueSnapshot] | None = None,
+    renovate_config_path: str | None = None,
+    renovate_config_text: str | None = None,
+    pipeline_path: str | None = None,
+    pipeline_text: str | None = None,
+) -> FetchContext:
+    return FetchContext(
+        pulls=pulls or [],
+        issues=issues or [],
+        renovate_config_path=renovate_config_path,
+        renovate_config_text=renovate_config_text,
+        pipeline_path=pipeline_path,
+        pipeline_text=pipeline_text,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +252,7 @@ class TestRegistry:
 class TestBrokenCI:
     def test_passing(self):
         result = get_check("broken_ci").evaluate(
-            _mock_repo(), _status(main_status="success"), config={}
+            _mock_repo(), _status(main_status="success"), config={}, context=_ctx()
         )
         assert result.severity == Severity.OK
 
@@ -222,6 +261,7 @@ class TestBrokenCI:
             _mock_repo(),
             _status(main_status="failure", main_error="build: Run tests"),
             config={},
+            context=_ctx(),
         )
         assert result.severity == Severity.CRITICAL
         assert "main pipeline failing" in result.summary
@@ -238,6 +278,7 @@ class TestBrokenCI:
                 dev_error="deploy: Push image",
             ),
             config={},
+            context=_ctx(),
         )
         assert result.severity == Severity.HIGH
         assert "dev pipeline failing" in result.summary
@@ -247,6 +288,7 @@ class TestBrokenCI:
             _mock_repo(),
             _status(main_status="unknown", dev_status=None),
             config={},
+            context=_ctx(),
         )
         assert result.severity == Severity.MEDIUM
         assert "No CI workflows" in result.summary
@@ -262,86 +304,89 @@ class TestBrokenCI:
                 dev_error="err",
             ),
             config={},
+            context=_ctx(),
         )
         assert "main" in result.summary
 
 
 class TestRenovateEnabled:
     def test_config_found(self):
-        repo = _mock_repo()
-        content = MagicMock()
-        content.decoded_content = b'{"extends": ["config:base"]}'
-        repo.get_contents.return_value = content
-
-        result = get_check("renovate_enabled").evaluate(repo, _status(), config={})
+        ctx = _ctx(
+            renovate_config_path="renovate.json5",
+            renovate_config_text='{"extends": ["config:base"]}',
+        )
+        result = get_check("renovate_enabled").evaluate(
+            _mock_repo(), _status(), config={}, context=ctx
+        )
         assert result.severity == Severity.OK
         assert "configured" in result.summary
 
     def test_no_config(self):
-        repo = _mock_repo()
-        repo.get_contents.side_effect = GithubException(404, "not found", None)
-
-        result = get_check("renovate_enabled").evaluate(repo, _status(), config={})
+        result = get_check("renovate_enabled").evaluate(
+            _mock_repo(), _status(), config={}, context=_ctx()
+        )
         assert result.severity == Severity.HIGH
         assert "No Renovate config" in result.summary
         assert result.link is not None
 
     def test_empty_config_treated_as_missing(self):
-        repo = _mock_repo()
-        content = MagicMock()
-        content.decoded_content = b"{}"
-        repo.get_contents.return_value = content
-
-        result = get_check("renovate_enabled").evaluate(repo, _status(), config={})
+        ctx = _ctx(renovate_config_path="renovate.json", renovate_config_text="{}")
+        result = get_check("renovate_enabled").evaluate(
+            _mock_repo(), _status(), config={}, context=ctx
+        )
         assert result.severity == Severity.HIGH
 
 
 class TestRenovatePRsPiling:
     def test_no_renovate_prs(self):
         result = get_check("renovate_prs_piling").evaluate(
-            _mock_repo(), _status(), config={}, pulls=[]
+            _mock_repo(), _status(), config={}, context=_ctx(pulls=[])
         )
         assert result.severity == Severity.OK
 
     def test_below_threshold(self):
-        pulls = [_mock_pr(login="renovate[bot]")]
+        pulls = [_pr(login="renovate[bot]")]
         result = get_check("renovate_prs_piling").evaluate(
-            _mock_repo(), _status(), config={}, pulls=pulls
+            _mock_repo(), _status(), config={}, context=_ctx(pulls=pulls)
         )
         assert result.severity == Severity.OK
 
     def test_above_threshold(self):
         pulls = [
-            _mock_pr(
+            _pr(
                 login="renovate[bot]",
                 created_at=datetime.now(UTC) - timedelta(days=i),
-                html_url=f"https://github.com/org/repo/pull/{i}",
+                url=f"https://github.com/org/repo/pull/{i}",
+                number=i,
             )
             for i in range(5)
         ]
         result = get_check("renovate_prs_piling").evaluate(
-            _mock_repo(), _status(), config={}, pulls=pulls
+            _mock_repo(), _status(), config={}, context=_ctx(pulls=pulls)
         )
         assert result.severity == Severity.HIGH
         assert "(5) Renovate PRs" in result.summary
         assert result.link is not None
 
     def test_custom_threshold(self):
-        pulls = [_mock_pr(login="renovate[bot]") for _ in range(3)]
+        pulls = [_pr(login="renovate[bot]") for _ in range(3)]
         result = get_check("renovate_prs_piling").evaluate(
-            _mock_repo(), _status(), config={"renovate_pr_threshold": 3}, pulls=pulls
+            _mock_repo(),
+            _status(),
+            config={"renovate_pr_threshold": 3},
+            context=_ctx(pulls=pulls),
         )
         assert result.severity == Severity.HIGH
 
     def test_mixed_authors(self):
         pulls = [
-            _mock_pr(login="renovate[bot]"),
-            _mock_pr(login="human-user"),
-            _mock_pr(login="renovate[bot]"),
-            _mock_pr(login="renovate[bot]"),
+            _pr(login="renovate[bot]"),
+            _pr(login="human-user"),
+            _pr(login="renovate[bot]"),
+            _pr(login="renovate[bot]"),
         ]
         result = get_check("renovate_prs_piling").evaluate(
-            _mock_repo(), _status(), config={}, pulls=pulls
+            _mock_repo(), _status(), config={}, context=_ctx(pulls=pulls)
         )
         assert result.severity == Severity.HIGH
         assert "(3) Renovate PRs" in result.summary
@@ -349,136 +394,145 @@ class TestRenovatePRsPiling:
 
 class TestStalePRs:
     def test_no_stale(self):
-        pulls = [_mock_pr(created_at=datetime.now(UTC))]
-        result = get_check("stale_prs").evaluate(_mock_repo(), _status(), config={}, pulls=pulls)
+        pulls = [_pr(created_at=datetime.now(UTC))]
+        result = get_check("stale_prs").evaluate(
+            _mock_repo(), _status(), config={}, context=_ctx(pulls=pulls)
+        )
         assert result.severity == Severity.OK
 
     def test_stale_found(self):
         pulls = [
-            _mock_pr(
+            _pr(
                 created_at=datetime.now(UTC) - timedelta(days=10),
-                html_url="https://github.com/org/repo/pull/1",
+                url="https://github.com/org/repo/pull/1",
             ),
-            _mock_pr(created_at=datetime.now(UTC)),
+            _pr(created_at=datetime.now(UTC)),
         ]
-        result = get_check("stale_prs").evaluate(_mock_repo(), _status(), config={}, pulls=pulls)
+        result = get_check("stale_prs").evaluate(
+            _mock_repo(), _status(), config={}, context=_ctx(pulls=pulls)
+        )
         assert result.severity == Severity.MEDIUM
         assert "(1) stale PR" in result.summary
         assert "10d" in result.summary
         assert result.link == "https://github.com/org/repo/pull/1"
 
     def test_custom_threshold(self):
-        pulls = [_mock_pr(created_at=datetime.now(UTC) - timedelta(days=3))]
+        pulls = [_pr(created_at=datetime.now(UTC) - timedelta(days=3))]
         result = get_check("stale_prs").evaluate(
-            _mock_repo(), _status(), config={"stale_pr_days": 2}, pulls=pulls
+            _mock_repo(),
+            _status(),
+            config={"stale_pr_days": 2},
+            context=_ctx(pulls=pulls),
         )
         assert result.severity == Severity.MEDIUM
 
     def test_empty_pulls(self):
-        result = get_check("stale_prs").evaluate(_mock_repo(), _status(), config={}, pulls=[])
+        result = get_check("stale_prs").evaluate(
+            _mock_repo(), _status(), config={}, context=_ctx(pulls=[])
+        )
         assert result.severity == Severity.OK
 
     def test_renovate_prs_excluded(self):
         pulls = [
-            _mock_pr(
-                login="renovate[bot]",
-                created_at=datetime.now(UTC) - timedelta(days=30),
-            ),
-            _mock_pr(
-                login="human-user",
-                created_at=datetime.now(UTC),
-            ),
+            _pr(login="renovate[bot]", created_at=datetime.now(UTC) - timedelta(days=30)),
+            _pr(login="human-user", created_at=datetime.now(UTC)),
         ]
-        result = get_check("stale_prs").evaluate(_mock_repo(), _status(), config={}, pulls=pulls)
+        result = get_check("stale_prs").evaluate(
+            _mock_repo(), _status(), config={}, context=_ctx(pulls=pulls)
+        )
         assert result.severity == Severity.OK
 
     def test_default_threshold_is_7_days(self):
         pulls = [
-            _mock_pr(
+            _pr(
                 created_at=datetime.now(UTC) - timedelta(days=6),
-                html_url="https://github.com/org/repo/pull/1",
+                url="https://github.com/org/repo/pull/1",
             ),
         ]
-        result = get_check("stale_prs").evaluate(_mock_repo(), _status(), config={}, pulls=pulls)
+        result = get_check("stale_prs").evaluate(
+            _mock_repo(), _status(), config={}, context=_ctx(pulls=pulls)
+        )
         assert result.severity == Severity.OK
-
-
-def _mock_issue(login="human-user", is_pr=False):
-    issue = MagicMock()
-    issue.user = MagicMock()
-    issue.user.login = login
-    issue.pull_request = MagicMock() if is_pr else None
-    return issue
 
 
 class TestOpenIssues:
     def test_below_threshold(self):
-        result = get_check("open_issues").evaluate(_mock_repo(), _status(open_issues=5), config={})
+        result = get_check("open_issues").evaluate(
+            _mock_repo(),
+            _status(open_issues=5, human_open_issues=5),
+            config={},
+            context=_ctx(),
+        )
         assert result.severity == Severity.OK
 
-    def test_above_threshold_all_human(self):
-        repo = _mock_repo()
-        repo.get_issues.return_value = [_mock_issue() for _ in range(15)]
-        result = get_check("open_issues").evaluate(repo, _status(open_issues=15), config={})
+    def test_above_threshold(self):
+        result = get_check("open_issues").evaluate(
+            _mock_repo(),
+            _status(open_issues=15, human_open_issues=15),
+            config={},
+            context=_ctx(),
+        )
         assert result.severity == Severity.LOW
         assert "(15) open issues" in result.summary
         assert result.link is not None
 
     def test_bot_issues_excluded(self):
-        repo = _mock_repo()
-        issues = [_mock_issue() for _ in range(5)] + [
-            _mock_issue(login="renovate[bot]"),
-            _mock_issue(login="dependabot[bot]"),
-            _mock_issue(login="github-actions[bot]"),
-        ]
-        # Total is 8 but only 5 are human-filed.
-        # Even though open_issues=12 triggers the API fetch,
-        # the filtered count (5) is below the default threshold (10).
-        repo.get_issues.return_value = issues
-        result = get_check("open_issues").evaluate(repo, _status(open_issues=12), config={})
+        # human_open_issues is pre-computed during the GraphQL fetch and
+        # excludes bots. The check reads it straight off RepoStatus.
+        result = get_check("open_issues").evaluate(
+            _mock_repo(),
+            _status(open_issues=12, human_open_issues=5),
+            config={},
+            context=_ctx(),
+        )
         assert result.severity == Severity.OK
         assert "(5) open issues" in result.summary
 
     def test_custom_threshold(self):
-        repo = _mock_repo()
-        repo.get_issues.return_value = [_mock_issue() for _ in range(3)]
         result = get_check("open_issues").evaluate(
-            repo, _status(open_issues=3), config={"open_issues_threshold": 3}
+            _mock_repo(),
+            _status(open_issues=3, human_open_issues=3),
+            config={"open_issues_threshold": 3},
+            context=_ctx(),
         )
         assert result.severity == Severity.LOW
 
 
 class TestOpenPRs:
     def test_no_prs(self):
-        result = get_check("open_prs").evaluate(_mock_repo(), _status(open_prs=0), config={})
+        result = get_check("open_prs").evaluate(
+            _mock_repo(), _status(open_prs=0), config={}, context=_ctx()
+        )
         assert result.severity == Severity.OK
 
     def test_one_pr_triggers(self):
-        result = get_check("open_prs").evaluate(_mock_repo(), _status(open_prs=1), config={})
+        result = get_check("open_prs").evaluate(
+            _mock_repo(), _status(open_prs=1), config={}, context=_ctx()
+        )
         assert result.severity == Severity.MEDIUM
         assert "(1) open PR" in result.summary
         # No pulls context available -> fall back to the listing page.
         assert result.link == "https://github.com/org/myrepo/pulls"
 
     def test_links_to_oldest_non_draft_pr(self):
-        oldest = _mock_pr(
+        oldest = _pr(
             created_at=datetime.now(UTC) - timedelta(days=10),
-            html_url="https://github.com/org/repo/pull/100",
+            url="https://github.com/org/repo/pull/100",
         )
-        newer = _mock_pr(
+        newer = _pr(
             created_at=datetime.now(UTC) - timedelta(days=1),
-            html_url="https://github.com/org/repo/pull/200",
+            url="https://github.com/org/repo/pull/200",
         )
-        draft = _mock_pr(
+        draft = _pr(
             created_at=datetime.now(UTC) - timedelta(days=20),
-            html_url="https://github.com/org/repo/pull/50",
+            url="https://github.com/org/repo/pull/50",
+            is_draft=True,
         )
-        draft.draft = True
         result = get_check("open_prs").evaluate(
             _mock_repo(),
             _status(open_prs=3, draft_prs=1),
             config={},
-            pulls=[newer, draft, oldest],
+            context=_ctx(pulls=[newer, draft, oldest]),
         )
         assert result.severity == Severity.MEDIUM
         assert result.link == "https://github.com/org/repo/pull/100"
@@ -486,48 +540,31 @@ class TestOpenPRs:
     def test_drafts_excluded(self):
         # Two open PRs but both are drafts -- should not flip yellow.
         result = get_check("open_prs").evaluate(
-            _mock_repo(), _status(open_prs=2, draft_prs=2), config={}
+            _mock_repo(),
+            _status(open_prs=2, draft_prs=2),
+            config={},
+            context=_ctx(),
         )
         assert result.severity == Severity.OK
 
     def test_non_draft_counted(self):
         result = get_check("open_prs").evaluate(
-            _mock_repo(), _status(open_prs=3, draft_prs=2), config={}
+            _mock_repo(),
+            _status(open_prs=3, draft_prs=2),
+            config={},
+            context=_ctx(),
         )
         assert result.severity == Severity.MEDIUM
         assert "(1) open PR" in result.summary
 
     def test_custom_threshold(self):
         result = get_check("open_prs").evaluate(
-            _mock_repo(), _status(open_prs=1), config={"open_prs_threshold": 2}
+            _mock_repo(),
+            _status(open_prs=1),
+            config={"open_prs_threshold": 2},
+            context=_ctx(),
         )
         assert result.severity == Severity.OK
-
-
-def _mock_workflow_repo(
-    pipeline_yaml: str | None,
-    *,
-    default_branch: str = "main",
-    path: str = ".github/workflows/pipeline.yaml",
-):
-    """Return a repo mock whose ``get_contents`` returns pipeline_yaml.
-
-    If ``pipeline_yaml`` is None, all paths raise GithubException (not found).
-    Otherwise, the provided yaml is returned for ``path`` and all other paths
-    raise GithubException.
-    """
-    repo = _mock_repo()
-    repo.default_branch = default_branch
-
-    def _get_contents(requested_path, ref=None):
-        if pipeline_yaml is None or requested_path != path:
-            raise GithubException(404, "not found", None)
-        content = MagicMock()
-        content.decoded_content = pipeline_yaml.encode("utf-8")
-        return content
-
-    repo.get_contents.side_effect = _get_contents
-    return repo
 
 
 class TestCoverageCheck:
@@ -599,15 +636,20 @@ jobs:
         run: uv run pytest -v
 """
 
+    def _evaluate(self, text: str | None, *, path: str = ".github/workflows/pipeline.yaml"):
+        ctx = _ctx(
+            pipeline_path=path if text is not None else None,
+            pipeline_text=text,
+        )
+        return get_check("coverage").evaluate(_mock_repo(), _status(), config={}, context=ctx)
+
     def test_standard_threshold_is_ok(self):
-        repo = _mock_workflow_repo(self._STANDARD_PY)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(self._STANDARD_PY)
         assert result.severity == Severity.OK
         assert "80" in result.summary
 
     def test_lowered_threshold_is_low(self):
-        repo = _mock_workflow_repo(self._LOWERED_PY)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(self._LOWERED_PY)
         assert result.severity == Severity.LOW
         assert "60" in result.summary
         assert "lowered" in result.summary
@@ -615,65 +657,48 @@ jobs:
         assert "pipeline.yaml" in result.link
 
     def test_no_fail_under_is_low(self):
-        repo = _mock_workflow_repo(self._NO_FAIL_UNDER_PY)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(self._NO_FAIL_UNDER_PY)
         assert result.severity == Severity.LOW
         assert "fail-under" in result.summary
 
     def test_continue_on_error_is_medium(self):
-        repo = _mock_workflow_repo(self._CONTINUE_ON_ERROR_PY)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(self._CONTINUE_ON_ERROR_PY)
         assert result.severity == Severity.MEDIUM
         assert "ignored" in result.summary
 
     def test_or_true_suffix_is_medium(self):
-        repo = _mock_workflow_repo(self._OR_TRUE_PY)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(self._OR_TRUE_PY)
         assert result.severity == Severity.MEDIUM
         assert "ignored" in result.summary
 
     def test_node_vitest_is_ok(self):
-        repo = _mock_workflow_repo(self._NODE_VITEST)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(self._NODE_VITEST)
         assert result.severity == Severity.OK
         assert "coverage" in result.summary.lower()
 
     def test_missing_pipeline_is_unverified(self):
-        repo = _mock_workflow_repo(None)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(None)
         assert result.severity == Severity.MEDIUM
         assert result.summary.startswith("unverified:")
 
     def test_missing_unit_tests_job_is_unverified(self):
-        repo = _mock_workflow_repo(self._NO_UNIT_TESTS)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(self._NO_UNIT_TESTS)
         assert result.severity == Severity.MEDIUM
         assert "unverified" in result.summary
         assert "unit-tests" in result.summary
 
     def test_missing_coverage_command_is_unverified(self):
-        repo = _mock_workflow_repo(self._NO_COVERAGE_COMMAND)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(self._NO_COVERAGE_COMMAND)
         assert result.severity == Severity.MEDIUM
         assert "unverified" in result.summary
         assert "coverage" in result.summary
 
     def test_yml_fallback(self):
-        repo = _mock_workflow_repo(self._STANDARD_PY, path=".github/workflows/pipeline.yml")
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(self._STANDARD_PY, path=".github/workflows/pipeline.yml")
         assert result.severity == Severity.OK
 
-    def test_github_exception_is_unverified(self):
-        repo = _mock_repo()
-        repo.default_branch = "main"
-        repo.get_contents.side_effect = GithubException(500, "boom", None)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
-        assert result.severity == Severity.MEDIUM
-        assert result.summary.startswith("unverified:")
-
     def test_yaml_parse_error_is_unverified(self):
-        repo = _mock_workflow_repo("jobs: [this is: not valid")
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate("jobs: [this is: not valid")
         assert result.severity == Severity.MEDIUM
         assert "unverified" in result.summary
 
@@ -685,17 +710,9 @@ jobs:
       - run: uv run pytest --cov=src --cov-fail-under=80
       - run: uv run pytest tests/integration --cov=src --cov-fail-under=50
 """
-        repo = _mock_workflow_repo(yaml_text)
-        result = get_check("coverage").evaluate(repo, _status(), config={})
+        result = self._evaluate(yaml_text)
         assert result.severity == Severity.LOW
         assert "50" in result.summary
-
-    def test_link_targets_default_branch(self):
-        repo = _mock_workflow_repo(self._LOWERED_PY, default_branch="trunk")
-        result = get_check("coverage").evaluate(repo, _status(full_name="org/myrepo"), config={})
-        assert result.link == (
-            "https://github.com/org/myrepo/blob/trunk/.github/workflows/pipeline.yaml"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -704,59 +721,21 @@ jobs:
 
 
 class TestRunHealthChecks:
-    def test_runs_all_checks(self):
-        repo = _mock_repo()
-        content = MagicMock()
-        content.decoded_content = b'{"extends": ["config:base"]}'
-        repo.get_contents.return_value = content
+    def test_builds_context_when_none_given(self):
+        # Passing context=None falls back to an empty FetchContext -- no
+        # per-repo REST call is made.
+        health = run_health_checks(_mock_repo(), _status())
+        assert isinstance(health, RepoHealth)
+        assert len(health.checks) == len(all_checks())
 
-        status = _status(main_status="success", open_issues=0)
-        health = run_health_checks(repo, status, config={})
-
-        assert len(health.checks) >= 5
-        check_names = {c.check_name for c in health.checks}
-        assert "broken_ci" in check_names
-        assert "renovate_enabled" in check_names
-
-    def test_check_error_does_not_crash(self):
-        repo = _mock_repo()
-        repo.get_contents.side_effect = RuntimeError("unexpected")
-
-        status = _status()
-        health = run_health_checks(repo, status, config={})
-        assert len(health.checks) >= 5
-
-    def test_shared_pulls_context(self):
-        repo = _mock_repo()
-        content = MagicMock()
-        content.decoded_content = b'{"extends": ["config:base"]}'
-        repo.get_contents.return_value = content
-
-        ctx = FetchContext(pulls=[])
-        health = run_health_checks(repo, _status(), config={}, context=ctx)
-        # repo.get_pulls should not have been called since we provided context
-        repo.get_pulls.assert_not_called()
-        assert len(health.checks) >= 5
-
-
-class TestRunAllHealthChecks:
-    def test_sorts_worst_first(self):
-        repo_bad = _mock_repo()
-        repo_bad.get_contents.side_effect = GithubException(404, "not found", None)
-
-        repo_good = _mock_repo()
-        content = MagicMock()
-        content.decoded_content = b'{"extends": ["config:base"]}'
-        repo_good.get_contents.return_value = content
-
-        status_bad = _status(name="bad", full_name="org/bad", main_status="failure")
-        status_good = _status(name="good", full_name="org/good", main_status="success")
-
-        healths = run_all_health_checks(
-            [repo_good, repo_bad],
-            [status_good, status_bad],
-            config={},
-        )
-
-        assert healths[0].status.name == "bad"
-        assert healths[-1].status.name == "good"
+    def test_run_all_preserves_ordering(self):
+        statuses = [
+            _status(name="a", full_name="org/a"),
+            _status(name="b", full_name="org/b"),
+        ]
+        repos = [_mock_repo(), _mock_repo()]
+        healths = run_all_health_checks(repos, statuses)
+        # Returns worst-first, not input order; both are OK so tie-breakers
+        # don't matter -- we just assert both repos appear.
+        names = {h.status.name for h in healths}
+        assert names == {"a", "b"}

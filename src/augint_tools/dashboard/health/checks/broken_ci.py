@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
     from ..._data import RepoStatus
+    from .. import FetchContext
 
 
 class BrokenCICheck:
@@ -19,11 +20,11 @@ class BrokenCICheck:
 
     def evaluate(
         self,
-        repo: Repository,
+        repo: Repository,  # noqa: ARG002
         status: RepoStatus,
         *,
-        config: dict,
-        pulls: list | None = None,
+        config: dict,  # noqa: ARG002
+        context: FetchContext,  # noqa: ARG002
     ) -> HealthCheckResult:
         actions_url = f"https://github.com/{status.full_name}/actions"
 

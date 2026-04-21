@@ -29,7 +29,7 @@ from .themes import list_themes
 @click.option(
     "--refresh-seconds",
     type=int,
-    default=600,
+    default=60,
     show_default=True,
     help="Refresh interval in seconds.",
 )

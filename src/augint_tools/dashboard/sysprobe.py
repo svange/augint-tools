@@ -74,8 +74,8 @@ def probe_cpu() -> CpuStats | None:
     core_count = os.cpu_count() or 1
 
     try:
-        load1, load5, load15 = os.getloadavg()
-    except OSError:
+        load1, load5, load15 = os.getloadavg()  # type: ignore[attr-defined]
+    except (OSError, AttributeError):
         load1 = load5 = load15 = 0.0
 
     return CpuStats(

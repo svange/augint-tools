@@ -9,8 +9,11 @@ from augint_tools.dashboard._gql import (
     RENOVATE_PATHS,
     RepoSnapshot,
     build_query,
+    build_teams_query,
     fetch_workspace_snapshot,
+    fetch_workspace_teams,
     parse_response,
+    parse_teams_response,
     pick_pipeline_yaml,
     pick_renovate_config,
     translate_rollup_state,
@@ -314,6 +317,93 @@ class TestFetchWorkspaceSnapshot:
 # ---------------------------------------------------------------------------
 # Pickers
 # ---------------------------------------------------------------------------
+
+
+class TestTeamsQueryAndParse:
+    def test_build_teams_query_includes_owner_alias(self):
+        query = build_teams_query(["svange", "some-org"])
+        assert "o0: organization" in query
+        assert "o1: organization" in query
+        assert 'login: "svange"' in query
+        assert 'login: "some-org"' in query
+        assert "teams(first:" in query
+        assert "repositories(first:" in query
+        assert "permission" in query
+
+    def test_parse_teams_sorts_by_permission(self):
+        response = {
+            "data": {
+                "o0": {
+                    "login": "org",
+                    "teams": {
+                        "nodes": [
+                            {
+                                "slug": "readers",
+                                "name": "Readers",
+                                "repositories": {
+                                    "edges": [
+                                        {
+                                            "permission": "READ",
+                                            "node": {"nameWithOwner": "org/x"},
+                                        }
+                                    ]
+                                },
+                            },
+                            {
+                                "slug": "admins",
+                                "name": "Admins",
+                                "repositories": {
+                                    "edges": [
+                                        {
+                                            "permission": "ADMIN",
+                                            "node": {"nameWithOwner": "org/x"},
+                                        }
+                                    ]
+                                },
+                            },
+                        ]
+                    },
+                },
+                "rateLimit": {
+                    "limit": 5000,
+                    "cost": 1,
+                    "remaining": 4999,
+                    "resetAt": None,
+                },
+            }
+        }
+        snapshot = parse_teams_response(response, ["org"])
+        assignments = snapshot.by_full_name["org/x"]
+        # Admin permission must sort before read permission.
+        assert [a.slug for a in assignments] == ["admins", "readers"]
+        assert snapshot.labels["admins"] == "Admins"
+
+    def test_parse_teams_handles_personal_owner_null_org(self):
+        response = {"data": {"o0": None}}
+        snapshot = parse_teams_response(response, ["svange"])
+        assert snapshot.by_full_name == {}
+        assert snapshot.labels == {}
+
+    def test_parse_teams_records_owner_errors(self):
+        response = {
+            "data": {"o0": None},
+            "errors": [{"path": ["o0"], "message": "Forbidden"}],
+        }
+        snapshot = parse_teams_response(response, ["locked-org"])
+        assert snapshot.errored.get("locked-org") == "Forbidden"
+
+    def test_fetch_workspace_teams_empty_owners_returns_empty(self):
+        gh = MagicMock()
+        snapshot = fetch_workspace_teams(gh, [])
+        assert snapshot.by_full_name == {}
+        assert snapshot.labels == {}
+
+    def test_fetch_workspace_teams_network_failure_errors_all_owners(self):
+        gh = MagicMock()
+        gh._Github__requester.requestJsonAndCheck.side_effect = RuntimeError("boom")  # type: ignore[attr-defined]
+        snapshot = fetch_workspace_teams(gh, ["org-a", "org-b"])
+        assert "org-a" in snapshot.errored
+        assert "org-b" in snapshot.errored
 
 
 class TestPickers:

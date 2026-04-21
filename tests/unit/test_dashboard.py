@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from github.GithubException import GithubException
 from rich.text import Text
 
 from augint_tools.cli.__main__ import cli as main
@@ -1079,65 +1078,46 @@ class TestStateHelpers:
         move_selection(s, 1)
         assert s.selected_full_name is None
 
-    def test_collect_and_merge_repo_teams(self):
-        from augint_tools.dashboard.state import collect_repo_teams, merge_team_data
+    def test_merge_teams_snapshot_assigns_primary_from_sorted_list(self):
+        from augint_tools.dashboard._gql import TeamAssignment, TeamsSnapshot
+        from augint_tools.dashboard.state import merge_teams_snapshot
 
         s = AppState()
-        team = MagicMock()
-        team.slug = "alpha"
-        team.name = "Alpha"
-        team.permission = "admin"
-        repo = _mock_repo(full_name="org/x")
-        repo.get_teams.return_value = [team]
-        td = collect_repo_teams(repo)
-        assert td.error is None
-        merge_team_data(s, [td])
-        assert s.repo_teams["org/x"].primary == "alpha"
-        assert s.team_labels.get("alpha") == "Alpha"
-
-    def test_collect_repo_teams_api_failure(self):
-        from augint_tools.dashboard.state import (
-            UNASSIGNED_TEAM,
-            collect_repo_teams,
-            merge_team_data,
+        snapshot = TeamsSnapshot(
+            by_full_name={
+                "org/x": [
+                    TeamAssignment(slug="alpha", name="Alpha", permission="admin"),
+                    TeamAssignment(slug="beta", name="Beta", permission="write"),
+                ]
+            },
+            labels={"alpha": "Alpha", "beta": "Beta"},
         )
+        merge_teams_snapshot(s, snapshot, ["org/x"])
+        assert s.repo_teams["org/x"].primary == "alpha"
+        assert s.repo_teams["org/x"].all == ("alpha", "beta")
+        assert s.team_labels["alpha"] == "Alpha"
+        assert s.team_labels["beta"] == "Beta"
+
+    def test_merge_teams_snapshot_marks_unassigned_for_unlisted_repos(self):
+        from augint_tools.dashboard._gql import TeamsSnapshot
+        from augint_tools.dashboard.state import UNASSIGNED_TEAM, merge_teams_snapshot
 
         s = AppState()
-        repo = _mock_repo(full_name="org/x")
-        repo.get_teams.side_effect = RuntimeError("boom")
-        td = collect_repo_teams(repo)
-        assert td.error is not None
-        merge_team_data(s, [td])
-        assert s.repo_teams["org/x"].primary == UNASSIGNED_TEAM
+        snapshot = TeamsSnapshot()
+        merge_teams_snapshot(s, snapshot, ["user/personal-repo"])
+        assert s.repo_teams["user/personal-repo"].primary == UNASSIGNED_TEAM
+        assert s.repo_teams["user/personal-repo"].all == ()
 
-    def test_collect_repo_teams_403_suppressed(self):
-        """403 from personal (non-org) repos is expected -- no error field."""
-        from augint_tools.dashboard.state import collect_repo_teams
+    def test_merge_teams_snapshot_logs_owner_errors(self, caplog):
+        from augint_tools.dashboard._gql import TeamsSnapshot
+        from augint_tools.dashboard.state import merge_teams_snapshot
 
-        repo = _mock_repo(full_name="user/personal-repo")
-        repo.get_teams.side_effect = GithubException(403, "Forbidden", None)
-        td = collect_repo_teams(repo)
-        assert td.error is None
-        assert td.info.all == ()
-
-    def test_collect_repo_teams_404_suppressed(self):
-        """404 from the Teams API is also expected for non-org repos."""
-        from augint_tools.dashboard.state import collect_repo_teams
-
-        repo = _mock_repo(full_name="user/personal-repo")
-        repo.get_teams.side_effect = GithubException(404, "Not Found", None)
-        td = collect_repo_teams(repo)
-        assert td.error is None
-        assert td.info.all == ()
-
-    def test_collect_repo_teams_500_still_errors(self):
-        """Server errors (5xx) should still be reported."""
-        from augint_tools.dashboard.state import collect_repo_teams
-
-        repo = _mock_repo(full_name="org/x")
-        repo.get_teams.side_effect = GithubException(500, "Server Error", None)
-        td = collect_repo_teams(repo)
-        assert td.error is not None
+        s = AppState()
+        snapshot = TeamsSnapshot(errored={"some-org": "Forbidden"})
+        merge_teams_snapshot(s, snapshot, [])
+        # No exception and no repos touched; just debug-logged. The explicit
+        # repos list is empty so nothing should land in repo_teams either.
+        assert s.repo_teams == {}
 
     def test_apply_filter_no_renovate(self):
         check = HealthCheckResult(

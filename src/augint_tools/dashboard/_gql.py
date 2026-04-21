@@ -164,7 +164,7 @@ fragment RepoFields on Repository {{
   _rootTree: object(expression: "HEAD:") {{
     ... on Tree {{ entries {{ name }} }}
   }}
-  pullRequests(states: OPEN, first: 100) {{
+  pullRequests(states: OPEN, first: 50) {{
     totalCount
     nodes {{
       number
@@ -174,7 +174,7 @@ fragment RepoFields on Repository {{
       author {{ login }}
     }}
   }}
-  issues(states: OPEN, first: 100) {{
+  issues(states: OPEN, first: 50) {{
     totalCount
     nodes {{
       number
@@ -505,3 +505,168 @@ def pick_pipeline_yaml(snapshot: RepoSnapshot) -> tuple[str | None, str | None]:
         if text and text.strip():
             return path, text
     return None, None
+
+
+# ---------------------------------------------------------------------------
+# Teams fetcher
+# ---------------------------------------------------------------------------
+#
+# Teams are queried inverse to repos: GraphQL's Repository type has no direct
+# ``teams`` connection, but organizations expose ``teams -> repositories`` with
+# per-edge permission info. One query per org returns every team assignment
+# across all repos in the workspace. Called on a slower cadence than the main
+# refresh because team membership changes rarely -- see
+# ``TeamsCache.is_stale``.
+
+
+# Mirror of ``_TEAM_PERMISSION_ORDER`` in state.py -- kept here so _gql has
+# no reverse dependency on state. Permission strings come straight from the
+# GraphQL enum lowercased.
+_TEAM_PERMISSION_ORDER: dict[str, int] = {
+    "admin": 0,
+    "maintain": 1,
+    "write": 2,
+    "triage": 3,
+    "read": 4,
+}
+
+
+@dataclass
+class TeamAssignment:
+    """One team's access grant to one repo. Permission from the team->repo edge."""
+
+    slug: str
+    name: str
+    permission: str  # "admin" | "maintain" | "write" | "triage" | "read"
+
+
+@dataclass
+class TeamsSnapshot:
+    """Workspace-wide team data from one or more organization queries."""
+
+    by_full_name: dict[str, list[TeamAssignment]] = field(default_factory=dict)
+    # slug -> display name mapping for every team seen across all orgs.
+    labels: dict[str, str] = field(default_factory=dict)
+    rate_limit_cost: int = 0
+    rate_limit_remaining: int = 0
+    errored: dict[str, str] = field(default_factory=dict)  # keyed by owner login
+
+
+def build_teams_query(owners: list[str]) -> str:
+    """Build a single GraphQL query listing teams + repositories for each owner.
+
+    Personal-account owners (non-org) return a null organization -- handled
+    gracefully by parse_teams_response (those repos simply have no teams).
+    """
+    parts: list[str] = []
+    for i, owner in enumerate(owners):
+        owner_esc = owner.replace("\\", "\\\\").replace('"', '\\"')
+        parts.append(
+            f'  o{i}: organization(login: "{owner_esc}") {{\n'
+            f"    login\n"
+            f"    teams(first: 50) {{\n"
+            f"      nodes {{\n"
+            f"        slug\n"
+            f"        name\n"
+            f"        repositories(first: 50) {{\n"
+            f"          edges {{\n"
+            f"            permission\n"
+            f"            node {{ nameWithOwner }}\n"
+            f"          }}\n"
+            f"        }}\n"
+            f"      }}\n"
+            f"    }}\n"
+            f"  }}"
+        )
+    body = "\n".join(parts)
+    return f"query WorkspaceTeams {{\n{body}\n  rateLimit {{ limit cost remaining resetAt }}\n}}\n"
+
+
+def parse_teams_response(response: dict, owners: list[str]) -> TeamsSnapshot:
+    """Parse the WorkspaceTeams response into a TeamsSnapshot."""
+    data = response.get("data") or {}
+    rate_limit = data.get("rateLimit") or {}
+    snapshot = TeamsSnapshot(
+        rate_limit_cost=int(rate_limit.get("cost") or 0) if isinstance(rate_limit, dict) else 0,
+        rate_limit_remaining=int(rate_limit.get("remaining") or 0)
+        if isinstance(rate_limit, dict)
+        else 0,
+    )
+
+    # Surface top-level errors per owner.
+    for err in response.get("errors") or []:
+        path = err.get("path")
+        if not isinstance(path, list) or not path:
+            continue
+        alias = path[0]
+        if not isinstance(alias, str) or not alias.startswith("o"):
+            continue
+        try:
+            idx = int(alias[1:])
+        except ValueError:
+            continue
+        if 0 <= idx < len(owners):
+            snapshot.errored[owners[idx]] = str(err.get("message", "GraphQL error"))
+
+    # Build per-repo assignments across every owner's team tree.
+    assignments: dict[str, list[TeamAssignment]] = {}
+    for i, owner in enumerate(owners):
+        org_data = data.get(f"o{i}")
+        # Personal-account owners return null -- that's fine, no teams to map.
+        if not isinstance(org_data, dict):
+            continue
+        teams_conn = org_data.get("teams") or {}
+        if not isinstance(teams_conn, dict):
+            continue
+        for team in teams_conn.get("nodes") or []:
+            if not isinstance(team, dict):
+                continue
+            slug = str(team.get("slug") or "")
+            if not slug:
+                continue
+            name = str(team.get("name") or slug)
+            snapshot.labels[slug] = name
+            repos_conn = team.get("repositories") or {}
+            if not isinstance(repos_conn, dict):
+                continue
+            for edge in repos_conn.get("edges") or []:
+                if not isinstance(edge, dict):
+                    continue
+                node = edge.get("node") or {}
+                full_name = node.get("nameWithOwner") if isinstance(node, dict) else None
+                if not isinstance(full_name, str):
+                    continue
+                permission = str(edge.get("permission") or "").lower()
+                assignments.setdefault(full_name, []).append(
+                    TeamAssignment(slug=slug, name=name, permission=permission)
+                )
+        # Note: if the owner IS an org but returned no teams, that's legitimate
+        # empty state and doesn't warrant an error.
+        _ = owner  # silences ruff ARG002 -- owner used above via i
+
+    # Sort each repo's team list by (permission order, slug) so "primary" is
+    # deterministic and matches what the REST-era collect_repo_teams produced.
+    for full_name, team_list in assignments.items():
+        team_list.sort(key=lambda t: (_TEAM_PERMISSION_ORDER.get(t.permission, 99), t.slug.lower()))
+        snapshot.by_full_name[full_name] = team_list
+
+    return snapshot
+
+
+def fetch_workspace_teams(gh: Github, owners: list[str]) -> TeamsSnapshot:
+    """One GraphQL query covering every owner's teams + repo assignments.
+
+    Designed to be called on a cadence independent from ``fetch_workspace_snapshot``
+    (teams change rarely; caching for several minutes is safe).
+    """
+    if not owners:
+        return TeamsSnapshot()
+    query = build_teams_query(owners)
+    try:
+        response = _execute_query(gh, query)
+    except Exception as exc:
+        logger.warning("graphql teams fetch failed: %s: %s", exc.__class__.__name__, exc)
+        return TeamsSnapshot(
+            errored=dict.fromkeys(owners, f"graphql: {exc.__class__.__name__}: {exc}")
+        )
+    return parse_teams_response(response, owners)

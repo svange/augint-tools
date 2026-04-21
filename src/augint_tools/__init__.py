@@ -1,3 +1,3 @@
 """augint-tools package."""
 
-__version__ = "5.24.1"
+__version__ = "5.24.2"

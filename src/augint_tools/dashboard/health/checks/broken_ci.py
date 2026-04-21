@@ -46,21 +46,22 @@ class BrokenCICheck:
                 link=actions_url,
             )
 
-        # "unknown" here means GraphQL's statusCheckRollup came back null for
-        # the latest commit on the default branch. That happens legitimately
-        # when the latest commit didn't trigger any workflow (semantic-release
-        # chore commits, [skip ci] on merges, workflow trigger filters that
-        # don't match). Only treat it as a real finding when the repo has no
-        # workflow files at all -- that's the actual governance gap.
-        if (
-            status.main_status == "unknown"
-            and status.dev_status is None
-            and not status.has_workflows
-        ):
+        # "unknown" reaches here only after the GraphQL fetcher has walked
+        # several commits back through the default branch looking for a
+        # non-null statusCheckRollup. If nothing was found, either the repo
+        # has no workflows (governance gap) or the workflows exist but haven't
+        # produced a run recently enough to see. Both warrant a warning --
+        # silently rendering green would claim CI health we can't actually
+        # verify.
+        if status.main_status == "unknown" and status.dev_status is None:
+            if not status.has_workflows:
+                summary = "No CI workflows detected"
+            else:
+                summary = "CI status unknown: no recent workflow runs"
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.MEDIUM,
-                summary="No CI workflows detected",
+                summary=summary,
                 link=actions_url,
             )
 

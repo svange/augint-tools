@@ -296,16 +296,19 @@ class TestBrokenCI:
         assert result.severity == Severity.MEDIUM
         assert "No CI workflows" in result.summary
 
-    def test_unknown_rollup_with_workflows_is_ok(self):
-        # Workflows exist but the latest commit didn't trigger one (common for
-        # semantic-release chore commits). Not a health issue.
+    def test_unknown_rollup_with_workflows_is_warning(self):
+        # History walkback in the GraphQL fetcher already absorbs the common
+        # skip-ci-chore-commit case. Anything that still arrives here as
+        # "unknown" means 5+ consecutive commits produced no rollup -- not
+        # verifiably healthy, so don't claim green.
         result = get_check("broken_ci").evaluate(
             _mock_repo(),
             _status(main_status="unknown", dev_status=None, has_workflows=True),
             config={},
             context=_ctx(),
         )
-        assert result.severity == Severity.OK
+        assert result.severity == Severity.MEDIUM
+        assert "unknown" in result.summary.lower()
 
     def test_main_takes_priority_over_dev(self):
         result = get_check("broken_ci").evaluate(

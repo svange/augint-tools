@@ -27,7 +27,7 @@ class OpenIssuesCheck:
         config: dict,
         pulls: list | None = None,
     ) -> HealthCheckResult:
-        threshold = config.get("open_issues_threshold", 1)
+        threshold = config.get("open_issues_threshold", 10)
 
         # Fast path: if the total (including bots) is below threshold,
         # the human-only count can't exceed it either.
@@ -39,7 +39,6 @@ class OpenIssuesCheck:
             )
 
         # Fetch issues to filter out bot-created noise.
-        first_human_issue = None
         try:
             issues = repo.get_issues(state="open")
             human_count = 0
@@ -49,23 +48,16 @@ class OpenIssuesCheck:
                 if issue.user and issue.user.login in _BOT_LOGINS:
                     continue
                 human_count += 1
-                if first_human_issue is None:
-                    first_human_issue = issue
         except Exception:
             # Fall back to the unfiltered count on API error.
             human_count = status.open_issues
 
         if human_count >= threshold:
-            link = (
-                first_human_issue.html_url
-                if first_human_issue is not None
-                else f"https://github.com/{status.full_name}/issues"
-            )
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.MEDIUM,
+                severity=Severity.LOW,
                 summary=f"({human_count}) open issues (excl. bots)",
-                link=link,
+                link=f"https://github.com/{status.full_name}/issues",
             )
 
         return HealthCheckResult(

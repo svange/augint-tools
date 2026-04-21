@@ -9,7 +9,7 @@ state directly; it is fed from the parent container. CSS transitions on
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
 from rich.text import Text
@@ -47,6 +47,15 @@ _STATUS_ICON = {
     "unknown": "? ",
 }
 
+# Upper bound for the subtle blue hint on the counts line. Matches the default
+# ``open_issues_threshold`` -- at or above this, the open_issues health check
+# flags the card and its severity styling already communicates the concern.
+_ISSUE_HINT_THRESHOLD = 10
+
+# An open issue older than this turns the issues count yellow so it stands
+# out without escalating the whole card's severity.
+_ISSUE_STALE_AGE = timedelta(days=3)
+
 
 def _within_window(iso_ts: str | None, window_seconds: int) -> bool:
     """True if ``iso_ts`` is set and less than ``window_seconds`` in the past."""
@@ -60,6 +69,19 @@ def _within_window(iso_ts: str | None, window_seconds: int) -> bool:
         ts = ts.replace(tzinfo=UTC)
     delta = (datetime.now(UTC) - ts).total_seconds()
     return 0 <= delta < window_seconds
+
+
+def _older_than(iso_ts: str | None, age: timedelta) -> bool:
+    """True if ``iso_ts`` is set and strictly older than ``age``."""
+    if not iso_ts:
+        return False
+    try:
+        ts = datetime.fromisoformat(iso_ts)
+    except ValueError:
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return datetime.now(UTC) - ts > age
 
 
 def _truncate(value: str | None, width: int) -> str:
@@ -280,11 +302,28 @@ class RepoCard(Widget):
 
     def _counts_line(self, health: RepoHealth) -> Text:
         status = health.status
+        spec = self._theme_spec
         line = Text()
-        line.append(f"issues {status.open_issues}  prs {status.open_prs}")
+        line.append("issues ")
+        line.append(str(status.open_issues), style=self._issue_count_style(status, spec))
+        line.append(f"  prs {status.open_prs}")
         if status.draft_prs:
             line.append(f" ({status.draft_prs}d)", style="dim")
         return line
+
+    def _issue_count_style(self, status, spec: ThemeSpec) -> str:
+        """Return the inline style for the issue count number.
+
+        Yellow when any human-filed issue is older than three days; blue when
+        there is at least one human-filed issue but the count is still below
+        the health check's threshold. Otherwise no override -- inherit the
+        card's default text colour.
+        """
+        if _older_than(status.oldest_issue_created_at, _ISSUE_STALE_AGE):
+            return spec.severity_colors[Severity.MEDIUM]
+        if 0 < status.human_open_issues < _ISSUE_HINT_THRESHOLD:
+            return spec.severity_colors[Severity.LOW]
+        return ""
 
     def _findings_lines(self, health: RepoHealth, limit: int) -> list[tuple[Text, str]]:
         """Return up to ``limit`` finding rows paired with their click-target URLs."""

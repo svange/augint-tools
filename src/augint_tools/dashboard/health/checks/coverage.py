@@ -194,8 +194,8 @@ class CoverageCheck:
                     check_name=self.name,
                     severity=Severity.LOW,
                     summary=(
-                        f"coverage threshold lowered to {lowered_threshold}% "
-                        f"(std: {_STANDARD_THRESHOLD}%)"
+                        f"({lowered_threshold}%/{_STANDARD_THRESHOLD}%) "
+                        f"code coverage reduced from standard"
                     ),
                     link=workflow_link,
                 )

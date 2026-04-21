@@ -50,6 +50,13 @@ PIPELINE_PATHS: tuple[str, ...] = (
 # while still collapsing workspace-scale fetches into a handful of queries.
 _BATCH_SIZE = 25
 
+# How far back to walk the default-branch / dev-branch history looking for a
+# non-null statusCheckRollup. Needed because semantic-release chore commits
+# intentionally skip CI, leaving the tip commit's rollup null even when the
+# pipeline is healthy. 5 covers the common case (a bump commit directly after
+# the PR merge) with generous headroom.
+_HISTORY_LOOKBACK = 5
+
 # Transient network failures worth retrying. GraphQL/HTTP-level errors (4xx,
 # rate-limit, schema) surface as other exception types and should NOT retry.
 _TRANSIENT_NETWORK_ERRORS: tuple[type[Exception], ...] = (
@@ -167,6 +174,9 @@ fragment RepoFields on Repository {{
       ... on Commit {{
         oid
         statusCheckRollup {{ state }}
+        history(first: {_HISTORY_LOOKBACK}) {{
+          nodes {{ statusCheckRollup {{ state }} }}
+        }}
       }}
     }}
   }}
@@ -175,6 +185,9 @@ fragment RepoFields on Repository {{
       ... on Commit {{
         oid
         statusCheckRollup {{ state }}
+        history(first: {_HISTORY_LOOKBACK}) {{
+          nodes {{ statusCheckRollup {{ state }} }}
+        }}
       }}
     }}
   }}
@@ -251,6 +264,33 @@ def _parse_ts(value: Any) -> datetime | None:
             return None
 
 
+def _resolve_rollup_state(target: Any) -> str | None:
+    """Pick the first non-null rollup state from the tip commit or its ancestors.
+
+    GraphQL's ``statusCheckRollup`` is null whenever the commit didn't trigger
+    any workflow -- common on semantic-release chore commits and ``[skip ci]``
+    merges. Falling back to ``history(first: _HISTORY_LOOKBACK)`` reflects the
+    branch's actual pipeline health rather than whatever happened to land on
+    the tip.
+    """
+    if not isinstance(target, dict):
+        return None
+    rollup = target.get("statusCheckRollup")
+    if isinstance(rollup, dict) and rollup.get("state"):
+        return str(rollup["state"])
+    history = target.get("history")
+    nodes = history.get("nodes") if isinstance(history, dict) else None
+    if not isinstance(nodes, list):
+        return None
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_rollup = node.get("statusCheckRollup")
+        if isinstance(node_rollup, dict) and node_rollup.get("state"):
+            return str(node_rollup["state"])
+    return None
+
+
 def _extract_blob_text(blob: dict | None) -> str | None:
     """Pull ``text`` out of a GraphQL Blob payload, respecting truncation.
 
@@ -277,17 +317,13 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     default_branch_ref = data.get("defaultBranchRef") or {}
     default_branch = str(default_branch_ref.get("name", "main")) if default_branch_ref else "main"
     main_target = (default_branch_ref or {}).get("target") or {}
-    main_rollup = (
-        (main_target.get("statusCheckRollup") or {}) if isinstance(main_target, dict) else {}
-    )
-    main_rollup_state = main_rollup.get("state") if isinstance(main_rollup, dict) else None
+    main_rollup_state = _resolve_rollup_state(main_target)
     main_head_sha = main_target.get("oid") if isinstance(main_target, dict) else None
 
     dev_ref = data.get("_dev")
     has_dev_branch = dev_ref is not None
     dev_target = (dev_ref or {}).get("target") or {} if isinstance(dev_ref, dict) else {}
-    dev_rollup = (dev_target.get("statusCheckRollup") or {}) if isinstance(dev_target, dict) else {}
-    dev_rollup_state = dev_rollup.get("state") if isinstance(dev_rollup, dict) else None
+    dev_rollup_state = _resolve_rollup_state(dev_target)
     dev_head_sha = dev_target.get("oid") if isinstance(dev_target, dict) else None
 
     root_tree = data.get("_rootTree")

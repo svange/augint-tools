@@ -35,7 +35,9 @@ def _graphql_repo_payload(
     full_name: str,
     has_dev: bool = False,
     main_state: str = "SUCCESS",
+    main_history_states: list[str | None] | None = None,
     dev_state: str | None = None,
+    dev_history_states: list[str | None] | None = None,
     pr_nodes: list[dict] | None = None,
     pr_total: int | None = None,
     issue_nodes: list[dict] | None = None,
@@ -48,6 +50,17 @@ def _graphql_repo_payload(
 ) -> dict:
     """Build the per-repo shape that GraphQL would return for RepoFields."""
     owner, name = full_name.split("/", 1)
+
+    def _history(states: list[str | None] | None) -> dict:
+        # Default: history mirrors the tip rollup so callers that don't care
+        # about walkback behavior keep working unchanged.
+        return {
+            "nodes": [
+                {"statusCheckRollup": {"state": s} if s else None}
+                for s in (states if states is not None else [])
+            ]
+        }
+
     payload: dict = {
         "nameWithOwner": full_name,
         "name": name,
@@ -59,6 +72,7 @@ def _graphql_repo_payload(
             "target": {
                 "oid": "abc123",
                 "statusCheckRollup": {"state": main_state} if main_state else None,
+                "history": _history(main_history_states),
             },
         },
         "_dev": None,
@@ -77,6 +91,7 @@ def _graphql_repo_payload(
             "target": {
                 "oid": "def456",
                 "statusCheckRollup": {"state": dev_state} if dev_state else None,
+                "history": _history(dev_history_states),
             },
         }
     hits = renovate_hits or {}
@@ -220,6 +235,57 @@ class TestParseResponse:
         ppath, ptext = pick_pipeline_yaml(snap)
         assert ppath == ".github/workflows/pipeline.yaml"
         assert "unit-tests" in ptext
+
+    def test_rollup_walks_history_when_tip_has_no_rollup(self):
+        # Skip-ci release commit at tip -> null rollup on tip. History walkback
+        # should find the prior merge commit's SUCCESS state.
+        payload = _graphql_repo_payload(
+            full_name="org/a",
+            main_state="",  # empty string -> no statusCheckRollup on tip
+            main_history_states=[None, "SUCCESS", "SUCCESS"],
+        )
+        # Force the tip rollup to null; main_state="" above already does this
+        # but be explicit.
+        payload["defaultBranchRef"]["target"]["statusCheckRollup"] = None
+        response = {"data": {"r0": payload}}
+        snapshots, _, _ = parse_response(response, [_mock_repo("org/a")])
+        assert snapshots["org/a"].main_rollup_state == "SUCCESS"
+
+    def test_rollup_stays_unknown_when_history_also_empty(self):
+        payload = _graphql_repo_payload(
+            full_name="org/a",
+            main_state="",
+            main_history_states=[None, None, None],
+        )
+        payload["defaultBranchRef"]["target"]["statusCheckRollup"] = None
+        response = {"data": {"r0": payload}}
+        snapshots, _, _ = parse_response(response, [_mock_repo("org/a")])
+        assert snapshots["org/a"].main_rollup_state is None
+
+    def test_rollup_prefers_tip_when_present(self):
+        # Tip has a rollup -- history shouldn't be consulted, so put a bogus
+        # state there and confirm we still get the tip's.
+        payload = _graphql_repo_payload(
+            full_name="org/a",
+            main_state="FAILURE",
+            main_history_states=["SUCCESS", "SUCCESS"],
+        )
+        response = {"data": {"r0": payload}}
+        snapshots, _, _ = parse_response(response, [_mock_repo("org/a")])
+        assert snapshots["org/a"].main_rollup_state == "FAILURE"
+
+    def test_dev_rollup_walks_history_too(self):
+        payload = _graphql_repo_payload(
+            full_name="org/service",
+            has_dev=True,
+            main_state="SUCCESS",
+            dev_state="",
+            dev_history_states=[None, "FAILURE"],
+        )
+        payload["_dev"]["target"]["statusCheckRollup"] = None
+        response = {"data": {"r0": payload}}
+        snapshots, _, _ = parse_response(response, [_mock_repo("org/service")])
+        assert snapshots["org/service"].dev_rollup_state == "FAILURE"
 
     def test_truncated_blob_treated_as_absent(self):
         payload = _graphql_repo_payload(full_name="org/a")

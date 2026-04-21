@@ -1700,6 +1700,82 @@ class TestAppMisc:
         assert "last: 2m ago" in text
         assert "auto-refresh off" in text
 
+    def test_header_refresh_line_idle_shows_all_three_facts(self):
+        """Steady-state line names last-refresh time, countdown, and interval."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_line
+
+        text = format_header_refresh_line(
+            is_refreshing=False,
+            last_refresh_label="14:35:12",
+            next_refresh_remaining_seconds=125,
+            interval_seconds=600,
+        )
+        assert "last refresh: 14:35:12" in text
+        assert "next: in 2m05s" in text
+        assert "interval: 10m" in text
+
+    def test_header_refresh_line_loading(self):
+        """First launch without cache still names the interval.
+
+        The user needs to know the dashboard is in a refresh cycle and
+        what that cycle's period is, otherwise "loading" reads as if
+        nothing is scheduled at all.
+        """
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_line
+
+        text = format_header_refresh_line(
+            is_refreshing=True,
+            last_refresh_label=None,
+            next_refresh_remaining_seconds=None,
+            interval_seconds=300,
+        )
+        assert "loading data" in text
+        assert "interval: 5m" in text
+
+    def test_header_refresh_line_refreshing_with_prior_data(self):
+        """Mid-refresh shows the stale timestamp and 'refreshing...' not the countdown."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_line
+
+        text = format_header_refresh_line(
+            is_refreshing=True,
+            last_refresh_label="14:35:12",
+            next_refresh_remaining_seconds=600,
+            interval_seconds=600,
+        )
+        assert "last refresh: 14:35:12" in text
+        assert "refreshing" in text
+        assert "next: in" not in text
+        assert "interval: 10m" in text
+
+    def test_header_refresh_line_auto_refresh_off(self):
+        """Without a scheduled next-refresh, drop the countdown and the interval."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_line
+
+        text = format_header_refresh_line(
+            is_refreshing=False,
+            last_refresh_label="14:35:12",
+            next_refresh_remaining_seconds=None,
+            interval_seconds=0,
+        )
+        assert "last refresh: 14:35:12" in text
+        assert "auto-refresh off" in text
+        # Suppress the interval half when auto-refresh is off; otherwise
+        # we'd show both "auto-refresh off" and "interval: off" which
+        # is noisy without adding information.
+        assert "interval" not in text
+
+    def test_header_refresh_line_due_now(self):
+        """Zero remaining renders as 'next: in now'-equivalent, clamped."""
+        from augint_tools.dashboard.widgets.status_bar import format_header_refresh_line
+
+        text = format_header_refresh_line(
+            is_refreshing=False,
+            last_refresh_label="14:35:12",
+            next_refresh_remaining_seconds=-3,
+            interval_seconds=600,
+        )
+        assert "next: in now" in text or "next:" in text and "now" in text
+
     def test_bootstrap_seeds_last_refresh_at(self, tmp_path):
         """bootstrap_from_cache must set last_refresh_at from cache ts.
 

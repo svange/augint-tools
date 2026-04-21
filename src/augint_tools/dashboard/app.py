@@ -1114,6 +1114,7 @@ class DashboardApp(App[None]):
         Binding("D", "cycle_right_drawer", "Drawer", show=False),
         Binding("A", "cycle_left_drawer", "AWS", show=False),
         Binding("W", "cycle_top_drawer", "Org", show=False),
+        Binding("w", "toggle_hide_workspace", "Workspace"),
         Binding("m", "manage_repos", "Repos"),
         Binding("O", "manage_orgs", "Orgs"),
         Binding("question_mark", "show_help", "Help"),
@@ -1192,6 +1193,7 @@ class DashboardApp(App[None]):
         if saved_prefs is not None:
             self.state.sort_mode = saved_prefs.sort_mode
             self.state.active_filters = set(saved_prefs.active_filters)
+            self.state.hide_workspace = saved_prefs.hide_workspace
             self.state.panel_width = saved_prefs.panel_width
             self._flash_enabled = saved_prefs.flash_enabled
             self._disabled_repos = set(saved_prefs.disabled_repos)
@@ -1209,6 +1211,7 @@ class DashboardApp(App[None]):
                 active_filters=sorted(self.state.active_filters),
                 panel_width=self.state.panel_width,
                 flash_enabled=self._flash_enabled,
+                hide_workspace=self.state.hide_workspace,
                 disabled_repos=sorted(self._disabled_repos),
                 disabled_orgs=sorted(self._disabled_orgs),
             )
@@ -1735,6 +1738,14 @@ class DashboardApp(App[None]):
         self._rerender()
         self._save_prefs()
         self.notify(f"theme: {new_theme}", timeout=2)
+
+    def action_toggle_hide_workspace(self) -> None:
+        """Hide or show workspace repos."""
+        self.state.hide_workspace = not self.state.hide_workspace
+        self._rerender()
+        self._save_prefs()
+        label = "hidden" if self.state.hide_workspace else "shown"
+        self.notify(f"workspace repos: {label}", timeout=2)
 
     def action_toggle_flash(self) -> None:
         """Enable or disable the recently-broken border flash."""

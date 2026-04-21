@@ -27,6 +27,7 @@ class DashboardPrefs:
     active_filters: list[str] = field(default_factory=list)
     panel_width: int = 38
     flash_enabled: bool = True
+    hide_workspace: bool = False
     disabled_repos: list[str] = field(default_factory=list)
     disabled_orgs: list[str] = field(default_factory=list)
 
@@ -37,11 +38,11 @@ class DashboardPrefs:
     def from_dict(cls, data: dict) -> DashboardPrefs:
         allowed = {f.name for f in __import__("dataclasses").fields(cls)}
         filtered = {k: v for k, v in data.items() if k in allowed}
-        # Migrate legacy "no-workspace" -> "non-workspace".
+        # Remove obsolete workspace filters (replaced by hide_workspace toggle).
         filters = filtered.get("active_filters")
-        if isinstance(filters, list) and "no-workspace" in filters:
+        if isinstance(filters, list):
             filtered["active_filters"] = [
-                "non-workspace" if f == "no-workspace" else f for f in filters
+                f for f in filters if f not in ("workspace", "non-workspace", "no-workspace")
             ]
         # Migrate removed "problem" sort mode -> "health".
         if filtered.get("sort_mode") == "problem":

@@ -35,7 +35,6 @@ SORT_MODES: tuple[str, ...] = ("health", "alpha")
 
 # --- Filter categories ---------------------------------------------------
 VISIBILITY_FILTERS: tuple[str, ...] = ("private", "public")
-WORKSPACE_FILTERS: tuple[str, ...] = ("workspace", "non-workspace")
 HEALTH_FILTERS: tuple[str, ...] = (
     "broken-ci",
     "no-renovate",
@@ -46,7 +45,6 @@ HEALTH_FILTERS: tuple[str, ...] = (
 FILTER_MODES: tuple[str, ...] = (
     "all",
     *VISIBILITY_FILTERS,
-    *WORKSPACE_FILTERS,
     *HEALTH_FILTERS,
 )
 
@@ -79,12 +77,11 @@ class FilterSections:
     orgs: list[str]
     teams: list[str]
     visibility: list[str]
-    workspace: list[str]
     health: list[str]
 
     def all_modes(self) -> list[str]:
         """Flat list of every filter mode across all sections."""
-        return [*self.orgs, *self.teams, *self.visibility, *self.workspace, *self.health]
+        return [*self.orgs, *self.teams, *self.visibility, *self.health]
 
 
 @dataclass
@@ -104,6 +101,7 @@ class AppState:
 
     sort_mode: str = SORT_MODES[0]
     active_filters: set[str] = field(default_factory=set)
+    hide_workspace: bool = False
     layout_name: str = "packed"
     theme_name: str = "default"
     panel_width: int = PANEL_WIDTH_DEFAULT
@@ -339,10 +337,6 @@ def _matches_filter(h: RepoHealth, mode: str, repo_teams: dict[str, RepoTeamInfo
         return h.status.private
     if mode == "public":
         return not h.status.private
-    if mode == "workspace":
-        return h.status.is_workspace
-    if mode == "non-workspace":
-        return not h.status.is_workspace
     if mode == "broken-ci":
         return any(c.check_name == "broken_ci" and c.severity != Severity.OK for c in h.checks)
     if mode == "no-renovate":
@@ -424,7 +418,6 @@ def available_filter_sections(
         orgs=org_dynamic,
         teams=team_dynamic,
         visibility=list(VISIBILITY_FILTERS),
-        workspace=list(WORKSPACE_FILTERS),
         health=list(HEALTH_FILTERS),
     )
 
@@ -440,8 +433,11 @@ def available_filter_modes(
 
 
 def visible_healths(state: AppState) -> list[RepoHealth]:
+    pool = state.healths
+    if state.hide_workspace:
+        pool = [h for h in pool if not h.status.is_workspace]
     return apply_sort(
-        apply_active_filters(state.healths, state.active_filters, state.repo_teams),
+        apply_active_filters(pool, state.active_filters, state.repo_teams),
         state.sort_mode,
         state.repo_teams,
     )

@@ -171,9 +171,6 @@ class FilterPanel(ModalScreen[set[str]]):
                     "visibility",
                     self._make_selections(sections.visibility, tl),
                 )
-                yield FilterSection(
-                    "Workspace", "workspace", self._make_selections(sections.workspace, tl)
-                )
                 yield FilterSection("Status", "health", self._make_selections(sections.health, tl))
 
     def _collect_selected(self) -> set[str]:

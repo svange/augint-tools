@@ -23,8 +23,6 @@ _FILTER_LABELS: dict[str, str] = {
     "all": "all repos",
     "private": "Private",
     "public": "Public (Open source)",
-    "workspace": "Workspace repos",
-    "non-workspace": "Non-workspace repos",
     "broken-ci": "Broken CI",
     "no-renovate": "No Renovate config",
     "renovate-prs-piling": "Renovate PRs piling up",
@@ -167,6 +165,8 @@ class StatusBar(Static):
         error_chip = self._error_chip(state)
         if error_chip:
             t.append(f"| {error_chip} ", style="bold red")
+        if state.hide_workspace:
+            t.append("| ws:hidden ", style="bold magenta")
         filter_label = _describe_active_filters(state.active_filters, state.team_labels)
         t.append(
             f"| sort: {state.sort_mode} "

@@ -21,7 +21,7 @@ Data
   f                   Open filter panel (multi-select)
   m                   Manage repos (enable/disable)
   O                   Manage organizations (add/remove)
-  w                   Toggle workspace filter
+  w                   Hide/show workspace repos
 
 Layouts and themes
   g                   Cycle layout (packed, grouped, severity, dense, list)

@@ -37,6 +37,7 @@ from augint_tools.dashboard.state import (
     team_accent,
     team_filter_mode,
     team_key_from_filter,
+    visible_healths,
 )
 from augint_tools.dashboard.themes import get_theme, list_themes
 
@@ -320,8 +321,18 @@ class TestApplyActiveFilters:
         out = apply_active_filters([broken, fine], {"broken-ci"})
         assert [h.status.name for h in out] == ["broken"]
 
-    def test_non_workspace_and_broken_ci_or_together(self):
-        """non-workspace + broken-ci OR together: non-ws repos PLUS broken repos."""
+    def test_hide_workspace_excludes_workspace_repos(self):
+        """hide_workspace pre-filters workspace repos before OR filters apply."""
+        ws = _health(name="ws", full_name="org/ws", is_workspace=True)
+        repo = _health(name="repo", full_name="org/repo", is_workspace=False)
+        state = AppState()
+        state.healths = [ws, repo]
+        state.hide_workspace = True
+        out = visible_healths(state)
+        assert [h.status.name for h in out] == ["repo"]
+
+    def test_hide_workspace_with_active_filters(self):
+        """hide_workspace excludes workspace repos even when they match active filters."""
         ci_check = HealthCheckResult(
             check_name="broken_ci", severity=Severity.CRITICAL, summary="x"
         )
@@ -331,12 +342,23 @@ class TestApplyActiveFilters:
         repo_broken = _health(
             name="repo-broken", full_name="org/repo-broken", checks=[ci_check], is_workspace=False
         )
-        repo_ok = _health(name="repo-ok", full_name="org/repo-ok", is_workspace=False)
-        out = apply_active_filters(
-            [ws_broken, repo_broken, repo_ok], {"broken-ci", "non-workspace"}
-        )
-        # ws-broken matches broken-ci, repo-broken matches both, repo-ok matches non-workspace
-        assert {h.status.name for h in out} == {"ws-broken", "repo-broken", "repo-ok"}
+        state = AppState()
+        state.healths = [ws_broken, repo_broken]
+        state.hide_workspace = True
+        state.active_filters = {"broken-ci"}
+        out = visible_healths(state)
+        # ws-broken matches broken-ci but is excluded by hide_workspace
+        assert [h.status.name for h in out] == ["repo-broken"]
+
+    def test_hide_workspace_false_shows_all(self):
+        """Default hide_workspace=False does not exclude workspace repos."""
+        ws = _health(name="ws", full_name="org/ws", is_workspace=True)
+        repo = _health(name="repo", full_name="org/repo", is_workspace=False)
+        state = AppState()
+        state.healths = [ws, repo]
+        state.hide_workspace = False
+        out = visible_healths(state)
+        assert {h.status.name for h in out} == {"ws", "repo"}
 
     def test_team_filters_or_logic(self):
         """Multiple team filters combine with OR: repo in ANY selected team passes."""
@@ -423,7 +445,6 @@ class TestTeamHelpers:
         assert "team:alpha" in sections.teams
         assert "org:org-x" in sections.orgs
         assert sections.visibility == ["private", "public"]
-        assert sections.workspace == ["workspace", "non-workspace"]
         assert "broken-ci" in sections.health
         assert "renovate-prs-piling" in sections.health
         # all_modes returns a flat list covering everything.
@@ -907,24 +928,6 @@ class TestStateHelpers:
         iss = _health(name="i", full_name="org/i", checks=[check])
         out = apply_filter([iss, _health(name="ok", full_name="org/ok")], "issues")
         assert [h.status.name for h in out] == ["i"]
-
-    def test_apply_filter_non_workspace(self):
-        ws = _health(name="ws", full_name="org/ws", is_workspace=True)
-        repo = _health(name="repo", full_name="org/repo", is_workspace=False)
-        out = apply_filter([ws, repo], "non-workspace")
-        assert [h.status.name for h in out] == ["repo"]
-
-    def test_apply_filter_workspace(self):
-        ws = _health(name="ws", full_name="org/ws", is_workspace=True)
-        repo = _health(name="repo", full_name="org/repo", is_workspace=False)
-        out = apply_filter([ws, repo], "workspace")
-        assert [h.status.name for h in out] == ["ws"]
-
-    def test_apply_filter_non_workspace_all_regular(self):
-        a = _health(name="a", full_name="org/a")
-        b = _health(name="b", full_name="org/b")
-        out = apply_filter([a, b], "non-workspace")
-        assert len(out) == 2
 
     def test_apply_filter_renovate_prs_piling(self):
         check = HealthCheckResult(
@@ -1674,18 +1677,20 @@ class TestPrefs:
             theme_name="nord",
             layout_name="dense",
             sort_mode="alpha",
-            active_filters=["broken-ci", "non-workspace"],
+            active_filters=["broken-ci"],
             panel_width=42,
             flash_enabled=False,
+            hide_workspace=True,
         )
         save_prefs(prefs)
         loaded = load_prefs()
         assert loaded.theme_name == "nord"
         assert loaded.layout_name == "dense"
         assert loaded.sort_mode == "alpha"
-        assert loaded.active_filters == ["broken-ci", "non-workspace"]
+        assert loaded.active_filters == ["broken-ci"]
         assert loaded.panel_width == 42
         assert loaded.flash_enabled is False
+        assert loaded.hide_workspace is True
 
     def test_load_missing_file_returns_defaults(self, tmp_path, monkeypatch):
         from augint_tools.dashboard.prefs import DashboardPrefs, load_prefs
@@ -1705,17 +1710,19 @@ class TestPrefs:
         loaded = load_prefs()
         assert loaded == DashboardPrefs()
 
-    def test_prefs_migration_no_workspace(self, tmp_path, monkeypatch):
-        """Loading prefs with legacy 'no-workspace' migrates to 'non-workspace'."""
+    def test_prefs_migration_removes_workspace_filters(self, tmp_path, monkeypatch):
+        """Loading prefs strips obsolete workspace/non-workspace/no-workspace filters."""
         import json
 
         from augint_tools.dashboard.prefs import load_prefs
 
         prefs_file = tmp_path / "prefs.json"
-        prefs_file.write_text(json.dumps({"active_filters": ["broken-ci", "no-workspace"]}))
+        prefs_file.write_text(
+            json.dumps({"active_filters": ["broken-ci", "no-workspace", "non-workspace"]})
+        )
         monkeypatch.setattr("augint_tools.dashboard.prefs.PREFS_FILE", prefs_file)
         loaded = load_prefs()
-        assert loaded.active_filters == ["broken-ci", "non-workspace"]
+        assert loaded.active_filters == ["broken-ci"]
 
     def test_unknown_fields_ignored(self, tmp_path, monkeypatch):
         import json
@@ -1800,8 +1807,6 @@ class TestVisibilityFilters:
     def test_private_and_public_in_filter_modes(self):
         assert "private" in FILTER_MODES
         assert "public" in FILTER_MODES
-        assert "workspace" in FILTER_MODES
-        assert "non-workspace" in FILTER_MODES
 
     def test_active_filters_public_hides_private(self):
         priv = _health(name="secret", full_name="org/secret", private=True)
@@ -1849,29 +1854,6 @@ class TestVisibilityFilters:
         )
         # All pass: pub-team matches both, priv-team matches team:alpha, pub-no-team matches public
         assert {h.status.name for h in out} == {"pub-team", "priv-team", "pub-no-team"}
-
-    def test_non_workspace_ors_with_other_selections(self):
-        """non-workspace ORs with other filters like any other selection."""
-        priv_team = _health(
-            name="priv-team", full_name="org/priv-team", private=True, is_workspace=False
-        )
-        pub_ws = _health(name="pub-ws", full_name="org/pub-ws", private=False, is_workspace=True)
-        pub_other = _health(
-            name="pub-other", full_name="org/pub-other", private=False, is_workspace=False
-        )
-        repo_teams = {
-            "org/priv-team": RepoTeamInfo(primary="alpha", all=("alpha",)),
-            "org/pub-ws": RepoTeamInfo(primary="alpha", all=("alpha",)),
-            "org/pub-other": RepoTeamInfo(primary="beta", all=("beta",)),
-        }
-        out = apply_active_filters(
-            [priv_team, pub_ws, pub_other],
-            {"non-workspace", "public", team_filter_mode("alpha")},
-            repo_teams,
-        )
-        # All three match: priv-team matches non-workspace + team:alpha,
-        # pub-ws matches public + team:alpha, pub-other matches non-workspace + public
-        assert {h.status.name for h in out} == {"priv-team", "pub-ws", "pub-other"}
 
 
 class TestRepoStatusPrivateField:

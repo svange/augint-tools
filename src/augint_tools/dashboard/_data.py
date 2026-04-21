@@ -115,6 +115,11 @@ class RepoStatus:
     oldest_issue_created_at: str | None = None
     # Default branch name, used by checks that build links to files on GitHub.
     default_branch: str = "main"
+    # Whether the repo has at least one workflow file checked in. Lets
+    # broken_ci distinguish "truly no CI configured" from "latest commit
+    # happened not to trigger any workflow" (common for semantic-release
+    # chore commits that intentionally skip CI).
+    has_workflows: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +197,7 @@ def build_status_from_snapshot(
         human_open_issues=human_open_issues,
         oldest_issue_created_at=oldest_iso,
         default_branch=snapshot.default_branch or "main",
+        has_workflows=bool(snapshot.workflow_files),
     )
 
 

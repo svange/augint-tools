@@ -94,6 +94,10 @@ class RepoSnapshot:
     dev_head_sha: str | None
     # Root-tree entry names for framework/IaC detection without extra REST calls.
     root_entries: tuple[str, ...]
+    # Workflow filenames present under .github/workflows/ -- used by broken_ci
+    # to distinguish "truly no CI configured" from "latest commit happened not
+    # to trigger any workflow" (common for semantic-release chore commits).
+    workflow_files: tuple[str, ...] = ()
     # Open PRs (up to 100 per repo; more would be extraordinary).
     pull_requests: list[PRSnapshot] = field(default_factory=list)
     pr_total_count: int = 0
@@ -162,6 +166,9 @@ fragment RepoFields on Repository {{
     }}
   }}
   _rootTree: object(expression: "HEAD:") {{
+    ... on Tree {{ entries {{ name }} }}
+  }}
+  _workflowsTree: object(expression: "HEAD:.github/workflows") {{
     ... on Tree {{ entries {{ name }} }}
   }}
   pullRequests(states: OPEN, first: 50) {{
@@ -279,6 +286,19 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     else:
         root_entries = ()
 
+    workflows_tree = data.get("_workflowsTree")
+    if isinstance(workflows_tree, dict):
+        wf_entries = workflows_tree.get("entries") or []
+        workflow_files = tuple(
+            str(e.get("name", ""))
+            for e in wf_entries
+            if isinstance(e, dict)
+            and e.get("name")
+            and str(e.get("name", "")).endswith((".yml", ".yaml"))
+        )
+    else:
+        workflow_files = ()
+
     primary_language_obj = data.get("primaryLanguage")
     primary_language = (
         primary_language_obj.get("name") if isinstance(primary_language_obj, dict) else None
@@ -341,6 +361,7 @@ def _parse_repo(data: dict) -> RepoSnapshot:
         main_head_sha=main_head_sha,
         dev_head_sha=dev_head_sha,
         root_entries=root_entries,
+        workflow_files=workflow_files,
         pull_requests=pulls,
         pr_total_count=pr_total_count,
         issues=issues,

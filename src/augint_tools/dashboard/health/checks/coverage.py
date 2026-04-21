@@ -2,12 +2,21 @@
 
 Parses the repository's canonical GitHub Actions workflow
 (``.github/workflows/pipeline.yaml``) and inspects the ``unit-tests`` job
-for signals that the coverage gate has been weakened:
+for signals that the coverage gate has been **actively weakened**:
 
 - Python: ``pytest --cov-fail-under=N`` with N below the canonical 80% baseline
-  (see the ai-standardize-pipeline standard).
+  (see the ai-standardize-pipeline standard). Severity LOW.
 - Any coverage-related step that ignores failures via ``continue-on-error: true``
-  or shell suffixes such as ``|| true``, ``|| :``, ``|| echo ...``.
+  or shell suffixes such as ``|| true``, ``|| :``, ``|| echo ...``. Severity MEDIUM.
+- Python ``pytest --cov`` with no ``--cov-fail-under`` gate at all. Severity LOW
+  (equivalent to a 0% threshold).
+
+**Non-adoption is benign.** Repos that haven't adopted the
+ai-standardize-pipeline convention (no pipeline.yaml, or pipeline.yaml with
+no ``unit-tests`` job, or unit-tests job with no coverage command) return
+OK severity with an informative summary. This is observational, not a
+warning -- a repo is not "unhealthy" just because it doesn't follow the
+standard naming convention for its workflow files.
 
 For Node repos using ``vitest``/``jest --coverage`` the threshold lives in
 ``vitest.config.*``/``jest.config.*`` rather than the workflow, so this check
@@ -15,10 +24,7 @@ is intentionally workflow-only and reports OK on seeing the coverage flag --
 config-level parsing is out of scope.
 
 Workflow text comes from the batched GraphQL snapshot via
-``FetchContext.pipeline_text`` -- no per-repo REST call. When the workflow
-can't be fetched or the ``unit-tests`` job / coverage step is missing, the
-check returns MEDIUM with a summary prefixed ``unverified:`` so it is
-visibly distinguishable from a verified regression.
+``FetchContext.pipeline_text`` -- no per-repo REST call.
 """
 
 from __future__ import annotations
@@ -66,12 +72,16 @@ class CoverageCheck:
         used_path = context.pipeline_path
         raw = context.pipeline_text
 
+        # Missing / non-standard pipeline.yaml is benign -- it just means the
+        # repo hasn't adopted the ai-standardize-pipeline convention. Surface
+        # as OK (visible in the detail drawer) but never drives card coloring
+        # because this is a "standards adoption" observation, not a health
+        # warning.
         if raw is None or used_path is None:
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.MEDIUM,
-                summary="unverified: no pipeline.yaml",
-                link=f"https://github.com/{status.full_name}",
+                severity=Severity.OK,
+                summary="not standardized (no pipeline.yaml)",
             )
 
         workflow_link = f"https://github.com/{status.full_name}/blob/{default_branch}/{used_path}"
@@ -82,7 +92,7 @@ class CoverageCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.MEDIUM,
-                summary="unverified: pipeline.yaml parse error",
+                summary="pipeline.yaml parse error",
                 link=workflow_link,
             )
 
@@ -90,7 +100,7 @@ class CoverageCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.MEDIUM,
-                summary="unverified: pipeline.yaml not a mapping",
+                summary="pipeline.yaml not a mapping",
                 link=workflow_link,
             )
 
@@ -98,27 +108,24 @@ class CoverageCheck:
         if not isinstance(jobs, dict):
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.MEDIUM,
-                summary="unverified: no jobs in pipeline.yaml",
-                link=workflow_link,
+                severity=Severity.OK,
+                summary="pipeline.yaml has no jobs",
             )
 
         unit_tests = jobs.get("unit-tests")
         if not isinstance(unit_tests, dict):
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.MEDIUM,
-                summary="unverified: no unit-tests job",
-                link=workflow_link,
+                severity=Severity.OK,
+                summary="not standardized (no unit-tests job)",
             )
 
         steps = unit_tests.get("steps")
         if not isinstance(steps, list):
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.MEDIUM,
-                summary="unverified: unit-tests has no steps",
-                link=workflow_link,
+                severity=Severity.OK,
+                summary="unit-tests has no steps",
             )
 
         return self._evaluate_steps(steps, workflow_link)
@@ -166,9 +173,8 @@ class CoverageCheck:
         if not coverage_seen:
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.MEDIUM,
-                summary="unverified: no coverage command in unit-tests",
-                link=workflow_link,
+                severity=Severity.OK,
+                summary="no coverage command in unit-tests",
             )
 
         # Ignoring failures is worse than lowering the bar: still run tests,
@@ -221,9 +227,8 @@ class CoverageCheck:
         # Defensive fallback -- should be unreachable given the checks above.
         return HealthCheckResult(
             check_name=self.name,
-            severity=Severity.MEDIUM,
-            summary="unverified: coverage signal unclear",
-            link=workflow_link,
+            severity=Severity.OK,
+            summary="coverage signal unclear",
         )
 
 

@@ -13,6 +13,38 @@ def _get_output_opts(ctx: click.Context) -> dict:
     return {"json_mode": obj.get("json_mode", False)}
 
 
+def _resolve_admin_repo(ctx: click.Context):
+    """Resolve the team repo path for admin commands.
+
+    Checks: admin group --repo flag > teams.yaml > convention > interactive prompt.
+    """
+    from pathlib import Path
+
+    from augint_tools.team_secrets.keys import load_team_config, resolve_repo_path
+
+    team = ctx.obj["team"]
+
+    # 1. Explicit --repo from admin group
+    admin_repo = ctx.obj.get("admin_repo")
+    if admin_repo:
+        return Path(admin_repo).expanduser().resolve()
+
+    # 2. Config file + convention chain
+    config = load_team_config(team)
+    if config and config.repo_path:
+        return config.repo_path
+    resolved = resolve_repo_path(team)
+    if resolved:
+        return resolved
+
+    # 3. Interactive prompt
+    if sys.stdin.isatty():
+        path_str = click.prompt(f"Path to {team}-secrets repo (or pass --repo to the admin group)")
+        return Path(path_str).expanduser().resolve()
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Top-level group: ai-tools team-secrets <team> ...
 # ---------------------------------------------------------------------------
@@ -399,10 +431,12 @@ def sync_cmd(
 
 
 @team_secrets_group.group()
+@click.option("--repo", "admin_repo", default=None, help="Path to team secrets repo.")
 @click.pass_context
-def admin(ctx):
+def admin(ctx, admin_repo):
     """Administrative commands (init, user management, rotation)."""
     ctx.ensure_object(dict)
+    ctx.obj["admin_repo"] = admin_repo
 
 
 @admin.command("init-repo")
@@ -419,8 +453,9 @@ def init_repo_cmd(ctx, repo_path):
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
 
+    # init-repo's own --repo takes priority, then admin group's --repo, then default
     if repo_path is None:
-        repo_path = f"./{team}-secrets"
+        repo_path = ctx.obj.get("admin_repo") or f"./{team}-secrets"
 
     path = Path(repo_path).expanduser().resolve()
     init_repo(path, team)
@@ -445,21 +480,18 @@ def init_repo_cmd(ctx, repo_path):
 @click.pass_context
 def init_project_cmd(ctx, project):
     """Initialize a new project within the team secrets repo."""
-    from augint_tools.team_secrets.keys import load_team_config, resolve_repo_path
     from augint_tools.team_secrets.repo import init_project
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
 
-    config = load_team_config(team)
-    repo_path = config.repo_path if config else resolve_repo_path(team)
-
+    repo_path = _resolve_admin_repo(ctx)
     if repo_path is None:
         emit_response(
             CommandResponse.error(
                 "team-secrets admin init-project",
                 "team",
-                f"Cannot locate team repo. Run: ai-tools team-secrets {team} setup",
+                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
             ),
             **opts,
         )
@@ -491,7 +523,6 @@ def add_user_cmd(ctx, name, pubkey, project, team_wide):
     """Add a user to the team (generates encrypted key, updates recipients)."""
 
     from augint_tools.team_secrets.age import encrypt_with_password, generate_keypair
-    from augint_tools.team_secrets.keys import load_team_config, resolve_repo_path
     from augint_tools.team_secrets.models import UserRecord
     from augint_tools.team_secrets.recipients import add_recipient, write_sops_yaml
     from augint_tools.team_secrets.sops import update_keys
@@ -499,15 +530,13 @@ def add_user_cmd(ctx, name, pubkey, project, team_wide):
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
 
-    config = load_team_config(team)
-    repo_path = config.repo_path if config else resolve_repo_path(team)
-
+    repo_path = _resolve_admin_repo(ctx)
     if repo_path is None:
         emit_response(
             CommandResponse.error(
                 "team-secrets admin add-user",
                 "team",
-                f"Cannot locate team repo. Run: ai-tools team-secrets {team} setup",
+                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
             ),
             **opts,
         )
@@ -609,20 +638,20 @@ def add_user_cmd(ctx, name, pubkey, project, team_wide):
 @click.pass_context
 def remove_user_cmd(ctx, name, project, team_wide):
     """Remove a user's access from the team."""
-    from augint_tools.team_secrets.keys import get_cached_key, load_team_config, resolve_repo_path
+    from augint_tools.team_secrets.keys import get_cached_key
     from augint_tools.team_secrets.recipients import remove_recipient, write_sops_yaml
     from augint_tools.team_secrets.sops import update_keys
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
 
-    config = load_team_config(team)
-    repo_path = config.repo_path if config else resolve_repo_path(team)
-
+    repo_path = _resolve_admin_repo(ctx)
     if repo_path is None:
         emit_response(
             CommandResponse.error(
-                "team-secrets admin remove-user", "team", "Cannot locate team repo."
+                "team-secrets admin remove-user",
+                "team",
+                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
             ),
             **opts,
         )
@@ -695,7 +724,7 @@ def remove_user_cmd(ctx, name, project, team_wide):
 @click.pass_context
 def rotate_cmd(ctx, project, rotate_all):
     """Rotate encryption keys (re-encrypt with current recipients)."""
-    from augint_tools.team_secrets.keys import load_team_config, require_key
+    from augint_tools.team_secrets.keys import require_key
     from augint_tools.team_secrets.repo import list_projects
     from augint_tools.team_secrets.sops import update_keys
 
@@ -703,16 +732,21 @@ def rotate_cmd(ctx, project, rotate_all):
     team = ctx.obj["team"]
 
     key_path = require_key(team)
-    config = load_team_config(team)
-    if not config:
+    repo_path = _resolve_admin_repo(ctx)
+    if repo_path is None:
         emit_response(
-            CommandResponse.error("team-secrets admin rotate", "team", "No team config"), **opts
+            CommandResponse.error(
+                "team-secrets admin rotate",
+                "team",
+                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
+            ),
+            **opts,
         )
         sys.exit(1)
 
     if not project and not rotate_all:
         if sys.stdin.isatty():
-            projects = list_projects(config.repo_path)
+            projects = list_projects(repo_path)
             click.echo("Available projects:")
             for p in projects:
                 click.echo(f"  - {p}")
@@ -730,9 +764,9 @@ def rotate_cmd(ctx, project, rotate_all):
 
     # Collect files to rotate
     if rotate_all:
-        enc_files = list(config.repo_path.glob("projects/**/*.enc.env"))
+        enc_files = list(repo_path.glob("projects/**/*.enc.env"))
     else:
-        enc_files = list((config.repo_path / "projects" / project).glob("*.enc.env"))
+        enc_files = list((repo_path / "projects" / project).glob("*.enc.env"))
 
     rotated: list[str] = []
     errors: list[str] = []
@@ -742,7 +776,7 @@ def rotate_cmd(ctx, project, rotate_all):
         if "sops" in content or "ENC[" in content:
             try:
                 update_keys(f, key_path)
-                rotated.append(str(f.relative_to(config.repo_path)))
+                rotated.append(str(f.relative_to(repo_path)))
             except RuntimeError as e:
                 errors.append(f"{f.name}: {e}")
 
@@ -770,7 +804,7 @@ def decrypt_cmd(ctx, project, env_name, to_stdout, output_path):
     """Decrypt a project's env file (for debugging/export)."""
     from pathlib import Path
 
-    from augint_tools.team_secrets.keys import load_team_config, require_key
+    from augint_tools.team_secrets.keys import require_key
     from augint_tools.team_secrets.repo import get_encrypted_env_path
     from augint_tools.team_secrets.sops import decrypt_file
 
@@ -778,14 +812,19 @@ def decrypt_cmd(ctx, project, env_name, to_stdout, output_path):
     team = ctx.obj["team"]
 
     key_path = require_key(team)
-    config = load_team_config(team)
-    if not config:
+    repo_path = _resolve_admin_repo(ctx)
+    if repo_path is None:
         emit_response(
-            CommandResponse.error("team-secrets admin decrypt", "team", "No team config"), **opts
+            CommandResponse.error(
+                "team-secrets admin decrypt",
+                "team",
+                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
+            ),
+            **opts,
         )
         sys.exit(1)
 
-    encrypted_path = get_encrypted_env_path(config.repo_path, project, env_name)
+    encrypted_path = get_encrypted_env_path(repo_path, project, env_name)
     if not encrypted_path.exists():
         emit_response(
             CommandResponse.error(
@@ -823,7 +862,7 @@ def decrypt_cmd(ctx, project, env_name, to_stdout, output_path):
 @click.pass_context
 def validate_cmd(ctx, project, env_name):
     """Validate an encrypted env file (syntax, duplicates, schema)."""
-    from augint_tools.team_secrets.keys import load_team_config, require_key
+    from augint_tools.team_secrets.keys import require_key
     from augint_tools.team_secrets.repo import get_encrypted_env_path
     from augint_tools.team_secrets.sops import decrypt_file
     from augint_tools.team_secrets.sync import parse_dotenv_content
@@ -832,14 +871,19 @@ def validate_cmd(ctx, project, env_name):
     team = ctx.obj["team"]
 
     key_path = require_key(team)
-    config = load_team_config(team)
-    if not config:
+    repo_path = _resolve_admin_repo(ctx)
+    if repo_path is None:
         emit_response(
-            CommandResponse.error("team-secrets admin validate", "team", "No team config"), **opts
+            CommandResponse.error(
+                "team-secrets admin validate",
+                "team",
+                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
+            ),
+            **opts,
         )
         sys.exit(1)
 
-    encrypted_path = get_encrypted_env_path(config.repo_path, project, env_name)
+    encrypted_path = get_encrypted_env_path(repo_path, project, env_name)
     if not encrypted_path.exists():
         emit_response(
             CommandResponse.error(
@@ -915,7 +959,7 @@ def validate_cmd(ctx, project, env_name):
         classification = {}
 
     # Check schema if exists
-    schema_path = config.repo_path / "projects" / project / "schema.yaml"
+    schema_path = repo_path / "projects" / project / "schema.yaml"
     schema_issues: list[str] = []
     if schema_path.exists():
         import yaml

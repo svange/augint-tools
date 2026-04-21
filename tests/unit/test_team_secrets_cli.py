@@ -54,7 +54,6 @@ class TestInitRepo:
 
 class TestInitProject:
     def test_init_project(self, tmp_path):
-        # Set up a team config
         runner = CliRunner()
         repo_dir = tmp_path / "secrets"
         repo_dir.mkdir()
@@ -62,11 +61,18 @@ class TestInitProject:
         (repo_dir / "recipients").mkdir()
         (repo_dir / ".sops.yaml").write_text("creation_rules: []")
 
-        with patch("augint_tools.team_secrets.keys.load_team_config") as mock_config:
-            from augint_tools.team_secrets.models import TeamConfig
-
-            mock_config.return_value = TeamConfig(name="woxom", repo_path=repo_dir, username="sam")
-            result = runner.invoke(cli, ["team-secrets", "woxom", "admin", "init-project", "myapp"])
+        result = runner.invoke(
+            cli,
+            [
+                "team-secrets",
+                "woxom",
+                "admin",
+                "--repo",
+                str(repo_dir),
+                "init-project",
+                "myapp",
+            ],
+        )
 
         assert result.exit_code == 0
         assert "Initialized project" in result.output

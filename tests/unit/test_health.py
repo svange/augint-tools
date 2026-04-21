@@ -191,6 +191,7 @@ class TestRegistry:
         assert "stale_prs" in names
         assert "open_issues" in names
         assert "open_prs" in names
+        assert "coverage" in names
 
     def test_all_checks_returns_instances(self):
         checks = all_checks()
@@ -501,6 +502,200 @@ class TestOpenPRs:
             _mock_repo(), _status(open_prs=1), config={"open_prs_threshold": 2}
         )
         assert result.severity == Severity.OK
+
+
+def _mock_workflow_repo(
+    pipeline_yaml: str | None,
+    *,
+    default_branch: str = "main",
+    path: str = ".github/workflows/pipeline.yaml",
+):
+    """Return a repo mock whose ``get_contents`` returns pipeline_yaml.
+
+    If ``pipeline_yaml`` is None, all paths raise GithubException (not found).
+    Otherwise, the provided yaml is returned for ``path`` and all other paths
+    raise GithubException.
+    """
+    repo = _mock_repo()
+    repo.default_branch = default_branch
+
+    def _get_contents(requested_path, ref=None):
+        if pipeline_yaml is None or requested_path != path:
+            raise GithubException(404, "not found", None)
+        content = MagicMock()
+        content.decoded_content = pipeline_yaml.encode("utf-8")
+        return content
+
+    repo.get_contents.side_effect = _get_contents
+    return repo
+
+
+class TestCoverageCheck:
+    _STANDARD_PY = """\
+jobs:
+  unit-tests:
+    name: Unit tests
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Run pytest
+        run: |
+          uv run pytest --cov=src --cov-fail-under=80 --cov-report=xml
+"""
+
+    _LOWERED_PY = """\
+jobs:
+  unit-tests:
+    steps:
+      - name: Run pytest
+        run: uv run pytest --cov=src --cov-fail-under=60
+"""
+
+    _NO_FAIL_UNDER_PY = """\
+jobs:
+  unit-tests:
+    steps:
+      - name: Run pytest
+        run: uv run pytest --cov=src --cov-report=xml
+"""
+
+    _CONTINUE_ON_ERROR_PY = """\
+jobs:
+  unit-tests:
+    steps:
+      - name: Run pytest
+        continue-on-error: true
+        run: uv run pytest --cov=src --cov-fail-under=80
+"""
+
+    _OR_TRUE_PY = """\
+jobs:
+  unit-tests:
+    steps:
+      - name: Run pytest
+        run: uv run pytest --cov=src --cov-fail-under=80 || true
+"""
+
+    _NODE_VITEST = """\
+jobs:
+  unit-tests:
+    steps:
+      - name: Vitest
+        run: npx vitest run --coverage
+"""
+
+    _NO_UNIT_TESTS = """\
+jobs:
+  lint:
+    steps:
+      - run: echo hi
+"""
+
+    _NO_COVERAGE_COMMAND = """\
+jobs:
+  unit-tests:
+    steps:
+      - name: Run pytest
+        run: uv run pytest -v
+"""
+
+    def test_standard_threshold_is_ok(self):
+        repo = _mock_workflow_repo(self._STANDARD_PY)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.OK
+        assert "80" in result.summary
+
+    def test_lowered_threshold_is_low(self):
+        repo = _mock_workflow_repo(self._LOWERED_PY)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.LOW
+        assert "60" in result.summary
+        assert "lowered" in result.summary
+        assert result.link is not None
+        assert "pipeline.yaml" in result.link
+
+    def test_no_fail_under_is_low(self):
+        repo = _mock_workflow_repo(self._NO_FAIL_UNDER_PY)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.LOW
+        assert "fail-under" in result.summary
+
+    def test_continue_on_error_is_medium(self):
+        repo = _mock_workflow_repo(self._CONTINUE_ON_ERROR_PY)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.MEDIUM
+        assert "ignored" in result.summary
+
+    def test_or_true_suffix_is_medium(self):
+        repo = _mock_workflow_repo(self._OR_TRUE_PY)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.MEDIUM
+        assert "ignored" in result.summary
+
+    def test_node_vitest_is_ok(self):
+        repo = _mock_workflow_repo(self._NODE_VITEST)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.OK
+        assert "coverage" in result.summary.lower()
+
+    def test_missing_pipeline_is_unverified(self):
+        repo = _mock_workflow_repo(None)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.MEDIUM
+        assert result.summary.startswith("unverified:")
+
+    def test_missing_unit_tests_job_is_unverified(self):
+        repo = _mock_workflow_repo(self._NO_UNIT_TESTS)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.MEDIUM
+        assert "unverified" in result.summary
+        assert "unit-tests" in result.summary
+
+    def test_missing_coverage_command_is_unverified(self):
+        repo = _mock_workflow_repo(self._NO_COVERAGE_COMMAND)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.MEDIUM
+        assert "unverified" in result.summary
+        assert "coverage" in result.summary
+
+    def test_yml_fallback(self):
+        repo = _mock_workflow_repo(self._STANDARD_PY, path=".github/workflows/pipeline.yml")
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.OK
+
+    def test_github_exception_is_unverified(self):
+        repo = _mock_repo()
+        repo.default_branch = "main"
+        repo.get_contents.side_effect = GithubException(500, "boom", None)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.MEDIUM
+        assert result.summary.startswith("unverified:")
+
+    def test_yaml_parse_error_is_unverified(self):
+        repo = _mock_workflow_repo("jobs: [this is: not valid")
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.MEDIUM
+        assert "unverified" in result.summary
+
+    def test_lowest_threshold_wins(self):
+        yaml_text = """\
+jobs:
+  unit-tests:
+    steps:
+      - run: uv run pytest --cov=src --cov-fail-under=80
+      - run: uv run pytest tests/integration --cov=src --cov-fail-under=50
+"""
+        repo = _mock_workflow_repo(yaml_text)
+        result = get_check("coverage").evaluate(repo, _status(), config={})
+        assert result.severity == Severity.LOW
+        assert "50" in result.summary
+
+    def test_link_targets_default_branch(self):
+        repo = _mock_workflow_repo(self._LOWERED_PY, default_branch="trunk")
+        result = get_check("coverage").evaluate(repo, _status(full_name="org/myrepo"), config={})
+        assert result.link == (
+            "https://github.com/org/myrepo/blob/trunk/.github/workflows/pipeline.yaml"
+        )
 
 
 # ---------------------------------------------------------------------------

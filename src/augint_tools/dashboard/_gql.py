@@ -555,23 +555,29 @@ class TeamsSnapshot:
 def build_teams_query(owners: list[str]) -> str:
     """Build a single GraphQL query listing teams + repositories for each owner.
 
-    Personal-account owners (non-org) return a null organization -- handled
-    gracefully by parse_teams_response (those repos simply have no teams).
+    Uses ``repositoryOwner`` + an inline fragment on ``Organization`` so a
+    personal account (User owner) cleanly returns a null ``teams`` field
+    instead of triggering a top-level ``Could not resolve to an Organization
+    with the login of 'X'`` error. Only genuinely missing or inaccessible
+    owners surface as errors.
     """
     parts: list[str] = []
     for i, owner in enumerate(owners):
         owner_esc = owner.replace("\\", "\\\\").replace('"', '\\"')
         parts.append(
-            f'  o{i}: organization(login: "{owner_esc}") {{\n'
+            f'  o{i}: repositoryOwner(login: "{owner_esc}") {{\n'
+            f"    __typename\n"
             f"    login\n"
-            f"    teams(first: 50) {{\n"
-            f"      nodes {{\n"
-            f"        slug\n"
-            f"        name\n"
-            f"        repositories(first: 50) {{\n"
-            f"          edges {{\n"
-            f"            permission\n"
-            f"            node {{ nameWithOwner }}\n"
+            f"    ... on Organization {{\n"
+            f"      teams(first: 50) {{\n"
+            f"        nodes {{\n"
+            f"          slug\n"
+            f"          name\n"
+            f"          repositories(first: 50) {{\n"
+            f"            edges {{\n"
+            f"              permission\n"
+            f"              node {{ nameWithOwner }}\n"
+            f"            }}\n"
             f"          }}\n"
             f"        }}\n"
             f"      }}\n"

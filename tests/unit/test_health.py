@@ -669,7 +669,7 @@ jobs:
         result = self._evaluate(self._LOWERED_PY)
         assert result.severity == Severity.LOW
         assert "60" in result.summary
-        assert "lowered" in result.summary
+        assert "reduced" in result.summary
         assert result.link is not None
         assert "pipeline.yaml" in result.link
 

@@ -313,6 +313,60 @@ class TestFetchWorkspaceSnapshot:
         assert result.by_full_name == {}
         assert all(name in result.errored for name in (r.full_name for r in repos))
 
+    def test_transient_network_error_is_retried(self, monkeypatch):
+        from requests.exceptions import ChunkedEncodingError
+
+        import augint_tools.dashboard._gql as gql
+
+        monkeypatch.setattr(gql, "_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+
+        repos = [_mock_repo("org/a")]
+        calls = {"n": 0}
+
+        def _request(method, url, **kwargs):  # noqa: ARG001
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise ChunkedEncodingError("Connection broken: IncompleteRead")
+            return (
+                {},
+                {
+                    "data": {
+                        "r0": _graphql_repo_payload(full_name="org/a", main_state="SUCCESS"),
+                        "rateLimit": {
+                            "limit": 5000,
+                            "cost": 1,
+                            "remaining": 4999,
+                            "resetAt": None,
+                        },
+                    }
+                },
+            )
+
+        gh = MagicMock()
+        gh._Github__requester.requestJsonAndCheck.side_effect = _request  # type: ignore[attr-defined]
+
+        result = fetch_workspace_snapshot(gh, repos)
+        assert calls["n"] == 3
+        assert "org/a" in result.by_full_name
+        assert result.errored == {}
+
+    def test_transient_network_error_gives_up_after_retries(self, monkeypatch):
+        from requests.exceptions import ChunkedEncodingError
+
+        import augint_tools.dashboard._gql as gql
+
+        monkeypatch.setattr(gql, "_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+
+        repos = [_mock_repo("org/a")]
+        gh = MagicMock()
+        gh._Github__requester.requestJsonAndCheck.side_effect = ChunkedEncodingError(  # type: ignore[attr-defined]
+            "Connection broken"
+        )
+        result = fetch_workspace_snapshot(gh, repos)
+        assert result.by_full_name == {}
+        assert "org/a" in result.errored
+        assert gh._Github__requester.requestJsonAndCheck.call_count == gql._RETRY_ATTEMPTS  # type: ignore[attr-defined]
+
 
 # ---------------------------------------------------------------------------
 # Pickers

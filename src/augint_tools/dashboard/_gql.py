@@ -13,11 +13,14 @@ fraction of repos on any given refresh.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+from requests.exceptions import ChunkedEncodingError, Timeout
+from requests.exceptions import ConnectionError as RequestsConnectionError
 
 if TYPE_CHECKING:
     from github import Github
@@ -46,6 +49,16 @@ PIPELINE_PATHS: tuple[str, ...] = (
 # complexity budget; at ~35 fields per repo this keeps us well under the cap
 # while still collapsing workspace-scale fetches into a handful of queries.
 _BATCH_SIZE = 25
+
+# Transient network failures worth retrying. GraphQL/HTTP-level errors (4xx,
+# rate-limit, schema) surface as other exception types and should NOT retry.
+_TRANSIENT_NETWORK_ERRORS: tuple[type[Exception], ...] = (
+    ChunkedEncodingError,
+    RequestsConnectionError,
+    Timeout,
+)
+_RETRY_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = (0.5, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -428,14 +441,39 @@ def parse_response(
 
 
 def _execute_query(gh: Github, query: str) -> dict:
-    """POST a single GraphQL query via PyGithub's requester and return JSON."""
+    """POST a single GraphQL query via PyGithub's requester and return JSON.
+
+    Retries on transient network failures (connection drops, incomplete
+    chunked reads, timeouts). GraphQL-level errors and PyGithub exceptions
+    are not retried -- they surface to the caller immediately.
+    """
     # PyGithub's internal requester is the only path that reuses the existing
     # token / session. We access it via the name-mangled private attribute;
     # this is a well-worn pattern in projects that layer GraphQL on top of
     # PyGithub, and it keeps us from pulling in another HTTP client.
     requester = gh._Github__requester  # type: ignore[attr-defined]
-    _headers, data = requester.requestJsonAndCheck("POST", "/graphql", input={"query": query})
-    return data
+    last_exc: Exception | None = None
+    for attempt in range(_RETRY_ATTEMPTS):
+        try:
+            _headers, data = requester.requestJsonAndCheck(
+                "POST", "/graphql", input={"query": query}
+            )
+            return data
+        except _TRANSIENT_NETWORK_ERRORS as exc:
+            last_exc = exc
+            if attempt == _RETRY_ATTEMPTS - 1:
+                break
+            backoff = _RETRY_BACKOFF_SECONDS[attempt]
+            logger.debug(
+                "graphql transient network error ({}); retrying in {}s ({}/{})",
+                exc.__class__.__name__,
+                backoff,
+                attempt + 1,
+                _RETRY_ATTEMPTS - 1,
+            )
+            time.sleep(backoff)
+    assert last_exc is not None
+    raise last_exc
 
 
 def fetch_workspace_snapshot(gh: Github, repos: list[Repository]) -> WorkspaceSnapshot:
@@ -461,7 +499,7 @@ def fetch_workspace_snapshot(gh: Github, repos: list[Repository]) -> WorkspaceSn
             response = _execute_query(gh, query)
         except Exception as exc:
             logger.warning(
-                "graphql workspace fetch failed for chunk %d-%d: %s: %s",
+                "graphql workspace fetch failed for chunk {}-{}: {}: {}",
                 start,
                 start + len(chunk) - 1,
                 exc.__class__.__name__,
@@ -692,7 +730,7 @@ def fetch_workspace_teams(gh: Github, owners: list[str]) -> TeamsSnapshot:
     try:
         response = _execute_query(gh, query)
     except Exception as exc:
-        logger.warning("graphql teams fetch failed: %s: %s", exc.__class__.__name__, exc)
+        logger.warning("graphql teams fetch failed: {}: {}", exc.__class__.__name__, exc)
         return TeamsSnapshot(
             errored=dict.fromkeys(owners, f"graphql: {exc.__class__.__name__}: {exc}")
         )

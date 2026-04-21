@@ -7,42 +7,42 @@ import click
 
 from augint_tools.output import CommandResponse, emit_response
 
+DEFAULT_ORG = "augmenting-integrations"
+
 
 def _get_output_opts(ctx: click.Context) -> dict:
     obj = ctx.obj or {}
     return {"json_mode": obj.get("json_mode", False)}
 
 
-def _resolve_admin_repo(ctx: click.Context):
-    """Resolve the team repo path for admin commands.
+def _require_project(project: str | None, team: str) -> str:
+    """Resolve the project name: explicit flag, or auto-detect from git remote, or prompt."""
+    if project:
+        return project
 
-    Checks: admin group --repo flag > teams.yaml > convention > interactive prompt.
-    """
-    from pathlib import Path
+    from augint_tools.team_secrets.keys import detect_project_name
 
-    from augint_tools.team_secrets.keys import load_team_config, resolve_repo_path
+    detected = detect_project_name()
+    if detected:
+        return detected
+
+    if sys.stdin.isatty():
+        result: str = click.prompt("Project name (could not detect from git remote)")
+        return result
+
+    raise click.ClickException(
+        "Cannot detect project from git remote. "
+        f"Pass --project or run from inside a git repo owned by the {team} team."
+    )
+
+
+def _resolve_org(ctx: click.Context) -> str:
+    """Resolve the GitHub org from ctx flags or config."""
+    from augint_tools.team_secrets.keys import resolve_org
 
     team = ctx.obj["team"]
-
-    # 1. Explicit --repo from admin group
-    admin_repo = ctx.obj.get("admin_repo")
-    if admin_repo:
-        return Path(admin_repo).expanduser().resolve()
-
-    # 2. Config file + convention chain
-    config = load_team_config(team)
-    if config and config.repo_path:
-        return config.repo_path
-    resolved = resolve_repo_path(team)
-    if resolved:
-        return resolved
-
-    # 3. Interactive prompt
-    if sys.stdin.isatty():
-        path_str = click.prompt(f"Path to {team}-secrets repo (or pass --repo to the admin group)")
-        return Path(path_str).expanduser().resolve()
-
-    return None
+    org_flag = ctx.obj.get("org")
+    return resolve_org(team, org_flag)
 
 
 # ---------------------------------------------------------------------------
@@ -52,11 +52,13 @@ def _resolve_admin_repo(ctx: click.Context):
 
 @click.group("team-secrets")
 @click.argument("team")
+@click.option("--org", default=None, help=f"GitHub org (default: {DEFAULT_ORG}).")
 @click.pass_context
-def team_secrets_group(ctx, team):
+def team_secrets_group(ctx, team, org):
     """Team shared secrets management (SOPS + age)."""
     ctx.ensure_object(dict)
     ctx.obj["team"] = team
+    ctx.obj["org"] = org
 
 
 # ---------------------------------------------------------------------------
@@ -65,26 +67,26 @@ def team_secrets_group(ctx, team):
 
 
 @team_secrets_group.command()
-@click.option("--repo", "repo_path", default=None, help="Path to team secrets repo.")
-@click.option("--project", default=None, help="Optionally initialize a project during setup.")
+@click.option("--project", default=None, help="Project to verify (auto-detected from git remote).")
 @click.option("--env", "env_name", default="dev", help="Environment to verify (default: dev).")
 @click.pass_context
-def setup(ctx, repo_path, project, env_name):
+def setup(ctx, project, env_name):
     """Guided first-time bootstrap for a team."""
     from augint_tools.team_secrets.age import is_age_installed
+    from augint_tools.team_secrets.checkout import ephemeral_checkout
     from augint_tools.team_secrets.keys import (
         bootstrap_key,
         get_cached_key,
         resolve_github_username,
-        resolve_repo_path,
         save_team_config,
     )
     from augint_tools.team_secrets.models import TeamConfig
-    from augint_tools.team_secrets.repo import init_project, is_team_repo, list_projects
+    from augint_tools.team_secrets.repo import list_projects
     from augint_tools.team_secrets.sops import decrypt_file, is_sops_installed
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
+    org = _resolve_org(ctx)
 
     # Step 1: Check tools
     if not is_sops_installed():
@@ -117,102 +119,75 @@ def setup(ctx, repo_path, project, env_name):
         username = click.prompt("GitHub username (could not detect via gh CLI)")
     click.echo(f"Username: {username}")
 
-    # Step 3: Locate team repo
-    resolved_path = resolve_repo_path(team, repo_path)
-    if resolved_path is None:
-        if sys.stdin.isatty():
-            resolved_path_str = click.prompt(
-                f"Path to {team}-secrets repo",
-                type=click.Path(),
-            )
-            from pathlib import Path
-
-            resolved_path = Path(resolved_path_str).expanduser().resolve()
-        else:
-            emit_response(
-                CommandResponse.error(
-                    "team-secrets setup",
-                    "team",
-                    "Cannot locate team repo. Pass --repo or set up ~/.augint-tools/teams.yaml",
-                ),
-                **opts,
-            )
-            sys.exit(1)
-
-    if not is_team_repo(resolved_path):
-        click.echo(f"Warning: {resolved_path} does not look like a team secrets repo")
-        if sys.stdin.isatty():
-            if not click.confirm("Continue anyway?"):
-                sys.exit(0)
-
-    click.echo(f"Team repo: {resolved_path}")
-
-    # Step 4: Bootstrap key
-    from pathlib import Path
-
+    # Step 3: Bootstrap key via ephemeral checkout
     key_path = get_cached_key(team)
     if key_path:
         click.echo(f"Key already cached at {key_path}")
     else:
-        encrypted_key_file = resolved_path / "keys" / f"{username}.key.enc"
-        if encrypted_key_file.exists():
-            password = click.prompt("Enter password for your encrypted key", hide_input=True)
-            try:
-                key_path = bootstrap_key(team, resolved_path, username, password)
-                click.echo(f"Key decrypted and cached at {key_path}")
-            except RuntimeError as e:
-                emit_response(
-                    CommandResponse.error("team-secrets setup", "team", f"Key decrypt failed: {e}"),
-                    **opts,
-                )
-                sys.exit(1)
-        else:
-            click.echo(
-                f"No encrypted key found at {encrypted_key_file}.\n"
-                f"Ask an admin to run: ai-tools team-secrets {team} admin add-user {username}"
-            )
+        click.echo(f"Cloning {org}/{team}-secrets to bootstrap key...")
+        try:
+            with ephemeral_checkout(team, org, push_on_exit=False) as repo_path:
+                encrypted_key_file = repo_path / "keys" / f"{username}.key.enc"
+                if encrypted_key_file.exists():
+                    password = click.prompt(
+                        "Enter password for your encrypted key", hide_input=True
+                    )
+                    key_path = bootstrap_key(team, repo_path, username, password)
+                    click.echo(f"Key decrypted and cached at {key_path}")
+                else:
+                    click.echo(
+                        f"No encrypted key found for '{username}'.\n"
+                        f"Ask an admin to run: ai-tools team-secrets {team} admin add-user {username}"
+                    )
+                    emit_response(
+                        CommandResponse.error(
+                            "team-secrets setup", "team", "No encrypted key for user"
+                        ),
+                        **opts,
+                    )
+                    sys.exit(1)
+        except RuntimeError as e:
             emit_response(
-                CommandResponse.error("team-secrets setup", "team", "No encrypted key for user"),
+                CommandResponse.error("team-secrets setup", "team", str(e)),
                 **opts,
             )
             sys.exit(1)
 
-    # Step 5: Save config
-    config = TeamConfig(name=team, repo_path=resolved_path, username=username)
+    # Step 4: Save config
+    config = TeamConfig(name=team, org=org, username=username)
     save_team_config(config)
     click.echo("Team config saved")
 
-    # Step 6: Verify decryption
+    # Step 5: Verify decryption
     if key_path:
-        projects = list_projects(resolved_path)
-        verified = False
-        for p in projects:
-            enc_file = resolved_path / "projects" / p / f"{env_name}.enc.env"
-            if enc_file.exists():
-                try:
-                    decrypt_file(enc_file, key_path)
-                    click.echo(f"Verified: can decrypt {p}/{env_name}.enc.env")
-                    verified = True
-                    break
-                except RuntimeError:
-                    continue
-        if not verified and projects:
-            click.echo("Warning: could not verify decryption on any project file")
-
-    # Step 7: Optionally init project
-    if project:
-        init_project(resolved_path, project, team)
-        click.echo(f"Initialized project '{project}'")
+        try:
+            with ephemeral_checkout(team, org, push_on_exit=False) as repo_path:
+                projects = list_projects(repo_path)
+                verified = False
+                for p in projects:
+                    enc_file = repo_path / "projects" / p / f"{env_name}.enc.env"
+                    if enc_file.exists():
+                        try:
+                            decrypt_file(enc_file, key_path)
+                            click.echo(f"Verified: can decrypt {p}/{env_name}.enc.env")
+                            verified = True
+                            break
+                        except RuntimeError:
+                            continue
+                if not verified and projects:
+                    click.echo("Warning: could not verify decryption on any project file")
+        except RuntimeError:
+            click.echo("Warning: could not clone secrets repo for verification")
 
     emit_response(
         CommandResponse.ok(
             "team-secrets setup",
             "team",
             f"Setup complete for team '{team}'",
-            result={"repo_path": str(resolved_path), "username": username},
+            result={"org": org, "username": username},
             next_actions=[
                 f"ai-tools team-secrets {team} doctor",
-                f"ai-tools team-secrets {team} edit <project> --env dev",
+                f"ai-tools team-secrets {team} edit",
             ],
         ),
         **opts,
@@ -227,8 +202,9 @@ def doctor(ctx):
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
+    org = _resolve_org(ctx)
 
-    checks = run_checks(team)
+    checks = run_checks(team, org)
 
     # Display results
     if not opts["json_mode"]:
@@ -243,7 +219,11 @@ def doctor(ctx):
     warnings = [c for c in checks if c.status == "warn"]
 
     status = "ok" if not failures else "action-required"
-    summary = f"{len(checks)} checks: {len(checks) - len(failures) - len(warnings)} pass, {len(warnings)} warn, {len(failures)} fail"
+    summary = (
+        f"{len(checks)} checks: "
+        f"{len(checks) - len(failures) - len(warnings)} pass, "
+        f"{len(warnings)} warn, {len(failures)} fail"
+    )
 
     emit_response(
         CommandResponse(
@@ -267,46 +247,41 @@ def doctor(ctx):
 
 
 @team_secrets_group.command()
-@click.argument("project")
+@click.option("--project", default=None, help="Project name (auto-detected from git remote).")
 @click.option("--env", "env_name", default="dev", help="Environment (default: dev).")
 @click.pass_context
 def edit(ctx, project, env_name):
     """Edit encrypted secrets for a project in $EDITOR."""
-    from augint_tools.team_secrets.keys import load_team_config, require_key
+    from augint_tools.team_secrets.checkout import ephemeral_checkout
+    from augint_tools.team_secrets.keys import require_key
     from augint_tools.team_secrets.repo import get_encrypted_env_path
     from augint_tools.team_secrets.sops import edit_file
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
-
+    org = _resolve_org(ctx)
+    project = _require_project(project, team)
     key_path = require_key(team)
-    config = load_team_config(team)
-    if not config:
-        emit_response(
-            CommandResponse.error(
-                "team-secrets edit",
-                "team",
-                f"No config for team '{team}'. Run: ai-tools team-secrets {team} setup",
-            ),
-            **opts,
-        )
-        sys.exit(1)
 
-    encrypted_path = get_encrypted_env_path(config.repo_path, project, env_name)
-    if not encrypted_path.exists():
-        emit_response(
-            CommandResponse.error(
-                "team-secrets edit",
-                "team",
-                f"No file at {encrypted_path}. "
-                f"Run: ai-tools team-secrets {team} admin init-project {project}",
-            ),
-            **opts,
-        )
-        sys.exit(1)
-
+    click.echo(f"Editing {project}/{env_name}.enc.env ...")
     try:
-        edit_file(encrypted_path, key_path)
+        with ephemeral_checkout(team, org) as repo_path:
+            encrypted_path = get_encrypted_env_path(repo_path, project, env_name)
+            if not encrypted_path.exists():
+                emit_response(
+                    CommandResponse.error(
+                        "team-secrets edit",
+                        "team",
+                        f"No encrypted file for project '{project}'. "
+                        f"Run: ai-tools team-secrets {team} admin init-project",
+                    ),
+                    **opts,
+                )
+                sys.exit(1)
+
+            edit_file(encrypted_path, key_path)
+            # ephemeral_checkout auto-commits and pushes on exit if changes were made
+
     except RuntimeError as e:
         emit_response(CommandResponse.error("team-secrets edit", "team", str(e)), **opts)
         sys.exit(1)
@@ -323,55 +298,41 @@ def edit(ctx, project, env_name):
 
 
 @team_secrets_group.command("sync")
-@click.argument("project")
+@click.option("--project", default=None, help="Project name (auto-detected from git remote).")
 @click.option("--env", "env_name", default="dev", help="Environment (default: dev).")
 @click.option("--dry-run", is_flag=True, help="Show what would change without modifying anything.")
 @click.option("--diff", "diff_only", is_flag=True, help="Show diff and exit.")
 @click.option("--no-gh", is_flag=True, help="Skip pushing to GitHub secrets/variables.")
-@click.option("--no-commit", is_flag=True, help="Skip committing to team repo.")
-@click.option("--no-push", is_flag=True, help="Skip pushing team repo.")
+@click.option("--no-push", is_flag=True, help="Skip pushing secrets repo changes.")
 @click.option("--write-local-env", is_flag=True, help="Write merged result to local .env.")
 @click.pass_context
-def sync_cmd(
-    ctx, project, env_name, dry_run, diff_only, no_gh, no_commit, no_push, write_local_env
-):
+def sync_cmd(ctx, project, env_name, dry_run, diff_only, no_gh, no_push, write_local_env):
     """Merge local .env with team secrets and distribute."""
-    from augint_tools.team_secrets.keys import load_team_config, require_key
-    from augint_tools.team_secrets.repo import pull_repo
+    from augint_tools.team_secrets.checkout import ephemeral_checkout
+    from augint_tools.team_secrets.keys import require_key
     from augint_tools.team_secrets.sync import perform_team_sync
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
-
+    org = _resolve_org(ctx)
+    project = _require_project(project, team)
     key_path = require_key(team)
-    config = load_team_config(team)
-    if not config:
-        emit_response(
-            CommandResponse.error(
-                "team-secrets sync",
-                "team",
-                f"No config for team '{team}'. Run: ai-tools team-secrets {team} setup",
-            ),
-            **opts,
-        )
-        sys.exit(1)
 
-    # Pull latest
-    if not dry_run and not diff_only:
-        pull_repo(config.repo_path)
+    push_on_exit = not dry_run and not diff_only and not no_push
 
     try:
-        result = perform_team_sync(
-            team_repo_path=config.repo_path,
-            project=project,
-            env=env_name,
-            key_file=key_path,
-            dry_run=dry_run,
-            diff_only=diff_only,
-            write_local_env=write_local_env,
-            no_commit=no_commit,
-            no_push=no_push,
-        )
+        with ephemeral_checkout(team, org, push_on_exit=push_on_exit) as repo_path:
+            result = perform_team_sync(
+                team_repo_path=repo_path,
+                project=project,
+                env=env_name,
+                key_file=key_path,
+                dry_run=dry_run,
+                diff_only=diff_only,
+                write_local_env=write_local_env,
+                no_commit=False,
+                no_push=no_push,
+            )
     except click.ClickException:
         raise
     except RuntimeError as e:
@@ -395,7 +356,7 @@ def sync_cmd(
         )
         sys.exit(2)
 
-    # Push to GitHub if requested
+    # Push to GitHub secrets/variables if requested
     if not no_gh and not dry_run and not diff_only:
         try:
             import os
@@ -431,44 +392,71 @@ def sync_cmd(
 
 
 @team_secrets_group.group()
-@click.option("--repo", "admin_repo", default=None, help="Path to team secrets repo.")
 @click.pass_context
-def admin(ctx, admin_repo):
+def admin(ctx):
     """Administrative commands (init, user management, rotation)."""
     ctx.ensure_object(dict)
-    ctx.obj["admin_repo"] = admin_repo
 
 
 @admin.command("init-repo")
-@click.option(
-    "--repo", "repo_path", default=None, help="Path to create the repo (default: ./<team>-secrets)."
-)
 @click.pass_context
-def init_repo_cmd(ctx, repo_path):
-    """Scaffold a new team secrets repository."""
-    from pathlib import Path
-
+def init_repo_cmd(ctx):
+    """Scaffold a new team secrets repository on GitHub."""
+    from augint_tools.team_secrets.checkout import secrets_repo_slug
     from augint_tools.team_secrets.repo import init_repo
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
+    org = _resolve_org(ctx)
+    slug = secrets_repo_slug(team, org)
 
-    # init-repo's own --repo takes priority, then admin group's --repo, then default
-    if repo_path is None:
-        repo_path = ctx.obj.get("admin_repo") or f"./{team}-secrets"
+    import subprocess
+    import tempfile
+    from pathlib import Path
 
-    path = Path(repo_path).expanduser().resolve()
-    init_repo(path, team)
+    tmp_dir = tempfile.mkdtemp(prefix=f"team-secrets-init-{team}-")
+    repo_path = Path(tmp_dir)
+
+    try:
+        init_repo(repo_path, team)
+
+        # Push to GitHub as a new private repo
+        subprocess.run(
+            ["gh", "repo", "create", slug, "--private", "--push", "--source", str(repo_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        # Repo might already exist
+        stderr = e.stderr or ""
+        if "already exists" in stderr.lower():
+            click.echo(f"Repo {slug} already exists on GitHub.")
+        else:
+            import shutil
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            emit_response(
+                CommandResponse.error(
+                    "team-secrets admin init-repo", "team", f"Failed to create repo: {stderr}"
+                ),
+                **opts,
+            )
+            sys.exit(1)
+    finally:
+        import shutil
+
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     emit_response(
         CommandResponse.ok(
             "team-secrets admin init-repo",
             "team",
-            f"Scaffolded team repo at {path}",
-            result={"path": str(path)},
+            f"Created {slug}",
+            result={"slug": slug},
             next_actions=[
-                f"ai-tools team-secrets {team} admin add-user <name> --pubkey <key>",
-                f"ai-tools team-secrets {team} admin init-project <project>",
+                f"ai-tools team-secrets {team} admin add-user <name>",
+                f"ai-tools team-secrets {team} admin init-project",
             ],
         ),
         **opts,
@@ -476,36 +464,34 @@ def init_repo_cmd(ctx, repo_path):
 
 
 @admin.command("init-project")
-@click.argument("project")
+@click.option("--project", default=None, help="Project name (auto-detected from git remote).")
 @click.pass_context
 def init_project_cmd(ctx, project):
-    """Initialize a new project within the team secrets repo."""
+    """Register a project in the team secrets repo."""
+    from augint_tools.team_secrets.checkout import ephemeral_checkout
     from augint_tools.team_secrets.repo import init_project
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
+    org = _resolve_org(ctx)
+    project = _require_project(project, team)
 
-    repo_path = _resolve_admin_repo(ctx)
-    if repo_path is None:
+    try:
+        with ephemeral_checkout(team, org) as repo_path:
+            init_project(repo_path, project, team)
+    except RuntimeError as e:
         emit_response(
-            CommandResponse.error(
-                "team-secrets admin init-project",
-                "team",
-                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
-            ),
-            **opts,
+            CommandResponse.error("team-secrets admin init-project", "team", str(e)), **opts
         )
         sys.exit(1)
-
-    init_project(repo_path, project, team)
 
     emit_response(
         CommandResponse.ok(
             "team-secrets admin init-project",
             "team",
-            f"Initialized project '{project}'",
-            result={"project": project, "path": str(repo_path / "projects" / project)},
-            next_actions=[f"ai-tools team-secrets {team} edit {project} --env dev"],
+            f"Initialized project '{project}' in {org}/{team}-secrets",
+            result={"project": project},
+            next_actions=[f"ai-tools team-secrets {team} edit --project {project} --env dev"],
         ),
         **opts,
     )
@@ -521,26 +507,16 @@ def init_project_cmd(ctx, project):
 @click.pass_context
 def add_user_cmd(ctx, name, pubkey, project, team_wide):
     """Add a user to the team (generates encrypted key, updates recipients)."""
-
     from augint_tools.team_secrets.age import encrypt_with_password, generate_keypair
+    from augint_tools.team_secrets.checkout import ephemeral_checkout
+    from augint_tools.team_secrets.keys import get_cached_key
     from augint_tools.team_secrets.models import UserRecord
     from augint_tools.team_secrets.recipients import add_recipient, write_sops_yaml
     from augint_tools.team_secrets.sops import update_keys
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
-
-    repo_path = _resolve_admin_repo(ctx)
-    if repo_path is None:
-        emit_response(
-            CommandResponse.error(
-                "team-secrets admin add-user",
-                "team",
-                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
-            ),
-            **opts,
-        )
-        sys.exit(1)
+    org = _resolve_org(ctx)
 
     # Generate keypair if no public key provided
     generated_keypair = None
@@ -554,8 +530,6 @@ def add_user_cmd(ctx, name, pubkey, project, team_wide):
             if choice.lower() == "p":
                 pubkey = click.prompt("Paste age public key (age1...)")
             else:
-                from augint_tools.team_secrets.age import generate_keypair
-
                 generated_keypair = generate_keypair()
                 pubkey = generated_keypair.public_key
                 click.echo(f"Generated public key: {pubkey}")
@@ -570,51 +544,57 @@ def add_user_cmd(ctx, name, pubkey, project, team_wide):
             )
             sys.exit(1)
 
-    # Add to recipients
-    user = UserRecord(name=name, public_key=pubkey)
-    recipients_dir = repo_path / "recipients"
-
-    if project:
-        project_file = recipients_dir / f"project-{project}.txt"
-        add_recipient(project_file, user)
-        click.echo(f"Added to project recipients: {project}")
-
-    # Always add to team-wide unless explicitly project-only
-    team_file = recipients_dir / f"team-{team}.txt"
-    add_recipient(team_file, user)
-    click.echo(f"Added to team recipients: {team}")
-
-    # Generate and store encrypted private key
+    # Prompt for password before cloning (so we don't hold a checkout open during input)
+    password = None
     if generated_keypair:
         password = click.prompt(
             f"Set a password for {name}'s encrypted key",
             hide_input=True,
             confirmation_prompt=True,
         )
-        encrypted = encrypt_with_password(generated_keypair.private_key, password)
-        key_file = repo_path / "keys" / f"{name}.key.enc"
-        key_file.parent.mkdir(parents=True, exist_ok=True)
-        key_file.write_bytes(encrypted)
-        click.echo(f"Encrypted private key saved to {key_file}")
 
-    # Regenerate .sops.yaml
-    write_sops_yaml(repo_path, team)
-    click.echo("Regenerated .sops.yaml")
+    try:
+        with ephemeral_checkout(team, org) as repo_path:
+            user = UserRecord(name=name, public_key=pubkey)
+            recipients_dir = repo_path / "recipients"
 
-    # Update keys on existing encrypted files
-    from augint_tools.team_secrets.keys import get_cached_key
+            if project:
+                project_file = recipients_dir / f"project-{project}.txt"
+                add_recipient(project_file, user)
+                click.echo(f"Added to project recipients: {project}")
 
-    key_path = get_cached_key(team)
-    if key_path:
-        enc_files = list(repo_path.glob("projects/**/*.enc.env"))
-        for f in enc_files:
-            # Only update files that contain actual SOPS-encrypted content
-            content = f.read_text()
-            if "sops" in content or "ENC[" in content:
-                try:
-                    update_keys(f, key_path)
-                except RuntimeError:
-                    click.echo(f"  Warning: could not updatekeys on {f.name}")
+            team_file = recipients_dir / f"team-{team}.txt"
+            add_recipient(team_file, user)
+            click.echo(f"Added to team recipients: {team}")
+
+            # Store encrypted private key
+            if generated_keypair and password:
+                encrypted = encrypt_with_password(generated_keypair.private_key, password)
+                key_file = repo_path / "keys" / f"{name}.key.enc"
+                key_file.parent.mkdir(parents=True, exist_ok=True)
+                key_file.write_bytes(encrypted)
+                click.echo(f"Encrypted private key saved for {name}")
+
+            # Regenerate .sops.yaml
+            write_sops_yaml(repo_path, team)
+            click.echo("Regenerated .sops.yaml")
+
+            # Update keys on existing encrypted files
+            key_path = get_cached_key(team)
+            if key_path:
+                enc_files = list(repo_path.glob("projects/**/*.enc.env"))
+                for f in enc_files:
+                    content = f.read_text()
+                    if "sops" in content or "ENC[" in content:
+                        try:
+                            update_keys(f, key_path)
+                        except RuntimeError:
+                            click.echo(f"  Warning: could not updatekeys on {f.name}")
+
+            # ephemeral_checkout auto-commits and pushes
+    except RuntimeError as e:
+        emit_response(CommandResponse.error("team-secrets admin add-user", "team", str(e)), **opts)
+        sys.exit(1)
 
     emit_response(
         CommandResponse.ok(
@@ -638,68 +618,68 @@ def add_user_cmd(ctx, name, pubkey, project, team_wide):
 @click.pass_context
 def remove_user_cmd(ctx, name, project, team_wide):
     """Remove a user's access from the team."""
+    from augint_tools.team_secrets.checkout import ephemeral_checkout
     from augint_tools.team_secrets.keys import get_cached_key
     from augint_tools.team_secrets.recipients import remove_recipient, write_sops_yaml
     from augint_tools.team_secrets.sops import update_keys
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
+    org = _resolve_org(ctx)
 
-    repo_path = _resolve_admin_repo(ctx)
-    if repo_path is None:
+    try:
+        with ephemeral_checkout(team, org) as repo_path:
+            recipients_dir = repo_path / "recipients"
+            removed = False
+
+            if project:
+                project_file = recipients_dir / f"project-{project}.txt"
+                if remove_recipient(project_file, name):
+                    removed = True
+                    click.echo(f"Removed from project recipients: {project}")
+
+            team_file = recipients_dir / f"team-{team}.txt"
+            if remove_recipient(team_file, name):
+                removed = True
+                click.echo(f"Removed from team recipients: {team}")
+
+            if not removed:
+                emit_response(
+                    CommandResponse.error(
+                        "team-secrets admin remove-user",
+                        "team",
+                        f"User '{name}' not found in recipients",
+                    ),
+                    **opts,
+                )
+                sys.exit(1)
+
+            # Delete encrypted key file
+            key_file = repo_path / "keys" / f"{name}.key.enc"
+            if key_file.exists():
+                key_file.unlink()
+                click.echo(f"Deleted encrypted key for {name}")
+
+            # Regenerate .sops.yaml
+            write_sops_yaml(repo_path, team)
+
+            # Update keys on existing encrypted files
+            key_path = get_cached_key(team)
+            if key_path:
+                enc_files = list(repo_path.glob("projects/**/*.enc.env"))
+                for f in enc_files:
+                    content = f.read_text()
+                    if "sops" in content or "ENC[" in content:
+                        try:
+                            update_keys(f, key_path)
+                        except RuntimeError:
+                            click.echo(f"  Warning: could not updatekeys on {f.name}")
+
+    except RuntimeError as e:
         emit_response(
-            CommandResponse.error(
-                "team-secrets admin remove-user",
-                "team",
-                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
-            ),
-            **opts,
+            CommandResponse.error("team-secrets admin remove-user", "team", str(e)), **opts
         )
         sys.exit(1)
-
-    recipients_dir = repo_path / "recipients"
-    removed = False
-
-    if project:
-        project_file = recipients_dir / f"project-{project}.txt"
-        if remove_recipient(project_file, name):
-            removed = True
-            click.echo(f"Removed from project recipients: {project}")
-
-    team_file = recipients_dir / f"team-{team}.txt"
-    if remove_recipient(team_file, name):
-        removed = True
-        click.echo(f"Removed from team recipients: {team}")
-
-    if not removed:
-        emit_response(
-            CommandResponse.error(
-                "team-secrets admin remove-user", "team", f"User '{name}' not found in recipients"
-            ),
-            **opts,
-        )
-        sys.exit(1)
-
-    # Delete encrypted key file
-    key_file = repo_path / "keys" / f"{name}.key.enc"
-    if key_file.exists():
-        key_file.unlink()
-        click.echo(f"Deleted {key_file}")
-
-    # Regenerate .sops.yaml
-    write_sops_yaml(repo_path, team)
-
-    # Update keys on existing encrypted files
-    key_path = get_cached_key(team)
-    if key_path:
-        enc_files = list(repo_path.glob("projects/**/*.enc.env"))
-        for f in enc_files:
-            content = f.read_text()
-            if "sops" in content or "ENC[" in content:
-                try:
-                    update_keys(f, key_path)
-                except RuntimeError:
-                    click.echo(f"  Warning: could not updatekeys on {f.name}")
 
     click.echo(
         f"\nWarning: {name} still has any previously-decrypted secrets. "
@@ -719,66 +699,57 @@ def remove_user_cmd(ctx, name, project, team_wide):
 
 
 @admin.command("rotate")
-@click.argument("project", required=False)
+@click.option("--project", default=None, help="Project to rotate (auto-detected from git remote).")
 @click.option("--all", "rotate_all", is_flag=True, help="Rotate all projects.")
 @click.pass_context
 def rotate_cmd(ctx, project, rotate_all):
     """Rotate encryption keys (re-encrypt with current recipients)."""
+    from augint_tools.team_secrets.checkout import ephemeral_checkout
     from augint_tools.team_secrets.keys import require_key
-    from augint_tools.team_secrets.repo import list_projects
     from augint_tools.team_secrets.sops import update_keys
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
-
+    org = _resolve_org(ctx)
     key_path = require_key(team)
-    repo_path = _resolve_admin_repo(ctx)
-    if repo_path is None:
-        emit_response(
-            CommandResponse.error(
-                "team-secrets admin rotate",
-                "team",
-                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
-            ),
-            **opts,
-        )
-        sys.exit(1)
 
     if not project and not rotate_all:
         if sys.stdin.isatty():
-            projects = list_projects(repo_path)
-            click.echo("Available projects:")
-            for p in projects:
-                click.echo(f"  - {p}")
-            project = click.prompt("Project to rotate (or 'all')")
-            if project == "all":
+            project_or_all = click.prompt("Project to rotate (or 'all')")
+            if project_or_all == "all":
                 rotate_all = True
+            else:
+                project = project_or_all
         else:
             emit_response(
                 CommandResponse.error(
-                    "team-secrets admin rotate", "team", "Specify a project name or --all"
+                    "team-secrets admin rotate", "team", "Specify --project or --all"
                 ),
                 **opts,
             )
             sys.exit(1)
 
-    # Collect files to rotate
-    if rotate_all:
-        enc_files = list(repo_path.glob("projects/**/*.enc.env"))
-    else:
-        enc_files = list((repo_path / "projects" / project).glob("*.enc.env"))
-
     rotated: list[str] = []
     errors: list[str] = []
 
-    for f in enc_files:
-        content = f.read_text()
-        if "sops" in content or "ENC[" in content:
-            try:
-                update_keys(f, key_path)
-                rotated.append(str(f.relative_to(repo_path)))
-            except RuntimeError as e:
-                errors.append(f"{f.name}: {e}")
+    try:
+        with ephemeral_checkout(team, org) as repo_path:
+            if rotate_all:
+                enc_files = list(repo_path.glob("projects/**/*.enc.env"))
+            else:
+                enc_files = list((repo_path / "projects" / project).glob("*.enc.env"))
+
+            for f in enc_files:
+                content = f.read_text()
+                if "sops" in content or "ENC[" in content:
+                    try:
+                        update_keys(f, key_path)
+                        rotated.append(str(f.relative_to(repo_path)))
+                    except RuntimeError as e:
+                        errors.append(f"{f.name}: {e}")
+    except RuntimeError as e:
+        emit_response(CommandResponse.error("team-secrets admin rotate", "team", str(e)), **opts)
+        sys.exit(1)
 
     emit_response(
         CommandResponse.ok(
@@ -793,7 +764,7 @@ def rotate_cmd(ctx, project, rotate_all):
 
 
 @admin.command("decrypt")
-@click.argument("project")
+@click.option("--project", default=None, help="Project name (auto-detected from git remote).")
 @click.option("--env", "env_name", default="dev", help="Environment (default: dev).")
 @click.option(
     "--stdout", "to_stdout", is_flag=True, default=True, help="Output to stdout (default)."
@@ -804,38 +775,30 @@ def decrypt_cmd(ctx, project, env_name, to_stdout, output_path):
     """Decrypt a project's env file (for debugging/export)."""
     from pathlib import Path
 
+    from augint_tools.team_secrets.checkout import ephemeral_checkout
     from augint_tools.team_secrets.keys import require_key
     from augint_tools.team_secrets.repo import get_encrypted_env_path
     from augint_tools.team_secrets.sops import decrypt_file
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
-
+    org = _resolve_org(ctx)
+    project = _require_project(project, team)
     key_path = require_key(team)
-    repo_path = _resolve_admin_repo(ctx)
-    if repo_path is None:
-        emit_response(
-            CommandResponse.error(
-                "team-secrets admin decrypt",
-                "team",
-                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
-            ),
-            **opts,
-        )
-        sys.exit(1)
-
-    encrypted_path = get_encrypted_env_path(repo_path, project, env_name)
-    if not encrypted_path.exists():
-        emit_response(
-            CommandResponse.error(
-                "team-secrets admin decrypt", "team", f"No file at {encrypted_path}"
-            ),
-            **opts,
-        )
-        sys.exit(1)
 
     try:
-        plaintext = decrypt_file(encrypted_path, key_path)
+        with ephemeral_checkout(team, org, push_on_exit=False) as repo_path:
+            encrypted_path = get_encrypted_env_path(repo_path, project, env_name)
+            if not encrypted_path.exists():
+                emit_response(
+                    CommandResponse.error(
+                        "team-secrets admin decrypt", "team", f"No file for {project}/{env_name}"
+                    ),
+                    **opts,
+                )
+                sys.exit(1)
+
+            plaintext = decrypt_file(encrypted_path, key_path)
     except RuntimeError as e:
         emit_response(CommandResponse.error("team-secrets admin decrypt", "team", str(e)), **opts)
         sys.exit(1)
@@ -852,16 +815,16 @@ def decrypt_cmd(ctx, project, env_name, to_stdout, output_path):
             **opts,
         )
     else:
-        # Write to stdout directly (not through emit_response)
         click.echo(plaintext, nl=False)
 
 
 @admin.command("validate")
-@click.argument("project")
+@click.option("--project", default=None, help="Project name (auto-detected from git remote).")
 @click.option("--env", "env_name", default="dev", help="Environment (default: dev).")
 @click.pass_context
 def validate_cmd(ctx, project, env_name):
     """Validate an encrypted env file (syntax, duplicates, schema)."""
+    from augint_tools.team_secrets.checkout import ephemeral_checkout
     from augint_tools.team_secrets.keys import require_key
     from augint_tools.team_secrets.repo import get_encrypted_env_path
     from augint_tools.team_secrets.sops import decrypt_file
@@ -869,37 +832,29 @@ def validate_cmd(ctx, project, env_name):
 
     opts = _get_output_opts(ctx)
     team = ctx.obj["team"]
-
+    org = _resolve_org(ctx)
+    project = _require_project(project, team)
     key_path = require_key(team)
-    repo_path = _resolve_admin_repo(ctx)
-    if repo_path is None:
-        emit_response(
-            CommandResponse.error(
-                "team-secrets admin validate",
-                "team",
-                f"Cannot locate team repo. Pass --repo to admin or run: ai-tools team-secrets {team} setup",
-            ),
-            **opts,
-        )
-        sys.exit(1)
-
-    encrypted_path = get_encrypted_env_path(repo_path, project, env_name)
-    if not encrypted_path.exists():
-        emit_response(
-            CommandResponse.error(
-                "team-secrets admin validate", "team", f"No file at {encrypted_path}"
-            ),
-            **opts,
-        )
-        sys.exit(1)
 
     try:
-        plaintext = decrypt_file(encrypted_path, key_path)
+        with ephemeral_checkout(team, org, push_on_exit=False) as repo_path:
+            encrypted_path = get_encrypted_env_path(repo_path, project, env_name)
+            if not encrypted_path.exists():
+                emit_response(
+                    CommandResponse.error(
+                        "team-secrets admin validate",
+                        "team",
+                        f"No file for {project}/{env_name}",
+                    ),
+                    **opts,
+                )
+                sys.exit(1)
+
+            plaintext = decrypt_file(encrypted_path, key_path)
+            schema_path = repo_path / "projects" / project / "schema.yaml"
+            schema_content = schema_path.read_text() if schema_path.exists() else None
     except RuntimeError as e:
-        emit_response(
-            CommandResponse.error("team-secrets admin validate", "team", f"Decrypt failed: {e}"),
-            **opts,
-        )
+        emit_response(CommandResponse.error("team-secrets admin validate", "team", str(e)), **opts)
         sys.exit(1)
 
     # Parse and validate
@@ -914,7 +869,7 @@ def validate_cmd(ctx, project, env_name):
         if "=" not in stripped:
             issues.append(f"Line {i}: malformed (no '=' found): {stripped[:40]}")
 
-    # Check for duplicate keys (parse_dotenv_content deduplicates, so check raw)
+    # Check for duplicate keys
     seen_keys: dict[str, int] = {}
     for i, line in enumerate(plaintext.splitlines(), 1):
         stripped = line.strip()
@@ -935,8 +890,8 @@ def validate_cmd(ctx, project, env_name):
             issues.append(f"Empty value for key '{key}'")
 
     # Classify entries
+    classification: dict = {}
     try:
-        # Write temp file for classify_env
         import tempfile
 
         from augint_tools.env.classify import Classification, classify_env
@@ -956,16 +911,14 @@ def validate_cmd(ctx, project, env_name):
             "variables": [r.key for r in variables],
         }
     except Exception:
-        classification = {}
+        pass
 
-    # Check schema if exists
-    schema_path = repo_path / "projects" / project / "schema.yaml"
+    # Check schema
     schema_issues: list[str] = []
-    if schema_path.exists():
+    if schema_content:
         import yaml
 
-        with open(schema_path) as f:
-            schema = yaml.safe_load(f) or {}
+        schema = yaml.safe_load(schema_content) or {}
         for entry in schema.get("keys", []):
             key_name = entry.get("name", "")
             if entry.get("required") and key_name not in data:

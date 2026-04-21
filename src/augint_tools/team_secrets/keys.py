@@ -12,6 +12,7 @@ import yaml
 from loguru import logger
 
 from augint_tools.team_secrets.age import decrypt_file_with_password
+from augint_tools.team_secrets.checkout import DEFAULT_ORG
 from augint_tools.team_secrets.models import TeamConfig
 
 
@@ -44,7 +45,7 @@ def load_teams_config() -> dict[str, TeamConfig]:
         if isinstance(data, dict):
             teams[name] = TeamConfig(
                 name=name,
-                repo_path=Path(data.get("repo_path", "")),
+                org=data.get("org", DEFAULT_ORG),
                 username=data.get("username", ""),
             )
     return teams
@@ -66,7 +67,7 @@ def save_team_config(config: TeamConfig) -> None:
             existing = yaml.safe_load(f) or {}
 
     existing[config.name] = {
-        "repo_path": str(config.repo_path),
+        "org": config.org,
         "username": config.username,
     }
 
@@ -74,40 +75,34 @@ def save_team_config(config: TeamConfig) -> None:
         yaml.safe_dump(existing, f, default_flow_style=False)
 
 
-def resolve_repo_path(team: str, repo_flag: str | None = None) -> Path | None:
-    """Resolve the team secrets repo path using the lookup chain.
+def resolve_org(team: str, org_flag: str | None = None) -> str:
+    """Resolve the GitHub org for a team.
 
-    Order:
-    1. Explicit --repo flag
-    2. ~/.augint-tools/teams.yaml
-    3. Convention: ../<team>-secrets (sibling dir)
-    4. Convention: ~/<team>-secrets (home dir)
-
-    Returns None if not found (caller should prompt interactively).
+    Order: explicit --org flag > teams.yaml > default.
     """
-    # 1. Explicit flag
-    if repo_flag:
-        path = Path(repo_flag).expanduser().resolve()
-        if path.exists():
-            return path
-        return path  # Return even if not exists (init-repo may create it)
-
-    # 2. Config file
+    if org_flag:
+        return org_flag
     config = load_team_config(team)
-    if config and config.repo_path and config.repo_path.exists():
-        return config.repo_path
+    if config:
+        return config.org
+    return DEFAULT_ORG
 
-    # 3. Sibling directory convention
-    sibling = Path.cwd().parent / f"{team}-secrets"
-    if sibling.exists() and sibling.is_dir():
-        return sibling
 
-    # 4. Home directory convention
-    home_path = Path.home() / f"{team}-secrets"
-    if home_path.exists() and home_path.is_dir():
-        return home_path
+def detect_project_name(path: Path | None = None) -> str | None:
+    """Detect the current project name from the git remote.
 
-    return None
+    Reads the git remote URL and extracts the repo name.
+    Returns None if not in a git repo or can't parse the remote.
+    """
+    from augint_tools.git.repo import extract_repo_slug, get_remote_url
+
+    remote_url = get_remote_url(path)
+    if not remote_url:
+        return None
+    slug = extract_repo_slug(remote_url)
+    if not slug or "/" not in slug:
+        return None
+    return slug.split("/", 1)[1]
 
 
 def resolve_github_username() -> str | None:
@@ -134,6 +129,7 @@ def bootstrap_key(
     """Bootstrap the local age key from the team repo's encrypted key file.
 
     Finds keys/<username>.key.enc, decrypts with password, caches locally.
+    repo_path is the ephemeral checkout of the secrets repo.
 
     Returns the path to the cached decrypted key.
     """

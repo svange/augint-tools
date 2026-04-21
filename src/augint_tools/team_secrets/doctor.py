@@ -3,39 +3,31 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
 
 from augint_tools.team_secrets.age import is_age_installed
+from augint_tools.team_secrets.checkout import secrets_repo_slug
 from augint_tools.team_secrets.keys import (
+    detect_project_name,
     get_cached_key,
     load_team_config,
     verify_key_permissions,
 )
 from augint_tools.team_secrets.models import DoctorCheck
-from augint_tools.team_secrets.repo import is_team_repo, pull_repo
-from augint_tools.team_secrets.sops import decrypt_file, is_sops_installed
+from augint_tools.team_secrets.sops import is_sops_installed
 
 
-def run_checks(team: str) -> list[DoctorCheck]:
-    """Run all health checks for a team configuration.
-
-    Returns a list of DoctorCheck results.
-    """
+def run_checks(team: str, org: str) -> list[DoctorCheck]:
+    """Run all health checks for a team configuration."""
     checks: list[DoctorCheck] = []
 
     checks.append(_check_sops())
     checks.append(_check_age())
     checks.append(_check_config(team))
-
-    config = load_team_config(team)
-    repo_path = Path(config.repo_path) if config else None
-
     checks.append(_check_cached_key(team))
     checks.append(_check_key_permissions(team))
-    checks.append(_check_repo_exists(team, repo_path))
-    checks.append(_check_repo_pull(team, repo_path))
-    checks.append(_check_decrypt(team, repo_path))
     checks.append(_check_gh_auth())
+    checks.append(_check_secrets_repo_access(team, org))
+    checks.append(_check_project_detection())
 
     return checks
 
@@ -43,7 +35,6 @@ def run_checks(team: str) -> list[DoctorCheck]:
 def _check_sops() -> DoctorCheck:
     if is_sops_installed():
         return DoctorCheck("sops", "pass", "sops >= 3.8 found")
-    # Check if installed but wrong version
     try:
         result = subprocess.run(["sops", "--version"], capture_output=True, text=True)
         if result.returncode == 0:
@@ -64,9 +55,11 @@ def _check_age() -> DoctorCheck:
 def _check_config(team: str) -> DoctorCheck:
     config = load_team_config(team)
     if config:
-        return DoctorCheck("config", "pass", f"Team '{team}' configured: {config.repo_path}")
+        return DoctorCheck("config", "pass", f"Team '{team}' configured (org: {config.org})")
     return DoctorCheck(
-        "config", "fail", f"No config for team '{team}'. Run: ai-tools team-secrets {team} setup"
+        "config",
+        "warn",
+        f"No config for team '{team}'. Run: ai-tools team-secrets {team} setup",
     )
 
 
@@ -75,7 +68,9 @@ def _check_cached_key(team: str) -> DoctorCheck:
     if key_path:
         return DoctorCheck("key_cached", "pass", f"Cached key at {key_path}")
     return DoctorCheck(
-        "key_cached", "fail", f"No cached key. Run: ai-tools team-secrets {team} setup"
+        "key_cached",
+        "fail",
+        f"No cached key. Run: ai-tools team-secrets {team} setup",
     )
 
 
@@ -92,48 +87,6 @@ def _check_key_permissions(team: str) -> DoctorCheck:
     return DoctorCheck("key_perms", "warn", f"Key file permissions are not 600: {key_path}")
 
 
-def _check_repo_exists(team: str, repo_path: Path | None) -> DoctorCheck:
-    if repo_path and repo_path.exists() and is_team_repo(repo_path):
-        return DoctorCheck("repo", "pass", f"Team repo found at {repo_path}")
-    if repo_path and repo_path.exists():
-        return DoctorCheck(
-            "repo", "warn", f"Directory exists but missing team repo structure: {repo_path}"
-        )
-    return DoctorCheck(
-        "repo", "fail", f"Team repo not found. Run: ai-tools team-secrets {team} setup"
-    )
-
-
-def _check_repo_pull(team: str, repo_path: Path | None) -> DoctorCheck:
-    if repo_path is None or not repo_path.exists():
-        return DoctorCheck("repo_pull", "warn", "Skipped (no repo path)")
-
-    if pull_repo(repo_path):
-        return DoctorCheck("repo_pull", "pass", "Team repo pull succeeded")
-    return DoctorCheck("repo_pull", "warn", "Team repo pull failed (no remote or network issue)")
-
-
-def _check_decrypt(team: str, repo_path: Path | None) -> DoctorCheck:
-    if repo_path is None or not repo_path.exists():
-        return DoctorCheck("decrypt", "warn", "Skipped (no repo path)")
-
-    key_path = get_cached_key(team)
-    if key_path is None:
-        return DoctorCheck("decrypt", "warn", "Skipped (no cached key)")
-
-    # Find any .enc.env file to test
-    enc_files = list(repo_path.glob("projects/**/*.enc.env"))
-    if not enc_files:
-        return DoctorCheck("decrypt", "warn", "No encrypted files found to test")
-
-    # Try to decrypt the first one
-    try:
-        decrypt_file(enc_files[0], key_path)
-        return DoctorCheck("decrypt", "pass", f"Successfully decrypted {enc_files[0].name}")
-    except RuntimeError as e:
-        return DoctorCheck("decrypt", "fail", f"Decryption failed: {e}")
-
-
 def _check_gh_auth() -> DoctorCheck:
     try:
         result = subprocess.run(
@@ -144,7 +97,31 @@ def _check_gh_auth() -> DoctorCheck:
         if result.returncode == 0:
             return DoctorCheck("gh_auth", "pass", "GitHub CLI authenticated")
         return DoctorCheck(
-            "gh_auth", "warn", "GitHub CLI not authenticated (sync to GitHub will fail)"
+            "gh_auth", "warn", "GitHub CLI not authenticated (team-secrets requires gh auth)"
         )
     except FileNotFoundError:
-        return DoctorCheck("gh_auth", "warn", "gh CLI not installed (sync to GitHub unavailable)")
+        return DoctorCheck("gh_auth", "fail", "gh CLI not installed (required for team-secrets)")
+
+
+def _check_secrets_repo_access(team: str, org: str) -> DoctorCheck:
+    slug = secrets_repo_slug(team, org)
+    try:
+        result = subprocess.run(
+            ["gh", "repo", "view", slug, "--json", "name"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return DoctorCheck("secrets_repo", "pass", f"Can access {slug}")
+        return DoctorCheck("secrets_repo", "fail", f"Cannot access {slug}: check permissions")
+    except FileNotFoundError:
+        return DoctorCheck("secrets_repo", "warn", "gh CLI not available to check repo access")
+
+
+def _check_project_detection() -> DoctorCheck:
+    project = detect_project_name()
+    if project:
+        return DoctorCheck("project_detect", "pass", f"Detected project: {project}")
+    return DoctorCheck(
+        "project_detect", "warn", "Not in a git repo (project auto-detection unavailable)"
+    )

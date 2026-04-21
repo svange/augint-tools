@@ -9,13 +9,14 @@ import pytest
 
 from augint_tools.team_secrets.keys import (
     bootstrap_key,
+    detect_project_name,
     get_cached_key,
     get_config_dir,
     get_key_cache_path,
     load_teams_config,
     require_key,
     resolve_github_username,
-    resolve_repo_path,
+    resolve_org,
     save_team_config,
     verify_key_permissions,
 )
@@ -42,7 +43,7 @@ def test_load_teams_config_empty(tmp_path, monkeypatch):
 
 def test_load_teams_config_with_data(tmp_path, monkeypatch):
     config_file = tmp_path / "teams.yaml"
-    config_file.write_text("woxom:\n  repo_path: /home/user/woxom-secrets\n  username: sam\n")
+    config_file.write_text("woxom:\n  org: augmenting-integrations\n  username: sam\n")
     monkeypatch.setattr(
         "augint_tools.team_secrets.keys.get_teams_config_path",
         lambda: config_file,
@@ -50,7 +51,7 @@ def test_load_teams_config_with_data(tmp_path, monkeypatch):
     configs = load_teams_config()
     assert "woxom" in configs
     assert configs["woxom"].username == "sam"
-    assert configs["woxom"].repo_path == Path("/home/user/woxom-secrets")
+    assert configs["woxom"].org == "augmenting-integrations"
 
 
 def test_save_team_config(tmp_path, monkeypatch):
@@ -59,55 +60,50 @@ def test_save_team_config(tmp_path, monkeypatch):
         "augint_tools.team_secrets.keys.get_teams_config_path",
         lambda: config_file,
     )
-    config = TeamConfig(name="woxom", repo_path=Path("/tmp/secrets"), username="sam")
+    config = TeamConfig(name="woxom", org="augmenting-integrations", username="sam")
     save_team_config(config)
 
     assert config_file.exists()
     content = config_file.read_text()
     assert "woxom" in content
     assert "sam" in content
+    assert "augmenting-integrations" in content
 
 
-def test_resolve_repo_path_flag():
-    result = resolve_repo_path("woxom", "/tmp/my-repo")
-    assert result == Path("/tmp/my-repo")
+def test_resolve_org_flag():
+    assert resolve_org("woxom", "my-org") == "my-org"
 
 
-def test_resolve_repo_path_config(tmp_path, monkeypatch):
+def test_resolve_org_from_config(tmp_path, monkeypatch):
     config_file = tmp_path / "teams.yaml"
-    repo_dir = tmp_path / "woxom-secrets"
-    repo_dir.mkdir()
-    config_file.write_text(f"woxom:\n  repo_path: {repo_dir}\n  username: sam\n")
+    config_file.write_text("woxom:\n  org: custom-org\n  username: sam\n")
     monkeypatch.setattr(
         "augint_tools.team_secrets.keys.get_teams_config_path",
         lambda: config_file,
     )
-    result = resolve_repo_path("woxom")
-    assert result == repo_dir
+    assert resolve_org("woxom") == "custom-org"
 
 
-def test_resolve_repo_path_sibling(tmp_path, monkeypatch):
-    sibling = tmp_path / "woxom-secrets"
-    sibling.mkdir()
-    work_dir = tmp_path / "project"
-    work_dir.mkdir()
-    monkeypatch.chdir(work_dir)
+def test_resolve_org_default(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "augint_tools.team_secrets.keys.get_teams_config_path",
         lambda: tmp_path / "nonexistent.yaml",
     )
-    result = resolve_repo_path("woxom")
-    assert result == sibling
+    assert resolve_org("woxom") == "augmenting-integrations"
 
 
-def test_resolve_repo_path_not_found(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "augint_tools.team_secrets.keys.get_teams_config_path",
-        lambda: tmp_path / "nonexistent.yaml",
-    )
-    result = resolve_repo_path("nonexistent")
-    assert result is None
+def test_detect_project_name():
+    with patch("augint_tools.git.repo.get_remote_url") as mock_remote:
+        with patch("augint_tools.git.repo.extract_repo_slug") as mock_slug:
+            mock_remote.return_value = "git@github.com:woxom/woxom-ecosystem.git"
+            mock_slug.return_value = "woxom/woxom-ecosystem"
+            assert detect_project_name() == "woxom-ecosystem"
+
+
+def test_detect_project_name_no_remote():
+    with patch("augint_tools.git.repo.get_remote_url") as mock_remote:
+        mock_remote.return_value = None
+        assert detect_project_name() is None
 
 
 def test_resolve_github_username():
@@ -168,7 +164,6 @@ def test_require_key_missing(tmp_path, monkeypatch):
 
 
 def test_bootstrap_key(tmp_path, monkeypatch):
-    # Set up encrypted key file
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
     keys_dir = repo_path / "keys"

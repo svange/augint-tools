@@ -1,7 +1,5 @@
 """Tests for team_secrets.models dataclasses."""
 
-from pathlib import Path
-
 from augint_tools.team_secrets.models import (
     ConflictEntry,
     DoctorCheck,
@@ -13,9 +11,9 @@ from augint_tools.team_secrets.models import (
 
 
 def test_team_config_frozen():
-    config = TeamConfig(name="woxom", repo_path=Path("/tmp/woxom-secrets"), username="sam")
+    config = TeamConfig(name="woxom", org="augmenting-integrations", username="sam")
     assert config.name == "woxom"
-    assert config.repo_path == Path("/tmp/woxom-secrets")
+    assert config.org == "augmenting-integrations"
     assert config.username == "sam"
 
 

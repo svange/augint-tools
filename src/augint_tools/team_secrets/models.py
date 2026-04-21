@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -11,7 +10,7 @@ class TeamConfig:
     """Persisted team configuration from ~/.augint-tools/teams.yaml."""
 
     name: str
-    repo_path: Path
+    org: str  # GitHub org (default: augmenting-integrations)
     username: str
 
 

@@ -37,6 +37,7 @@ def _status(
     draft_prs=0,
     human_open_issues=0,
     default_branch="main",
+    has_workflows=True,
 ):
     return RepoStatus(
         name=name,
@@ -51,6 +52,7 @@ def _status(
         draft_prs=draft_prs,
         human_open_issues=human_open_issues,
         default_branch=default_branch,
+        has_workflows=has_workflows,
     )
 
 
@@ -283,15 +285,27 @@ class TestBrokenCI:
         assert result.severity == Severity.HIGH
         assert "dev pipeline failing" in result.summary
 
-    def test_no_ci_detected(self):
+    def test_no_ci_detected_only_when_no_workflow_files(self):
+        # Truly no workflows -> flagged.
         result = get_check("broken_ci").evaluate(
             _mock_repo(),
-            _status(main_status="unknown", dev_status=None),
+            _status(main_status="unknown", dev_status=None, has_workflows=False),
             config={},
             context=_ctx(),
         )
         assert result.severity == Severity.MEDIUM
         assert "No CI workflows" in result.summary
+
+    def test_unknown_rollup_with_workflows_is_ok(self):
+        # Workflows exist but the latest commit didn't trigger one (common for
+        # semantic-release chore commits). Not a health issue.
+        result = get_check("broken_ci").evaluate(
+            _mock_repo(),
+            _status(main_status="unknown", dev_status=None, has_workflows=True),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.OK
 
     def test_main_takes_priority_over_dev(self):
         result = get_check("broken_ci").evaluate(
@@ -676,31 +690,33 @@ jobs:
         assert result.severity == Severity.OK
         assert "coverage" in result.summary.lower()
 
-    def test_missing_pipeline_is_unverified(self):
+    def test_missing_pipeline_is_ok_not_standardized(self):
+        # A repo that doesn't follow the standardized pipeline convention
+        # isn't unhealthy -- just not standardized. No severity.
         result = self._evaluate(None)
-        assert result.severity == Severity.MEDIUM
-        assert result.summary.startswith("unverified:")
+        assert result.severity == Severity.OK
+        assert "not standardized" in result.summary
 
-    def test_missing_unit_tests_job_is_unverified(self):
+    def test_missing_unit_tests_job_is_ok(self):
         result = self._evaluate(self._NO_UNIT_TESTS)
-        assert result.severity == Severity.MEDIUM
-        assert "unverified" in result.summary
+        assert result.severity == Severity.OK
+        assert "not standardized" in result.summary
         assert "unit-tests" in result.summary
 
-    def test_missing_coverage_command_is_unverified(self):
+    def test_missing_coverage_command_is_ok(self):
         result = self._evaluate(self._NO_COVERAGE_COMMAND)
-        assert result.severity == Severity.MEDIUM
-        assert "unverified" in result.summary
+        assert result.severity == Severity.OK
         assert "coverage" in result.summary
 
     def test_yml_fallback(self):
         result = self._evaluate(self._STANDARD_PY, path=".github/workflows/pipeline.yml")
         assert result.severity == Severity.OK
 
-    def test_yaml_parse_error_is_unverified(self):
+    def test_yaml_parse_error_is_medium(self):
+        # Broken YAML is a real problem -- stays at MEDIUM severity.
         result = self._evaluate("jobs: [this is: not valid")
         assert result.severity == Severity.MEDIUM
-        assert "unverified" in result.summary
+        assert "parse error" in result.summary
 
     def test_lowest_threshold_wins(self):
         yaml_text = """\

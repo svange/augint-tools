@@ -59,9 +59,14 @@ class DrillDownScreen(ModalScreen[None]):
                     if finding.severity == Severity.CRITICAL
                     else finding.severity.name.lower()
                 )
-                t.append(f"  [{marker}] {finding.check_name}: {finding.summary}\n")
+                summary_line = f"  [{marker}] {finding.check_name}: {finding.summary}\n"
                 if finding.link:
-                    t.append(f"      {finding.link}\n", style="dim")
+                    # "link URL" lets the terminal emit an OSC-8 hyperlink
+                    # so middle-click (or Ctrl+click) opens finding.link.
+                    t.append(summary_line, style=f"link {finding.link}")
+                    t.append(f"      {finding.link}\n", style=f"dim link {finding.link}")
+                else:
+                    t.append(summary_line)
         else:
             t.append("no findings.\n", style="dim")
         t.append("\npress o or enter to open on GitHub; esc to close.", style="dim")

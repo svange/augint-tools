@@ -1094,7 +1094,7 @@ class TestAppMisc:
         asyncio.run(run())
 
     @tui
-    def test_card_actions_opens_browser(self):
+    def test_card_open_url_opens_browser(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
             _seed_state(app)
@@ -1105,8 +1105,10 @@ class TestAppMisc:
                 )
 
                 with patch("augint_tools.dashboard.app.webbrowser.open_new_tab") as m:
-                    app.on_repo_card_actions_requested(RepoCard.ActionsRequested("org/r0"))
+                    url = "https://github.com/org/r0/actions"
+                    app.on_repo_card_open_url(RepoCard.OpenUrl(url))
                     assert m.called
+                    assert m.call_args.args[0] == url
 
         asyncio.run(run())
 
@@ -1165,6 +1167,83 @@ class TestAppMisc:
         kinds = [type(m).__name__ for m in posted]
         assert "DrilldownRequested" in kinds
 
+    def test_card_click_map_routes_each_row(self):
+        """Middle-click on each rendered row opens the row-specific GitHub URL."""
+        from augint_tools.dashboard.widgets.repo_card import RepoCard
+
+        status = RepoStatus(
+            name="r0",
+            full_name="org/r0",
+            is_service=False,
+            main_status="success",
+            main_error=None,
+            dev_status=None,
+            dev_error=None,
+            open_issues=3,
+            open_prs=2,
+            draft_prs=0,
+        )
+        checks = [
+            HealthCheckResult(
+                check_name="open_issues",
+                severity=Severity.MEDIUM,
+                summary="(3) open issues (excl. bots)",
+                link="https://github.com/org/r0/issues/42",
+            ),
+            HealthCheckResult(
+                check_name="open_prs",
+                severity=Severity.MEDIUM,
+                summary="(2) open PR(s)",
+                link="https://github.com/org/r0/pull/99",
+            ),
+        ]
+        health = RepoHealth(status=status, checks=checks)
+
+        theme = get_theme("default")
+        card = RepoCard(health=health, theme_spec=theme)
+        card.render()  # populates _click_map
+
+        # Title row opens the repo root.
+        assert card._click_map[1].url == "https://github.com/org/r0"
+        # CI row opens the Actions page.
+        assert card._click_map[2].url == "https://github.com/org/r0/actions"
+        # Counts row splits: left -> /issues, right -> /pulls.
+        counts = card._click_map[3]
+        assert counts.url == "https://github.com/org/r0/issues"
+        assert counts.alt_url == "https://github.com/org/r0/pulls"
+        assert counts.x_split is not None
+        # Finding rows use each finding's own link.
+        assert card._click_map[4].url == "https://github.com/org/r0/issues/42"
+        assert card._click_map[5].url == "https://github.com/org/r0/pull/99"
+
+        # Simulate a middle-click on the counts row, on each half.
+        posted: list = []
+        card.post_message = posted.append  # type: ignore[assignment]
+
+        class _Click:
+            def __init__(self, x, y):
+                self.button = 2
+                self.meta = False
+                self.chain = 1
+                self.x = x
+                self.y = y
+
+            def stop(self):
+                pass
+
+            def prevent_default(self):
+                pass
+
+        card.on_click(_Click(x=counts.x_split - 1, y=3))
+        card.on_click(_Click(x=counts.x_split + 2, y=3))
+        card.on_click(_Click(x=5, y=4))
+        urls = [m.url for m in posted if type(m).__name__ == "OpenUrl"]
+        assert urls == [
+            "https://github.com/org/r0/issues",
+            "https://github.com/org/r0/pulls",
+            "https://github.com/org/r0/issues/42",
+        ]
+
     def test_run_dashboard_invokes_app_run(self):
         from augint_tools.dashboard import app as _app_mod
 
@@ -1194,7 +1273,7 @@ class TestAppMisc:
         asyncio.run(run())
 
     @tui
-    def test_pulls_requested_opens_browser(self):
+    def test_open_url_pulls_page(self):
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
             async with app.run_test() as pilot:
@@ -1204,7 +1283,7 @@ class TestAppMisc:
                 )
 
                 with patch("augint_tools.dashboard.app.webbrowser.open_new_tab") as m:
-                    app.on_repo_card_pulls_requested(RepoCard.PullsRequested("org/r0"))
+                    app.on_repo_card_open_url(RepoCard.OpenUrl("https://github.com/org/r0/pulls"))
                     assert m.called
                     assert "pulls" in m.call_args.args[0]
 

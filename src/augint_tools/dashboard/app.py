@@ -1943,11 +1943,8 @@ class DashboardApp(App[None]):
         if health is not None:
             self.push_screen(DrillDownScreen(health))
 
-    def on_repo_card_actions_requested(self, message: RepoCard.ActionsRequested) -> None:
-        webbrowser.open_new_tab(f"https://github.com/{message.full_name}/actions")
-
-    def on_repo_card_pulls_requested(self, message: RepoCard.PullsRequested) -> None:
-        webbrowser.open_new_tab(f"https://github.com/{message.full_name}/pulls")
+    def on_repo_card_open_url(self, message: RepoCard.OpenUrl) -> None:
+        webbrowser.open_new_tab(message.url)
 
     def on_repo_card_go_back(self, _message: RepoCard.GoBack) -> None:
         if self._main is not None:

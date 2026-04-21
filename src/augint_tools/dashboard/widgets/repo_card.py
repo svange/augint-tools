@@ -8,6 +8,7 @@ state directly; it is fed from the parent container. CSS transitions on
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -23,6 +24,20 @@ if TYPE_CHECKING:
     from ..themes import ThemeSpec
 
 RenderMode = Literal["packed", "dense", "list"]
+
+
+@dataclass(frozen=True)
+class _ClickRegion:
+    """Where a middle-click on a given card row should navigate.
+
+    ``x_split`` / ``alt_url`` let a single row route two different URLs
+    based on click x -- used for the counts line so "issues N" opens
+    /issues and "prs N" opens /pulls.
+    """
+
+    url: str
+    x_split: int | None = None
+    alt_url: str | None = None
 
 
 _STATUS_ICON = {
@@ -79,19 +94,17 @@ class RepoCard(Widget):
             super().__init__()
             self.full_name = full_name
 
-    class ActionsRequested(Message):
-        """Emitted on middle-click or meta+click to open the repo's Actions tab."""
+    class OpenUrl(Message):
+        """Emitted on middle-click / meta+click to open a GitHub URL in a new tab.
 
-        def __init__(self, full_name: str) -> None:
+        The URL is resolved per-row via the card's click map so that each
+        piece of info (title, CI, counts, each finding) routes to the most
+        actionable GitHub page for it.
+        """
+
+        def __init__(self, url: str) -> None:
             super().__init__()
-            self.full_name = full_name
-
-    class PullsRequested(Message):
-        """Emitted on meta+click on the counts row to open the PRs page."""
-
-        def __init__(self, full_name: str) -> None:
-            super().__init__()
-            self.full_name = full_name
+            self.url = url
 
     class GoBack(Message):
         """Emitted on right-click -- app closes drawer or pops the top screen."""
@@ -118,6 +131,8 @@ class RepoCard(Widget):
         self.team_accent = team_accent
         self.team_label = team_label
         self.can_focus = True
+        # Rebuilt on every render: y-coordinate inside the card -> click target.
+        self._click_map: dict[int, _ClickRegion] = {}
 
     @property
     def repo_full_name(self) -> str:
@@ -271,9 +286,11 @@ class RepoCard(Widget):
             line.append(f" ({status.draft_prs}d)", style="dim")
         return line
 
-    def _findings_lines(self, health: RepoHealth, limit: int) -> list[Text]:
+    def _findings_lines(self, health: RepoHealth, limit: int) -> list[tuple[Text, str]]:
+        """Return up to ``limit`` finding rows paired with their click-target URLs."""
         spec = self._theme_spec
-        lines: list[Text] = []
+        actions_url = self._actions_url(health)
+        lines: list[tuple[Text, str]] = []
         for error_label, error in (
             ("dev", health.status.dev_error),
             ("main", health.status.main_error),
@@ -282,7 +299,7 @@ class RepoCard(Widget):
                 t = Text()
                 t.append(f"{error_label}: ", style="bold")
                 t.append(_truncate(error, 30), style=spec.severity_colors[Severity.CRITICAL])
-                lines.append(t)
+                lines.append((t, actions_url))
                 if len(lines) >= limit:
                     return lines
         for finding in health.findings:
@@ -292,34 +309,70 @@ class RepoCard(Widget):
             t.append(
                 _truncate(finding.summary, 40), style=self._severity_style(finding.severity, spec)
             )
-            lines.append(t)
+            lines.append((t, finding.link or self._repo_url(health)))
             if len(lines) >= limit:
                 return lines
         if not lines:
-            lines.append(Text("all checks green", style=spec.severity_colors[Severity.OK]))
+            lines.append(
+                (
+                    Text("all checks green", style=spec.severity_colors[Severity.OK]),
+                    self._repo_url(health),
+                )
+            )
         return lines
 
     def _render_packed(self, health: RepoHealth) -> Text:
-        parts: list[Text] = [
-            self._title_line(health),
-            self._ci_line(health),
-            self._counts_line(health),
-        ]
-        parts.extend(self._findings_lines(health, 2))
+        self._click_map = {}
+        parts: list[Text] = []
+
+        parts.append(self._title_line(health))
+        self._click_map[len(parts)] = _ClickRegion(url=self._repo_url(health))
+
+        parts.append(self._ci_line(health))
+        self._click_map[len(parts)] = _ClickRegion(url=self._actions_url(health))
+
+        parts.append(self._counts_line(health))
+        self._click_map[len(parts)] = self._counts_click_region(health)
+
+        for line, url in self._findings_lines(health, 2):
+            parts.append(line)
+            self._click_map[len(parts)] = _ClickRegion(url=url)
+
         return self._finalize(parts)
 
     def _render_dense(self, health: RepoHealth) -> Text:
-        parts: list[Text] = [self._title_line(health), self._ci_line(health)]
-        parts.extend(self._findings_lines(health, 1))
+        self._click_map = {}
+        parts: list[Text] = []
+
+        parts.append(self._title_line(health))
+        self._click_map[len(parts)] = _ClickRegion(url=self._repo_url(health))
+
+        parts.append(self._ci_line(health))
+        self._click_map[len(parts)] = _ClickRegion(url=self._actions_url(health))
+
+        for line, url in self._findings_lines(health, 1):
+            parts.append(line)
+            self._click_map[len(parts)] = _ClickRegion(url=url)
+
         return self._finalize(parts)
 
     def _render_list(self, health: RepoHealth) -> Text:
-        parts: list[Text] = [
-            self._title_line(health),
-            self._ci_line(health),
-            self._counts_line(health),
-        ]
-        parts.extend(self._findings_lines(health, 4))
+        self._click_map = {}
+        parts: list[Text] = []
+
+        parts.append(self._title_line(health))
+        self._click_map[len(parts)] = _ClickRegion(url=self._repo_url(health))
+
+        parts.append(self._ci_line(health))
+        self._click_map[len(parts)] = _ClickRegion(url=self._actions_url(health))
+
+        parts.append(self._counts_line(health))
+        self._click_map[len(parts)] = self._counts_click_region(health)
+
+        for line, url in self._findings_lines(health, 4):
+            parts.append(line)
+            self._click_map[len(parts)] = _ClickRegion(url=url)
+
         return self._finalize(parts)
 
     def _finalize(self, parts: list[Text]) -> Text:
@@ -333,6 +386,32 @@ class RepoCard(Widget):
         joined.no_wrap = True
         joined.overflow = "ellipsis"
         return joined
+
+    # ---- URL + click-region helpers ----
+
+    def _repo_url(self, health: RepoHealth) -> str:
+        return f"https://github.com/{health.status.full_name}"
+
+    def _actions_url(self, health: RepoHealth) -> str:
+        return f"https://github.com/{health.status.full_name}/actions"
+
+    def _content_start_x(self) -> int:
+        """X coordinate of the first content cell inside the card.
+
+        Widget coords include the border (1 cell) and horizontal padding
+        (0 in dense mode, 1 otherwise) -- see the theme ``.tcss`` files.
+        """
+        return 1 if self.render_mode == "dense" else 2
+
+    def _counts_click_region(self, health: RepoHealth) -> _ClickRegion:
+        status = health.status
+        full_name = status.full_name
+        issues_url = f"https://github.com/{full_name}/issues"
+        pulls_url = f"https://github.com/{full_name}/pulls"
+        left_len = len(f"issues {status.open_issues}")
+        # The line is "issues N  prs M..." -- split between the two spaces.
+        split = self._content_start_x() + left_len + 1
+        return _ClickRegion(url=issues_url, x_split=split, alt_url=pulls_url)
 
     def _severity_style(self, severity: Severity, spec: ThemeSpec) -> str:
         return spec.severity_colors.get(severity, spec.severity_colors[Severity.OK])
@@ -353,10 +432,8 @@ class RepoCard(Widget):
             self.post_message(self.GoBack())
             return
         if event.button == 2 or (event.button == 1 and getattr(event, "meta", False)):
-            if getattr(event, "y", 0) == 3:
-                self.post_message(self.PullsRequested(self.repo_full_name))
-            else:
-                self.post_message(self.ActionsRequested(self.repo_full_name))
+            url = self._resolve_click_url(event)
+            self.post_message(self.OpenUrl(url))
             return
         if event.button == 1:
             # Single click only selects -- a plain click must never
@@ -367,3 +444,18 @@ class RepoCard(Widget):
             self.post_message(self.Selected(self.repo_full_name))
             if getattr(event, "chain", 1) >= 2:
                 self.post_message(self.DrilldownRequested(self.repo_full_name))
+
+    def _resolve_click_url(self, event: events.Click) -> str:
+        """Map the click's (x, y) to a GitHub URL using the current click map.
+
+        Falls back to the repo's /actions page for clicks on the border or
+        any row not present in the map (e.g. before the first render).
+        """
+        y = getattr(event, "y", 0)
+        x = getattr(event, "x", 0)
+        region = self._click_map.get(y)
+        if region is None:
+            return f"https://github.com/{self.repo_full_name}/actions"
+        if region.x_split is not None and region.alt_url is not None and x >= region.x_split:
+            return region.alt_url
+        return region.url

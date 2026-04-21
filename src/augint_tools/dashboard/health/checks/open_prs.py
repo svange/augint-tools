@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
     from ..._data import RepoStatus
+    from .. import FetchContext
 
 
 class OpenPRsCheck:
@@ -23,7 +24,7 @@ class OpenPRsCheck:
         status: RepoStatus,
         *,
         config: dict,
-        pulls: list | None = None,
+        context: FetchContext,
     ) -> HealthCheckResult:
         threshold = config.get("open_prs_threshold", 1)
 
@@ -31,11 +32,10 @@ class OpenPRsCheck:
 
         if non_draft >= threshold:
             link = f"https://github.com/{status.full_name}/pulls"
-            if pulls:
-                non_draft_prs = [p for p in pulls if not getattr(p, "draft", False)]
-                if non_draft_prs:
-                    oldest = min(non_draft_prs, key=lambda p: p.created_at)
-                    link = oldest.html_url
+            non_draft_prs = [p for p in context.pulls if not p.is_draft]
+            if non_draft_prs:
+                oldest = min(non_draft_prs, key=lambda p: p.created_at)
+                link = oldest.url or link
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.MEDIUM,

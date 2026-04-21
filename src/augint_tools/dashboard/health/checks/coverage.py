@@ -14,11 +14,11 @@ For Node repos using ``vitest``/``jest --coverage`` the threshold lives in
 is intentionally workflow-only and reports OK on seeing the coverage flag --
 config-level parsing is out of scope.
 
-When the workflow can't be fetched or the ``unit-tests`` job / coverage step
-is missing, the check returns MEDIUM severity with a summary prefixed
-``unverified:`` so it is visibly distinguishable from a verified regression.
-MEDIUM matches the precedent set by ``broken_ci`` for governance gaps and
-avoids silently signalling OK for a repo we never actually validated.
+Workflow text comes from the batched GraphQL snapshot via
+``FetchContext.pipeline_text`` -- no per-repo REST call. When the workflow
+can't be fetched or the ``unit-tests`` job / coverage step is missing, the
+check returns MEDIUM with a summary prefixed ``unverified:`` so it is
+visibly distinguishable from a verified regression.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ import re
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from github.GithubException import GithubException
 
 from .._models import HealthCheckResult, Severity
 from .._registry import register
@@ -36,17 +35,10 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
     from ..._data import RepoStatus
+    from .. import FetchContext
 
 # Canonical Python coverage threshold enforced by ai-standardize-pipeline.
 _STANDARD_THRESHOLD = 80
-
-# Workflow file candidates, in preference order. The canonical name is
-# ``pipeline.yaml`` (see the ai-standardize templates); ``pipeline.yml`` is a
-# tolerated fallback for older repos that haven't been standardized yet.
-_WORKFLOW_PATHS = (
-    ".github/workflows/pipeline.yaml",
-    ".github/workflows/pipeline.yml",
-)
 
 # Regex for extracting ``--cov-fail-under=N`` or ``--cov-fail-under N``.
 _FAIL_UNDER_RE = re.compile(r"--cov-fail-under[=\s]+(\d+)")
@@ -64,30 +56,25 @@ class CoverageCheck:
 
     def evaluate(
         self,
-        repo: Repository,
+        repo: Repository,  # noqa: ARG002
         status: RepoStatus,
         *,
-        config: dict,
-        pulls: list | None = None,
+        config: dict,  # noqa: ARG002
+        context: FetchContext,
     ) -> HealthCheckResult:
-        try:
-            default_branch = repo.default_branch
-        except Exception:
-            default_branch = "main"
+        default_branch = status.default_branch or "main"
+        used_path = context.pipeline_path
+        raw = context.pipeline_text
 
-        workflow_link = (
-            f"https://github.com/{status.full_name}/blob/{default_branch}"
-            "/.github/workflows/pipeline.yaml"
-        )
-
-        raw, used_path = self._fetch_workflow(repo, default_branch)
-        if raw is None:
+        if raw is None or used_path is None:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.MEDIUM,
                 summary="unverified: no pipeline.yaml",
                 link=f"https://github.com/{status.full_name}",
             )
+
+        workflow_link = f"https://github.com/{status.full_name}/blob/{default_branch}/{used_path}"
 
         try:
             workflow = yaml.safe_load(raw)
@@ -106,10 +93,6 @@ class CoverageCheck:
                 summary="unverified: pipeline.yaml not a mapping",
                 link=workflow_link,
             )
-
-        # Rebuild the link using the workflow path we actually found so clicks
-        # land on the right file (pipeline.yaml vs pipeline.yml).
-        workflow_link = f"https://github.com/{status.full_name}/blob/{default_branch}/{used_path}"
 
         jobs = workflow.get("jobs")
         if not isinstance(jobs, dict):
@@ -139,33 +122,6 @@ class CoverageCheck:
             )
 
         return self._evaluate_steps(steps, workflow_link)
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
-
-    def _fetch_workflow(
-        self, repo: Repository, default_branch: str
-    ) -> tuple[str | None, str | None]:
-        """Fetch the first existing workflow file. Returns (text, path) or (None, None)."""
-        for path in _WORKFLOW_PATHS:
-            try:
-                content_file = repo.get_contents(path, ref=default_branch)
-            except GithubException:
-                continue
-            except Exception:
-                # Any other failure (network, auth) is treated like "not found"
-                # so the refresh loop stays alive; the caller returns UNVERIFIED.
-                continue
-            if isinstance(content_file, list):
-                # Directory listing -- skip; shouldn't happen for a file path.
-                continue
-            try:
-                raw = content_file.decoded_content.decode("utf-8")
-            except Exception:
-                continue
-            return raw, path
-        return None, None
 
     def _evaluate_steps(self, steps: list[Any], workflow_link: str) -> HealthCheckResult:
         """Walk unit-tests steps and classify the coverage posture."""
@@ -244,8 +200,8 @@ class CoverageCheck:
             )
 
         if has_python_cov_flag:
-            # Coverage is collected but no fail-under gate -- the CI will not
-            # fail on regressions. Treat as a lowered gate (equivalent to 0%).
+            # Coverage collected but no fail-under gate -- CI won't fail on
+            # regressions. Treat as a lowered gate (equivalent to 0%).
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.LOW,

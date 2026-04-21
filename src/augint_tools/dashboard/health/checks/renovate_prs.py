@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
     from ..._data import RepoStatus
+    from .. import FetchContext
 
 _RENOVATE_LOGINS = {"renovate[bot]", "renovate-bot"}
 
@@ -21,26 +22,24 @@ class RenovatePRsPilingCheck:
 
     def evaluate(
         self,
-        repo: Repository,
+        repo: Repository,  # noqa: ARG002
         status: RepoStatus,
         *,
         config: dict,
-        pulls: list | None = None,
+        context: FetchContext,
     ) -> HealthCheckResult:
         threshold = config.get("renovate_pr_threshold", 2)
 
-        if pulls is None:
-            pulls = list(repo.get_pulls(state="open"))
-
-        renovate_prs = [p for p in pulls if p.user and p.user.login in _RENOVATE_LOGINS]
+        renovate_prs = [p for p in context.pulls if p.author_login in _RENOVATE_LOGINS]
 
         if len(renovate_prs) >= threshold:
             oldest = min(renovate_prs, key=lambda p: p.created_at)
+            link = oldest.url or f"https://github.com/{status.full_name}/pulls"
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.HIGH,
                 summary=f"({len(renovate_prs)}) Renovate PRs piling up",
-                link=oldest.html_url,
+                link=link,
             )
 
         return HealthCheckResult(

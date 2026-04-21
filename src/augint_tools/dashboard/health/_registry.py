@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
     from .._data import RepoStatus
+    from . import FetchContext
     from ._models import HealthCheckResult
 
 
@@ -24,15 +25,21 @@ class HealthCheck(Protocol):
         status: RepoStatus,
         *,
         config: dict,
-        pulls: list | None = None,
+        context: FetchContext,
     ) -> HealthCheckResult:
         """Run the check and return a result.
 
         Args:
-            repo: PyGithub Repository object for API calls.
-            status: Already-fetched RepoStatus (avoids re-fetching CI data).
+            repo: PyGithub Repository object. Retained for the narrow set of
+                checks that still need a live reference (none do after the
+                GraphQL migration, but the signature stays stable so future
+                checks that genuinely need REST access can use it).
+            status: Already-fetched RepoStatus.
             config: User-configurable thresholds.
-            pulls: Pre-fetched open PRs list (shared across checks to save API calls).
+            context: FetchContext with pre-fetched data (pulls, issues,
+                renovate config text, pipeline workflow text). Populated by
+                the workspace GraphQL query. Checks must never make their
+                own per-repo REST call.
         """
         ...
 

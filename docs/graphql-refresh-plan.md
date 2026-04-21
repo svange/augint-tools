@@ -118,9 +118,29 @@ One batched GraphQL query per refresh fetches almost everything for every repo a
 
 1. Commit this plan (done).
 2. **User review gate.** Do not proceed until the user approves scope.
-3. Land `_gql.py` + tests behind a `--use-graphql` flag (default off), to let user flip it on.
-4. Flip default to GraphQL; lower refresh to 60s; keep `--use-rest` escape hatch.
-5. After one week of stability, remove the escape hatch and delete the old path.
+3. Land `_gql.py` + rewrite `_data.py` + delete the obsolete REST code paths in a single
+   worktree. No `--use-graphql` flag, no `--use-rest` escape hatch -- user has explicitly
+   asked for the old code to be refactored out rather than parked behind a flag.
+4. Flip refresh default to 60s (or 30s -- pending user answer).
+
+## Obsolete code to delete in the same commit set
+
+- The per-repo `ThreadPoolExecutor` loop in `app.py:_do_refresh_inner` (replaced by one
+  batched GraphQL call). A tiny pool stays only for failing-run detail fetch.
+- `_data.py:has_dev_branch` (REST) -- replaced by GraphQL `ref(qualifiedName:
+  "refs/heads/dev")`.
+- `_data.py:detect_repo_metadata` (REST `get_contents("")`) -- replaced by GraphQL
+  `object(expression: "HEAD:") { entries }`.
+- `_data.py:get_run_status` (REST `get_workflow_runs`) for the non-failing branches --
+  replaced by GraphQL `statusCheckRollup.state`. Kept for failing runs' jobs/steps
+  detail (only path that REST covers uniquely).
+- `_data.py:_fetch_human_issue_summary` -- replaced by issue nodes in the GraphQL query.
+- `health/checks/open_issues.py` duplicated `repo.get_issues()` call -- already available
+  in `RepoStatus.human_open_issues`.
+- `health/checks/renovate.py` REST probing of up to 6 config paths -- replaced by
+  GraphQL `object(expression: "HEAD:<path>")` for each path in the same batched query.
+- `_helpers.py:warn_rate_limit` arithmetic (assumes 7 calls/repo) -- rework around
+  GraphQL points, or drop entirely if `rateLimit` is surfaced in the TUI.
 
 ## Estimated effort
 
@@ -132,4 +152,6 @@ One batched GraphQL query per refresh fetches almost everything for every repo a
 
 1. OK to add `httpx` as an optional dep if PyGithub's GraphQL path is awkward? (Likely not needed, but checking.)
 2. Comfortable with 60s default refresh, or want 30s? (Budget supports either easily after this change.)
-3. Remove `--use-rest` escape hatch after 1 week, or keep as permanent opt-out?
+3. ~~Remove `--use-rest` escape hatch after 1 week, or keep as permanent opt-out?~~
+   **Resolved:** User asked for the old REST code to be refactored out entirely, not
+   parked behind a flag. No escape hatch; obsolete paths deleted in the same commit set.

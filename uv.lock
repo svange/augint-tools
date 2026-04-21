@@ -29,7 +29,7 @@ wheels = [
 
 [[package]]
 name = "augint-shell"
-version = "0.89.0"
+version = "0.89.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -38,9 +38,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/70/e3/7255dfce90d5e70e1249b68740657dcf28a30297a800ca9114c5952ccf04/augint_shell-0.89.0.tar.gz", hash = "sha256:0d889b3566ebf5078f3e345b61efe39f4f0cd61bc772a4a706009f98bfaf6a15", size = 71517, upload-time = "2026-04-20T01:09:25.786Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/1e/39f24cafe39e35aa614e8220d624029d473c94bf8d499fe8b54cd03ddaf9/augint_shell-0.89.1.tar.gz", hash = "sha256:574ea67d908da37e03a386afd54c014e2268779e8f3736a44741b031ff36f73b", size = 71506, upload-time = "2026-04-21T06:26:25.275Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/34/38/8db41233cfd2b3b8e366a6f0171a55f2e009cccc2271f34a1673b4080b07/augint_shell-0.89.0-py3-none-any.whl", hash = "sha256:76b607e17ed1a07bf156b82f5b14c8499ee6ae1dd9dc7f4b6720335460092733", size = 84443, upload-time = "2026-04-20T01:09:24.231Z" },
+    { url = "https://files.pythonhosted.org/packages/93/b7/b4a88cdf6df59233122480f9b043ef5415eebd392b0f94199d9983bdfc48/augint_shell-0.89.1-py3-none-any.whl", hash = "sha256:e1408b2c0e796ea448312378b01448bb86a6fe88a2847936305e1a912d63e1f3", size = 84442, upload-time = "2026-04-21T06:26:23.938Z" },
 ]
 
 [[package]]

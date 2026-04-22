@@ -58,7 +58,7 @@ from .state import (
     visible_healths,
 )
 from .sysmeter import probe_gpu, probe_ram
-from .sysprobe import probe_system
+from .sysprobe import probe_dns, probe_ping, probe_system
 from .themes import get_theme, list_themes
 from .widgets.aws_drawer import AwsDrawer
 from .widgets.card_container import CardContainer
@@ -67,6 +67,7 @@ from .widgets.drawer import Drawer
 from .widgets.effect_sprite import SPRITE_WIDTH, EffectKind, EffectSprite
 from .widgets.error_drawer import ErrorDrawer
 from .widgets.highlight_bar import HighlightBar
+from .widgets.network_drawer import NetworkDrawer
 from .widgets.repo_card import RepoCard
 from .widgets.status_bar import StatusBar, format_header_refresh_line
 from .widgets.system_drawer import SystemDrawer
@@ -215,6 +216,7 @@ class MainScreen(Screen[None]):
         self._top_drawer = TopDrawer()
         self._error_drawer = ErrorDrawer()
         self._system_drawer = SystemDrawer()
+        self._network_drawer = NetworkDrawer()
         self._aws_drawer = AwsDrawer()
         self._cards_by_name: dict[str, RepoCard] = {}
         # Active effect sprites keyed by repo full_name. Persistent until
@@ -233,6 +235,7 @@ class MainScreen(Screen[None]):
         yield self._aws_drawer
         yield self._drawer
         yield self._system_drawer
+        yield self._network_drawer
         yield self._error_drawer
         yield DashboardFooter()
 
@@ -479,8 +482,12 @@ class MainScreen(Screen[None]):
         )
 
     def cycle_right_drawer(self) -> None:
-        """Cycle: closed -> repo detail -> system info -> closed."""
-        if not self._drawer.is_open and not self._system_drawer.is_open:
+        """Cycle: closed -> repo detail -> system -> network -> closed."""
+        if (
+            not self._drawer.is_open
+            and not self._system_drawer.is_open
+            and not self._network_drawer.is_open
+        ):
             # Closed -> open repo detail
             health = selected_health(self._state)
             if health is not None:
@@ -493,8 +500,14 @@ class MainScreen(Screen[None]):
             self._system_drawer.refresh_content(self._state)
             self._system_drawer.open()
             return
-        # System open -> close
-        self._system_drawer.close()
+        if self._system_drawer.is_open:
+            # System open -> close system, open network
+            self._system_drawer.close()
+            self._network_drawer.refresh_content(self._state)
+            self._network_drawer.open()
+            return
+        # Network open -> close
+        self._network_drawer.close()
 
     def cycle_left_drawer(self) -> None:
         """Toggle the AWS drawer open/closed."""
@@ -513,10 +526,11 @@ class MainScreen(Screen[None]):
         if self._system_drawer.is_open:
             self._system_drawer.close()
             return
-        # Close the detail drawer if it happens to be open; the two share
-        # the right side and can't both be visible.
+        # Close competing right-side drawers.
         if self._drawer.is_open:
             self._drawer.close()
+        if self._network_drawer.is_open:
+            self._network_drawer.close()
         self._system_drawer.refresh_content(self._state)
         self._system_drawer.open()
 
@@ -524,6 +538,24 @@ class MainScreen(Screen[None]):
         """Update the system drawer content if it is open."""
         if self._system_drawer.is_open:
             self._system_drawer.refresh_content(self._state)
+
+    def toggle_network_drawer(self) -> None:
+        """Direct open/close for the network/DNS drawer (``n`` key)."""
+        if self._network_drawer.is_open:
+            self._network_drawer.close()
+            return
+        # Close competing right-side drawers.
+        if self._drawer.is_open:
+            self._drawer.close()
+        if self._system_drawer.is_open:
+            self._system_drawer.close()
+        self._network_drawer.refresh_content(self._state)
+        self._network_drawer.open()
+
+    def refresh_network_drawer(self) -> None:
+        """Update the network drawer content if it is open."""
+        if self._network_drawer.is_open:
+            self._network_drawer.refresh_content(self._state)
 
     def refresh_aws_drawer(self) -> None:
         """Update the AWS drawer content if it is open."""
@@ -1274,6 +1306,7 @@ class DashboardApp(App[None]):
         Binding("a", "cycle_left_drawer", "AWS"),
         Binding("w", "cycle_top_drawer", "Org"),
         Binding("s", "toggle_system_drawer", "System"),
+        Binding("n", "toggle_network_drawer", "DNS"),
         Binding("d", "cycle_right_drawer", "Drawer"),
         # Displaced from lowercase `w` when the org drawer claimed it; keep
         # a hidden alias so the workspace-hide toggle doesn't disappear.
@@ -1455,6 +1488,19 @@ class DashboardApp(App[None]):
         # system drawer is open. No initial probe at mount -- it fires on
         # first drawer open and then periodically while open.
         self.set_interval(5.0, self._tick_system_probe)
+
+        # Lightweight ping to 1.1.1.1 every 3s -- always runs so the
+        # status bar connectivity chip stays live.
+        if not self._skip_refresh:
+            self._refresh_ping()
+        self.set_interval(3.0, self._tick_ping)
+
+        # DNS resolution check for deployment URLs every 30s. Runs
+        # unconditionally so the status bar can show DNS failure counts
+        # even when the network drawer is closed.
+        if not self._skip_refresh:
+            self._refresh_dns()
+        self.set_interval(30.0, self._tick_dns)
 
         # AWS probe: refresh every 30s while the AWS drawer is open.
         # No initial probe at mount -- fires on first drawer open.
@@ -1954,6 +2000,66 @@ class DashboardApp(App[None]):
             return
         self._refresh_system_probe()
 
+    # ---- ping worker ----
+
+    def _refresh_ping(self) -> None:
+        """Kick a background ping probe (TCP to 1.1.1.1)."""
+        self.run_worker(self._refresh_ping_sync, thread=True, exit_on_error=False)
+
+    def _refresh_ping_sync(self) -> None:
+        try:
+            result = probe_ping()
+        except Exception as exc:
+            self.state.log_error("ping", f"{exc.__class__.__name__}: {exc}")
+            return
+        self.state.ping_result = result
+        self.call_from_thread(self._update_ping_display)
+
+    def _update_ping_display(self) -> None:
+        """Push the new ping result to the status bar and network drawer."""
+        if self._main is not None:
+            self._main._status_bar.tick()
+            self._main.refresh_network_drawer()
+
+    def _tick_ping(self) -> None:
+        """Periodic ping -- always runs for the status bar indicator."""
+        if self._main is None:
+            return
+        self._refresh_ping()
+
+    # ---- DNS probe worker ----
+
+    def _refresh_dns(self) -> None:
+        """Kick a background DNS resolution check for deployment URLs."""
+        self.run_worker(self._refresh_dns_sync, thread=True, exit_on_error=False)
+
+    def _refresh_dns_sync(self) -> None:
+        try:
+            from .deployments import load_deployments
+
+            links_by_repo = load_deployments()
+            urls_by_repo: dict[str, list[str]] = {}
+            for repo, links in links_by_repo.items():
+                urls_by_repo[repo] = [link.url for link in links]
+            results = probe_dns(urls_by_repo)
+        except Exception as exc:
+            self.state.log_error("dns", f"{exc.__class__.__name__}: {exc}")
+            return
+        self.state.dns_results = results
+        self.call_from_thread(self._update_dns_display)
+
+    def _update_dns_display(self) -> None:
+        """Push DNS results to the status bar and network drawer."""
+        if self._main is not None:
+            self._main._status_bar.tick()
+            self._main.refresh_network_drawer()
+
+    def _tick_dns(self) -> None:
+        """Periodic DNS check -- always runs for the status bar indicator."""
+        if self._main is None:
+            return
+        self._refresh_dns()
+
     # ---- AWS probe worker ----
 
     def _refresh_aws_probe(self) -> None:
@@ -2127,9 +2233,12 @@ class DashboardApp(App[None]):
         if self._main is None:
             return
         self._main.cycle_right_drawer()
-        # Trigger system probe refresh when opening system drawer
+        # Trigger probe refresh for whichever right drawer opened
         if self._main._system_drawer.is_open:
             self._refresh_system_probe()
+        if self._main._network_drawer.is_open:
+            self._refresh_ping()
+            self._refresh_dns()
 
     def action_cycle_left_drawer(self) -> None:
         if self._main is None:
@@ -2150,6 +2259,15 @@ class DashboardApp(App[None]):
         self._main.toggle_system_drawer()
         if self._main._system_drawer.is_open:
             self._refresh_system_probe()
+
+    def action_toggle_network_drawer(self) -> None:
+        """``n`` key: open/close the network/DNS drawer."""
+        if self._main is None:
+            return
+        self._main.toggle_network_drawer()
+        if self._main._network_drawer.is_open:
+            self._refresh_ping()
+            self._refresh_dns()
 
     def action_widen_card(self) -> None:
         self._resize_card(+PANEL_WIDTH_STEP)
@@ -2384,6 +2502,7 @@ class DashboardApp(App[None]):
                 self._main._top_drawer,
                 self._main._drawer,
                 self._main._system_drawer,
+                self._main._network_drawer,
                 self._main._error_drawer,
                 self._main._aws_drawer,
             ):

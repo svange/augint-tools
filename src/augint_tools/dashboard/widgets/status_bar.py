@@ -214,6 +214,11 @@ class StatusBar(Static):
             t.append(f"| {error_chip} ", style="bold red")
         if state.hide_workspace:
             t.append("| ws:hidden ", style="bold magenta")
+        ping_chip = self._ping_chip(state)
+        if ping_chip:
+            t.append("| ")
+            t.append(ping_chip[0], style=ping_chip[1])
+            t.append(" ")
         filter_label = _describe_active_filters(state.active_filters, state.team_labels)
         t.append(
             f"| sort: {state.sort_mode} "
@@ -262,6 +267,33 @@ class StatusBar(Static):
                 return (f"next: {m}m{s:02d}s", "cyan")
             return (f"next: {remaining}s", "cyan")
         return None
+
+    def _ping_chip(self, state: AppState) -> tuple[str, str] | None:
+        """Return ("ping Xms" | "OFFLINE", style) for the connectivity indicator."""
+        ping = state.ping_result
+        if ping is None:
+            return None
+        if not ping.connected:
+            dns_fail = sum(1 for d in state.dns_results if not d.resolved)
+            label = "OFFLINE"
+            if dns_fail:
+                label += f" ({dns_fail} DNS)"
+            return (label, "bold red")
+        latency = ping.latency_ms
+        if latency is None:
+            return ("ping: --", "dim")
+        if latency < 50:
+            style = "green"
+        elif latency < 150:
+            style = "yellow"
+        else:
+            style = "red"
+        dns_fail = sum(1 for d in state.dns_results if not d.resolved)
+        label = f"ping: {latency:.0f}ms"
+        if dns_fail:
+            label += f" ({dns_fail} DNS!)"
+            style = "bold red"
+        return (label, style)
 
     def _error_chip(self, state: AppState) -> str:
         count = len(state.errors)

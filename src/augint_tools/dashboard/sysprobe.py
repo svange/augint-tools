@@ -1,4 +1,4 @@
-"""Extended system probing: CPU, Docker containers, and network connectivity.
+"""Extended system probing: CPU, Docker containers, network, ping, and DNS.
 
 All probe functions are data-only (no UI), thread-safe, and handle missing
 tools gracefully. Each returns a frozen dataclass. Safe to call from Textual
@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 _PROC_STAT = Path("/proc/stat")
 
@@ -242,6 +243,121 @@ def probe_network() -> NetworkStats:
         http_latency_ms=http_latency,
         last_check_at=now,
     )
+
+
+# ---------------------------------------------------------------------------
+# Lightweight ping (independent of full network probe)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PingResult:
+    """Result of a single TCP ping to 1.1.1.1."""
+
+    connected: bool
+    latency_ms: float | None
+    timestamp: str
+
+
+def probe_ping() -> PingResult:
+    """Quick TCP connect to 1.1.1.1:443 to measure latency.
+
+    Much cheaper than the full ``probe_network`` -- no HTTP check, just a
+    single TCP handshake. Designed to run every few seconds for a
+    continuous connectivity indicator.
+    """
+    now = datetime.now(tz=UTC).isoformat()
+    latency = _tcp_ping("1.1.1.1", 443, timeout=3.0)
+    return PingResult(
+        connected=latency is not None,
+        latency_ms=latency,
+        timestamp=now,
+    )
+
+
+# ---------------------------------------------------------------------------
+# DNS resolution check for deployment URLs
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DnsCheckResult:
+    """DNS resolution result for a single hostname."""
+
+    hostname: str
+    resolved: bool
+    error: str | None = None
+    latency_ms: float | None = None
+    # Which repo(s) reference this hostname (for display context).
+    repos: tuple[str, ...] = ()
+
+
+def _resolve_hostname(hostname: str, timeout: float = 5.0) -> DnsCheckResult:
+    """Attempt DNS resolution for a single hostname."""
+    old_timeout = socket.getdefaulttimeout()
+    try:
+        socket.setdefaulttimeout(timeout)
+        start = time.perf_counter()
+        socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        elapsed = (time.perf_counter() - start) * 1000.0
+        return DnsCheckResult(
+            hostname=hostname,
+            resolved=True,
+            latency_ms=round(elapsed, 2),
+        )
+    except socket.gaierror as exc:
+        return DnsCheckResult(
+            hostname=hostname,
+            resolved=False,
+            error=str(exc),
+        )
+    except OSError as exc:
+        return DnsCheckResult(
+            hostname=hostname,
+            resolved=False,
+            error=str(exc),
+        )
+    finally:
+        socket.setdefaulttimeout(old_timeout)
+
+
+def probe_dns(urls_by_repo: dict[str, list[str]]) -> list[DnsCheckResult]:
+    """Resolve DNS for all unique hostnames across deployment URLs.
+
+    Args:
+        urls_by_repo: Mapping of ``owner/repo`` to list of URL strings.
+
+    Returns:
+        One ``DnsCheckResult`` per unique hostname, with ``repos`` listing
+        which repos reference it.
+    """
+    # Collect unique hostnames and which repos use them.
+    host_repos: dict[str, set[str]] = {}
+    for repo, urls in urls_by_repo.items():
+        for url in urls:
+            try:
+                parsed = urlparse(url)
+                host = parsed.hostname
+            except Exception:
+                continue
+            if host:
+                host_repos.setdefault(host, set()).add(repo)
+
+    results: list[DnsCheckResult] = []
+    for hostname in sorted(host_repos):
+        result = _resolve_hostname(hostname)
+        # Attach the repo list to the result.
+        repos = tuple(sorted(host_repos[hostname]))
+        results.append(
+            DnsCheckResult(
+                hostname=result.hostname,
+                resolved=result.resolved,
+                error=result.error,
+                latency_ms=result.latency_ms,
+                repos=repos,
+            )
+        )
+    return results
 
 
 # ---------------------------------------------------------------------------

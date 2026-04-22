@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from ._gql import TeamsSnapshot
     from .awsprobe import AwsState
     from .sysmeter import GpuStats, RamStats
-    from .sysprobe import SystemSnapshot
+    from .sysprobe import DnsCheckResult, PingResult, SystemSnapshot
 
 # Panel sizing -- mirrors v1 constraints (lesson #13).
 PANEL_WIDTH_DEFAULT = 38
@@ -93,6 +93,8 @@ class AppState:
     ram_stats: RamStats | None = None
     system_snapshot: SystemSnapshot | None = None
     aws_state: AwsState | None = None
+    ping_result: PingResult | None = None
+    dns_results: list[DnsCheckResult] = field(default_factory=list)
     docker_filter_augint_shell: bool = False
     errors: list[ErrorEntry] = field(default_factory=list)
 

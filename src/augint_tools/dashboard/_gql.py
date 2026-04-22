@@ -53,8 +53,9 @@ PACKAGE_JSON_PATHS: tuple[str, ...] = ("package.json",)
 PRECOMMIT_PATHS: tuple[str, ...] = (".pre-commit-config.yaml", ".pre-commit-config.yml")
 
 # Chunk size for repo batches per GraphQL query. GitHub's API has a per-query
-# complexity budget of 500k nodes. With blob fields, rulesets, PRs, and issues
-# the fragment costs ~466 nodes per repo; 25 repos stays well under the cap.
+# complexity budget of 500k nodes. With blob fields, PRs, and issues the
+# fragment costs ~126 nodes per repo; 25 repos stays well under the cap.
+# Rulesets are fetched via REST (separate rate-limit pool).
 _BATCH_SIZE = 25
 
 # How far back to walk the default-branch / dev-branch history looking for a
@@ -558,11 +559,9 @@ def _execute_query(gh: Github, query: str) -> dict:
     chunked reads, timeouts). GraphQL-level errors and PyGithub exceptions
     are not retried -- they surface to the caller immediately.
     """
-    # PyGithub's internal requester is the only path that reuses the existing
-    # token / session. We access it via the name-mangled private attribute;
-    # this is a well-worn pattern in projects that layer GraphQL on top of
-    # PyGithub, and it keeps us from pulling in another HTTP client.
-    requester = gh._Github__requester  # type: ignore[attr-defined]
+    # PyGithub's requester reuses the existing token / session, keeping us
+    # from pulling in another HTTP client.
+    requester = gh.requester
     last_exc: Exception | None = None
     for attempt in range(_RETRY_ATTEMPTS):
         try:

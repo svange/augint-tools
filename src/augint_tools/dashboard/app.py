@@ -1780,6 +1780,8 @@ class DashboardApp(App[None]):
         rulesets_by_repo: dict[str, list[dict]] = {}
         if self._github_client is not None and not self.state.cancel_requested:
             for status in status_by_name.values():
+                if self.state.cancel_requested:
+                    break
                 if status.full_name in failed_repos:
                     continue
                 rulesets_by_repo[status.full_name] = self._ruleset_fetcher.fetch(

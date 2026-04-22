@@ -26,6 +26,16 @@ class ServiceMissingDevBranchCheck:
         config: dict,  # noqa: ARG002
         context: FetchContext,  # noqa: ARG002
     ) -> HealthCheckResult:
+        # Org repos and workspace repos legitimately don't run a dev/main
+        # split; ``looks_like_service`` already excludes them at the marker
+        # level, but guard here too so a future signal change can't accidentally
+        # start firing CRITICAL on them.
+        if status.is_org or status.is_workspace:
+            return HealthCheckResult(
+                check_name=self.name,
+                severity=Severity.OK,
+                summary="not a service repo",
+            )
         if status.looks_like_service and not status.has_dev_branch:
             markers = ", ".join(status.service_markers) or "service markers detected"
             return HealthCheckResult(

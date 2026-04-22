@@ -1223,48 +1223,109 @@ class TestDetectTags:
 
 class TestDetectServiceMarkers:
     """Service-marker detection is independent of dev-branch existence so the
-    dashboard can flag service-shaped repos whose dev branch went missing."""
+    dashboard can flag service-shaped repos whose dev branch went missing.
+
+    Discriminators in priority order:
+      - ``-org`` repos are AWS Organization IaC, never services.
+      - workspace.yaml repos are meta-repos, never services.
+      - Python packages (pyproject.toml without package.json) frequently ship a
+        SAM template purely for ephemeral test environments / CI infra.
+      - Dockerfile alone is too noisy: many libraries ship a dev-container or
+        CI-runner Dockerfile without ever being deployed.
+    """
 
     def test_no_markers_returns_empty(self):
         from augint_tools.dashboard._data import _detect_service_markers
 
-        assert _detect_service_markers(()) == ()
-        assert _detect_service_markers(("README.md", "pyproject.toml", "src")) == ()
+        assert _detect_service_markers("repo", ()) == ()
+        assert _detect_service_markers("repo", ("README.md", "src")) == ()
 
-    def test_sam_service(self):
+    def test_web_service_with_sam(self):
         from augint_tools.dashboard._data import _detect_service_markers
 
-        markers = _detect_service_markers(("template.yaml", "samconfig.toml", "src"))
+        # package.json + SAM is the unambiguous "deployable web service" shape.
+        markers = _detect_service_markers(
+            "aillc-web", ("package.json", "template.yaml", "Dockerfile", "src")
+        )
         assert "template.yaml" in markers
-        assert "samconfig.toml" in markers
 
-    def test_dockerfile_alone_is_a_marker(self):
+    def test_dockerfile_alone_is_not_a_marker(self):
+        # Many Python libs ship a dev-container Dockerfile. Without a deploy
+        # signal alongside it, refuse to classify as a service.
         from augint_tools.dashboard._data import _detect_service_markers
 
-        assert _detect_service_markers(("Dockerfile",)) == ("Dockerfile",)
+        assert _detect_service_markers("somelib", ("Dockerfile",)) == ()
 
-    def test_cdk_marker(self):
+    def test_cdk_marker_in_node_app(self):
         from augint_tools.dashboard._data import _detect_service_markers
 
-        assert _detect_service_markers(("cdk.json",)) == ("cdk.json",)
+        assert _detect_service_markers("infra", ("cdk.json", "package.json")) == ("cdk.json",)
 
-    def test_serverless_marker(self):
+    def test_serverless_marker_in_node_app(self):
         from augint_tools.dashboard._data import _detect_service_markers
 
-        assert _detect_service_markers(("serverless.yml",)) == ("serverless.yml",)
+        assert _detect_service_markers("api", ("serverless.yml", "package.json")) == (
+            "serverless.yml",
+        )
 
-    def test_template_yml_variant(self):
+    def test_python_package_with_sam_for_testing_is_not_a_service(self):
+        # tagmania / ai-lls-lib pattern: a Python package that uses SAM only
+        # for ephemeral test environments. pyproject.toml without package.json
+        # outweighs the SAM signal.
         from augint_tools.dashboard._data import _detect_service_markers
 
-        assert _detect_service_markers(("template.yml",)) == ("template.yml",)
+        assert (
+            _detect_service_markers("tagmania", ("pyproject.toml", "template.yaml", "src", "tests"))
+            == ()
+        )
+        assert (
+            _detect_service_markers(
+                "ai-lls-lib", ("pyproject.toml", "template.yaml", "Dockerfile", "src")
+            )
+            == ()
+        )
 
-    def test_marker_detection_is_independent_of_dev_branch(self):
-        # Only the root_entries argument matters -- branch state is not consulted.
+    def test_python_with_package_json_is_a_service(self):
+        # pyproject.toml + package.json is rare but means there's a deployable
+        # frontend alongside Python infra automation -- treat as a service.
         from augint_tools.dashboard._data import _detect_service_markers
 
-        markers = _detect_service_markers(("Dockerfile", "template.yaml"))
-        assert "Dockerfile" in markers
+        markers = _detect_service_markers(
+            "fullstack", ("pyproject.toml", "package.json", "template.yaml")
+        )
         assert "template.yaml" in markers
+
+    def test_org_repo_is_never_a_service(self):
+        # augint-org pattern: AWS Organization IaC. The -org suffix flips it
+        # out of the service classification regardless of templates present.
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert (
+            _detect_service_markers(
+                "augint-org", ("template.yaml", "stacks", "stacksets", "pyproject.toml")
+            )
+            == ()
+        )
+
+    def test_workspace_repo_is_never_a_service(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers("ws", ("workspace.yaml", "template.yaml")) == ()
+
+
+class TestIsOrgRepo:
+    def test_org_suffix(self):
+        from augint_tools.dashboard._data import _is_org_repo
+
+        assert _is_org_repo("augint-org")
+        assert _is_org_repo("woxom-org")
+
+    def test_non_org(self):
+        from augint_tools.dashboard._data import _is_org_repo
+
+        assert not _is_org_repo("aillc-web")
+        assert not _is_org_repo("augint-tools")
+        assert not _is_org_repo("org-helper")  # only the suffix counts
 
 
 class TestBootstrapCache:

@@ -530,9 +530,7 @@ class TestFetchWorkspaceSnapshot:
 
         repos = [_mock_repo("org/a")]
         gh = MagicMock()
-        gh.requester.requestJsonAndCheck.side_effect = ChunkedEncodingError(
-            "Connection broken"
-        )
+        gh.requester.requestJsonAndCheck.side_effect = ChunkedEncodingError("Connection broken")
         result = fetch_workspace_snapshot(gh, repos)
         assert result.by_full_name == {}
         assert "org/a" in result.errored

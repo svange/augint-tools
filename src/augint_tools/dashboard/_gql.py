@@ -328,18 +328,24 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     main_head_sha = main_target.get("oid") if isinstance(main_target, dict) else None
 
     dev_ref = data.get("_dev")
-    # If the repo's default branch is already "dev" (e.g. aillc-web), the
-    # defaultBranchRef and the explicit refs/heads/dev lookup resolve to the
-    # same commit. Treating them as separate branches double-counts a single
-    # failing pipeline as both "main failing" and "dev failing" in broken_ci.
-    # In that layout there is no distinct dev branch to surface, so collapse
-    # it into the default-branch slot only.
-    if default_branch == "dev":
-        dev_ref = None
     has_dev_branch = dev_ref is not None
     dev_target = (dev_ref or {}).get("target") or {} if isinstance(dev_ref, dict) else {}
     dev_rollup_state = _resolve_rollup_state(dev_target)
     dev_head_sha = dev_target.get("oid") if isinstance(dev_target, dict) else None
+
+    # When ``dev`` is the default branch -- common on new projects that stage
+    # on dev before cutting main, and on repos like aillc-web -- the
+    # defaultBranchRef and the refs/heads/dev lookup alias the same commit.
+    # Route the rollup into the dev slot and mark main as ABSENT so the card
+    # renders "dev X  main N/A" (main styled informationally, not as a
+    # failure). Using a sentinel ABSENT state lets broken_ci / severity
+    # aggregation ignore it -- it's neither "failure" nor "unknown".
+    if default_branch == "dev":
+        dev_rollup_state = main_rollup_state
+        dev_head_sha = main_head_sha
+        main_rollup_state = "ABSENT"
+        main_head_sha = None
+        has_dev_branch = True
 
     root_tree = data.get("_rootTree")
     if isinstance(root_tree, dict):
@@ -603,6 +609,11 @@ def translate_rollup_state(state: str | None) -> str:
         return "failure"
     if state in ("PENDING", "EXPECTED"):
         return "in_progress"
+    # Parser sentinel: branch genuinely doesn't exist (e.g. no ``main`` on a
+    # new project that's still on dev). Distinct from ``unknown``, which means
+    # the branch exists but no rollup could be resolved.
+    if state in ("ABSENT",):
+        return "absent"
     # Missing rollup (e.g. no workflows) or unknown state.
     return "unknown"
 

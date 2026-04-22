@@ -336,6 +336,23 @@ class TestBrokenCI:
         )
         assert "main" in result.summary
 
+    def test_absent_main_with_passing_dev_is_ok(self):
+        # New-project layout: dev is the default branch, main doesn't exist
+        # yet. Parser emits main_status="absent". broken_ci must not flag
+        # this -- there's no failing pipeline, just no prod branch yet.
+        result = get_check("broken_ci").evaluate(
+            _mock_repo(),
+            _status(
+                has_dev_branch=True,
+                main_status="absent",
+                dev_status="success",
+                default_branch="dev",
+            ),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.OK
+
 
 class TestServiceMissingDevBranch:
     """A repo with structural service markers but no dev branch is the exact
@@ -374,6 +391,23 @@ class TestServiceMissingDevBranch:
         assert "template.yaml" in result.summary
         assert "Dockerfile" in result.summary
         assert result.link == "https://github.com/org/myrepo/branches"
+
+    def test_service_with_dev_as_default_branch_is_ok(self):
+        # aillc-web layout: ``dev`` IS the default branch, so the GraphQL
+        # parser collapses has_dev_branch to False to avoid double-counting
+        # broken CI. The dev branch still exists -- must not flag as drift.
+        result = get_check("service_missing_dev_branch").evaluate(
+            _mock_repo(),
+            _status(
+                has_dev_branch=False,
+                looks_like_service=True,
+                service_markers=("template.yaml",),
+                default_branch="dev",
+            ),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.OK
 
     def test_library_without_dev_branch_is_ok(self):
         # No service markers -> not a service -> dev branch absence is expected,

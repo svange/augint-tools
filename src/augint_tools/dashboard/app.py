@@ -29,7 +29,10 @@ from ._data import RepoStatus, build_status_from_snapshot, fetch_failing_run_det
 from ._gql import (
     fetch_workspace_snapshot,
     fetch_workspace_teams,
+    pick_package_json,
     pick_pipeline_yaml,
+    pick_precommit,
+    pick_pyproject,
     pick_renovate_config,
 )
 from ._helpers import get_viewer_login, list_repos_multi, list_user_orgs, strip_dotfile_repos
@@ -1361,6 +1364,12 @@ class DashboardApp(App[None]):
         self._owners: list[str] = list(owners) if owners else ([org_name] if org_name else [])
         self._skip_refresh = skip_refresh
         self._github_client = github_client
+        # Inject the Github client into the YAML compliance engine's config
+        # slot so its check can fetch ``standards.yaml`` via the same auth
+        # session the GraphQL dashboard uses. Keeps the engine off the
+        # network path when no client is provided (tests, offline mode).
+        engine_cfg = self._health_config.setdefault("standards_engine", {})
+        engine_cfg.setdefault("gh", self._github_client)
         self._auto_discover = auto_discover
         # Original repo names -- used to scope re-listing in non-discover mode.
         self._original_repo_names: set[str] = {r.full_name for r in self._repos}
@@ -1814,6 +1823,13 @@ class DashboardApp(App[None]):
                         renovate_config_text=rtext,
                         pipeline_path=ppath,
                         pipeline_text=ptext,
+                        pyproject_text=pick_pyproject(snapshot),
+                        package_json_text=pick_package_json(snapshot),
+                        precommit_text=pick_precommit(snapshot),
+                        rulesets=list(snapshot.rulesets),
+                        main_head_sha=snapshot.main_head_sha,
+                        owner=snapshot.owner,
+                        repo_name=snapshot.name,
                     )
                 else:
                     ctx = FetchContext()

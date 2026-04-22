@@ -84,6 +84,16 @@ def _apply_debug_cache_dir() -> None:
     is_flag=True,
     help="Render from the on-disk cache without hitting the GitHub API (fast startup for testing).",
 )
+@click.option(
+    "--standards-yaml-url",
+    "standards_yaml_url",
+    type=str,
+    default=None,
+    help=(
+        "Override the URL the YAML compliance engine fetches standards.yaml from. "
+        "Default: the ai-cc-tools main branch via GitHub contents API."
+    ),
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show additional detail.")
 @click.option(
     "--log",
@@ -109,6 +119,7 @@ def dashboard_command(
     stale_days: int,
     env_auth: bool,
     no_refresh: bool,
+    standards_yaml_url: str | None,
     verbose: bool,
     log_file: str | None,
     debug: bool,
@@ -179,7 +190,10 @@ def dashboard_command(
                 raise click.ClickException(f"No repositories found for {', '.join(owners)}.")
 
         warn_rate_limit(len(repos), refresh_seconds)
-        health_config = {"stale_pr_days": stale_days}
+        health_config = {
+            "stale_pr_days": stale_days,
+            "standards_engine": {"url": standards_yaml_url},
+        }
 
         try:
             run_dashboard(
@@ -231,7 +245,10 @@ def dashboard_command(
         owners = [gh_account_env]
 
     warn_rate_limit(len(repos), refresh_seconds)
-    health_config = {"stale_pr_days": stale_days}
+    health_config = {
+        "stale_pr_days": stale_days,
+        "standards_engine": {"url": standards_yaml_url},
+    }
 
     try:
         run_dashboard(

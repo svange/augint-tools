@@ -45,6 +45,13 @@ PIPELINE_PATHS: tuple[str, ...] = (
     ".github/workflows/pipeline.yml",
 )
 
+# File contents the YAML compliance engine needs. Each tuple is probed in
+# order; the first non-null blob wins. Mirrors the (path, text) pattern
+# already used for Renovate and pipeline.yaml.
+PYPROJECT_PATHS: tuple[str, ...] = ("pyproject.toml",)
+PACKAGE_JSON_PATHS: tuple[str, ...] = ("package.json",)
+PRECOMMIT_PATHS: tuple[str, ...] = (".pre-commit-config.yaml", ".pre-commit-config.yml")
+
 # Chunk size for repo batches per GraphQL query. GitHub's API has a per-query
 # complexity budget; at ~35 fields per repo this keeps us well under the cap
 # while still collapsing workspace-scale fetches into a handful of queries.
@@ -134,6 +141,16 @@ class RepoSnapshot:
     renovate_configs: dict[str, str | None] = field(default_factory=dict)
     # Pipeline workflow contents keyed by canonical path, None when absent.
     pipeline_contents: dict[str, str | None] = field(default_factory=dict)
+    # pyproject.toml contents (Python repos); keyed by canonical path.
+    pyproject_contents: dict[str, str | None] = field(default_factory=dict)
+    # package.json contents (Node repos); keyed by canonical path.
+    package_json_contents: dict[str, str | None] = field(default_factory=dict)
+    # .pre-commit-config.yaml contents; keyed by canonical path.
+    precommit_contents: dict[str, str | None] = field(default_factory=dict)
+    # Rulesets as returned by GraphQL (list of rule nodes with bypass actors
+    # and parameters). Empty list when the repo has no rulesets or the field
+    # wasn't returned.
+    rulesets: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -166,6 +183,21 @@ def _fragment() -> str:
         f'    _pipeline_{i}: object(expression: "HEAD:{path}") {{ '
         f"... on Blob {{ text isTruncated }} }}"
         for i, path in enumerate(PIPELINE_PATHS)
+    )
+    pyproject_fields = "\n".join(
+        f'    _pyproject_{i}: object(expression: "HEAD:{path}") {{ '
+        f"... on Blob {{ text isTruncated }} }}"
+        for i, path in enumerate(PYPROJECT_PATHS)
+    )
+    package_json_fields = "\n".join(
+        f'    _package_json_{i}: object(expression: "HEAD:{path}") {{ '
+        f"... on Blob {{ text isTruncated }} }}"
+        for i, path in enumerate(PACKAGE_JSON_PATHS)
+    )
+    precommit_fields = "\n".join(
+        f'    _precommit_{i}: object(expression: "HEAD:{path}") {{ '
+        f"... on Blob {{ text isTruncated }} }}"
+        for i, path in enumerate(PRECOMMIT_PATHS)
     )
     return f"""
 fragment RepoFields on Repository {{
@@ -224,6 +256,29 @@ fragment RepoFields on Repository {{
   }}
 {renovate_fields}
 {pipeline_fields}
+{pyproject_fields}
+{package_json_fields}
+{precommit_fields}
+  rulesets(first: 10) {{
+    nodes {{
+      name
+      target
+      enforcement
+      bypassActors(first: 10) {{
+        nodes {{
+          actorType
+          actorId
+          bypassMode
+        }}
+      }}
+      rules(first: 20) {{
+        nodes {{
+          type
+          parameters
+        }}
+      }}
+    }}
+  }}
 }}
 """
 
@@ -426,6 +481,22 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     for i, path in enumerate(PIPELINE_PATHS):
         pipeline_contents[path] = _extract_blob_text(data.get(f"_pipeline_{i}"))
 
+    pyproject_contents: dict[str, str | None] = {}
+    for i, path in enumerate(PYPROJECT_PATHS):
+        pyproject_contents[path] = _extract_blob_text(data.get(f"_pyproject_{i}"))
+
+    package_json_contents: dict[str, str | None] = {}
+    for i, path in enumerate(PACKAGE_JSON_PATHS):
+        package_json_contents[path] = _extract_blob_text(data.get(f"_package_json_{i}"))
+
+    precommit_contents: dict[str, str | None] = {}
+    for i, path in enumerate(PRECOMMIT_PATHS):
+        precommit_contents[path] = _extract_blob_text(data.get(f"_precommit_{i}"))
+
+    rulesets_data = data.get("rulesets") or {}
+    rulesets_nodes = rulesets_data.get("nodes") or [] if isinstance(rulesets_data, dict) else []
+    rulesets: list[dict] = [n for n in rulesets_nodes if isinstance(n, dict)]
+
     return RepoSnapshot(
         full_name=full_name,
         name=name,
@@ -446,6 +517,10 @@ def _parse_repo(data: dict) -> RepoSnapshot:
         issue_total_count=issue_total_count,
         renovate_configs=renovate_configs,
         pipeline_contents=pipeline_contents,
+        pyproject_contents=pyproject_contents,
+        package_json_contents=package_json_contents,
+        precommit_contents=precommit_contents,
+        rulesets=rulesets,
     )
 
 
@@ -634,6 +709,27 @@ def pick_pipeline_yaml(snapshot: RepoSnapshot) -> tuple[str | None, str | None]:
         if text and text.strip():
             return path, text
     return None, None
+
+
+def _pick_first(contents: dict[str, str | None], paths: tuple[str, ...]) -> str | None:
+    """Return the first non-empty text from ``contents`` for any path in ``paths``."""
+    for path in paths:
+        text = contents.get(path)
+        if text and text.strip():
+            return text
+    return None
+
+
+def pick_pyproject(snapshot: RepoSnapshot) -> str | None:
+    return _pick_first(snapshot.pyproject_contents, PYPROJECT_PATHS)
+
+
+def pick_package_json(snapshot: RepoSnapshot) -> str | None:
+    return _pick_first(snapshot.package_json_contents, PACKAGE_JSON_PATHS)
+
+
+def pick_precommit(snapshot: RepoSnapshot) -> str | None:
+    return _pick_first(snapshot.precommit_contents, PRECOMMIT_PATHS)
 
 
 # ---------------------------------------------------------------------------

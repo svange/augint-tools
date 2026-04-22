@@ -53,6 +53,21 @@ class FetchContext:
     # Pipeline workflow -- first canonical path that exists, plus its text.
     pipeline_path: str | None = None
     pipeline_text: str | None = None
+    # Additional file contents fetched by the batched GraphQL query for the
+    # YAML compliance engine. None when the file doesn't exist in the repo.
+    pyproject_text: str | None = None
+    package_json_text: str | None = None
+    precommit_text: str | None = None
+    # Repository rulesets (from GraphQL). Each entry is the decoded nodes
+    # payload with rules and bypass actors. None when unavailable.
+    rulesets: list[dict] | None = None
+    # Main branch HEAD SHA, used by deploy-provenance-style handlers to
+    # compare against tags on deployed resources.
+    main_head_sha: str | None = None
+    # Repo owner + name passed through so handlers can format templates
+    # like ``{owner}/{repo}`` without needing the Repository object.
+    owner: str | None = None
+    repo_name: str | None = None
 
 
 def run_health_checks(
@@ -70,7 +85,12 @@ def run_health_checks(
     for check in all_checks():
         try:
             result = check.evaluate(repo, status, config=config, context=context)
-            results.append(result)
+            # A check may return a single result (the common case) or a list
+            # (the YAML compliance engine). Normalize to a flat list.
+            if isinstance(result, list):
+                results.extend(result)
+            else:
+                results.append(result)
         except Exception:
             results.append(
                 HealthCheckResult(

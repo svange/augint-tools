@@ -2380,13 +2380,19 @@ class DashboardApp(App[None]):
 
     def on_repo_card_go_back(self, _message: RepoCard.GoBack) -> None:
         if self._main is not None:
-            if self._main._top_drawer.is_open:
-                self._main._top_drawer.close()
-                return
-            if self._main._drawer.is_open:
-                self._main._drawer.close()
-                return
-        if len(self.screen_stack) > 1:
+            for drawer in (
+                self._main._top_drawer,
+                self._main._drawer,
+                self._main._system_drawer,
+                self._main._error_drawer,
+                self._main._aws_drawer,
+            ):
+                if drawer.is_open:
+                    drawer.close()
+                    return
+        # Stack contains [default_screen, MainScreen, ...modal screens].
+        # Only pop if there is a modal above MainScreen.
+        if len(self.screen_stack) > 2:
             self.pop_screen()
 
     # ---- theme CSS loading ----

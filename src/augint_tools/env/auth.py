@@ -85,8 +85,7 @@ def resolve_token(filename: str = ".env", auth_source: str = "auto") -> str:
     env_token = os.environ.get("GH_TOKEN", "").strip()
     if env_token:
         logger.debug(
-            "Using GitHub token from GH_TOKEN environment variable "
-            "(gh CLI keyring unavailable)."
+            "Using GitHub token from GH_TOKEN environment variable (gh CLI keyring unavailable)."
         )
         return env_token
 

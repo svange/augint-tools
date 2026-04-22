@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..._data import RepoStatus
     from .. import FetchContext
 
-_RENOVATE_LOGINS = {"renovate[bot]", "renovate-bot"}
+_RENOVATE_LOGINS = {"renovate[bot]", "renovate-bot", "renovate"}
 
 
 class StalePRsCheck:

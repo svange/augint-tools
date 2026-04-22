@@ -806,10 +806,27 @@ jobs:
         assert "not standardized" in result.summary
         assert "unit-tests" in result.summary
 
-    def test_missing_coverage_command_is_ok(self):
+    def test_missing_coverage_command_is_low(self):
+        # unit-tests job adopted in name but runs no coverage command --
+        # either a wrapper hides it or the gate was stripped. Either way,
+        # unverifiable from the dashboard's vantage point -> LOW.
         result = self._evaluate(self._NO_COVERAGE_COMMAND)
-        assert result.severity == Severity.OK
+        assert result.severity == Severity.LOW
         assert "coverage" in result.summary
+        assert result.link is not None
+
+    def test_unit_tests_job_without_steps_is_low(self):
+        # unit-tests job exists but has no steps -- standard adopted in name
+        # only, no gate actually running.
+        yaml_text = """\
+jobs:
+  unit-tests:
+    name: Unit tests
+"""
+        result = self._evaluate(yaml_text)
+        assert result.severity == Severity.LOW
+        assert "no steps" in result.summary
+        assert result.link is not None
 
     def test_yml_fallback(self):
         result = self._evaluate(self._STANDARD_PY, path=".github/workflows/pipeline.yml")

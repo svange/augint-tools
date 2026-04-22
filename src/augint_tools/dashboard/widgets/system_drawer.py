@@ -80,7 +80,7 @@ class SystemDrawer(Container):
         self._append_gpu(t, state)
         self._append_docker(t, state)
         self._append_network(t, state)
-        t.append("\npress D to close, click Docker to filter.", style="dim")
+        t.append("\npress s to close, click Docker to filter.", style="dim")
         self._body.update(t)
 
     def _append_cpu(self, t: Text, state: AppState) -> None:

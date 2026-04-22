@@ -89,8 +89,7 @@ class AwsDrawer(Container):
             self._body.update(t)
             return
 
-        # Track which line each profile is on for click handling
-        line_index = 2  # After "AWS Profiles\n\n"
+        line_index = 2
         for profile in aws_state.profiles:
             self._profile_lines.append((line_index, profile.name))
             self._append_profile_line(t, profile)
@@ -100,7 +99,7 @@ class AwsDrawer(Container):
         if aws_state.last_check_at:
             t.append(f"  checked: {aws_state.last_check_at[:19]}\n", style="dim")
         t.append("\n  click expired profiles to launch SSO login.\n", style="dim")
-        t.append("  press A to close.", style="dim")
+        t.append("  press a to close.", style="dim")
         self._body.update(t)
 
     def _append_profile_line(self, t: Text, profile: AwsProfile) -> None:

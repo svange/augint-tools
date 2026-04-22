@@ -11,24 +11,25 @@ from textual.containers import Horizontal
 from textual.events import Click
 from textual.widgets import Static
 
-# Functional keys shown on the left with [N] numbering.
+# Functional keys shown on the left.
 # (key_char, label, action_name)
 _LEFT_KEYS: list[tuple[str, str, str]] = [
     ("q", "Quit", "quit"),
     ("r", "Refresh", "refresh_now"),
-    ("s", "Sort", "cycle_sort"),
-    ("f", "Filter", "open_filter_panel"),
-    ("g", "Layout", "cycle_layout"),
-    ("t", "Theme", "cycle_theme"),
-    ("b", "Blink", "toggle_flash"),
+    ("1", "Filter", "open_filter_panel"),
+    ("2", "Sort", "cycle_sort"),
+    ("3", "Layout", "cycle_layout"),
+    ("4", "Theme", "cycle_theme"),
+    ("5", "Blink", "toggle_flash"),
 ]
 
-# Drawer/panel keys shown on the right without numbering.
+# Drawer/panel keys shown on the right.
 # (key_char, label, action_name)
 _RIGHT_KEYS: list[tuple[str, str, str]] = [
-    ("W", "Org", "cycle_top_drawer"),
-    ("A", "AWS", "cycle_left_drawer"),
-    ("D", "Drawer", "cycle_right_drawer"),
+    ("w", "Org", "cycle_top_drawer"),
+    ("a", "AWS", "cycle_left_drawer"),
+    ("s", "System", "toggle_system_drawer"),
+    ("d", "Drawer", "cycle_right_drawer"),
     ("e", "Errors", "toggle_errors"),
     ("?", "Help", "show_help"),
 ]
@@ -58,14 +59,12 @@ class _FooterItem(Static):
 
 
 def _build_left_items() -> list[_FooterItem]:
-    """Create clickable items for the left (numbered) section."""
+    """Create clickable items for the left section."""
     items: list[_FooterItem] = []
-    for i, (key, label, action) in enumerate(_LEFT_KEYS, 1):
+    for i, (key, label, action) in enumerate(_LEFT_KEYS):
         txt = Text()
-        if i > 1:
+        if i > 0:
             txt.append(" ")
-        txt.append(f"[{i}]", style="dim")
-        txt.append(" ")
         txt.append(key, style="bold")
         txt.append(f" {label}")
         items.append(_FooterItem(txt, action))

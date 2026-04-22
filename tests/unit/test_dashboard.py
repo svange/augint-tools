@@ -506,7 +506,7 @@ class TestDashboardPilot:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 start = app.state.layout_name
-                await pilot.press("g")
+                await pilot.press("3")
                 await pilot.pause()
                 assert app.state.layout_name != start
                 assert app.state.layout_name in list_layouts()
@@ -520,7 +520,7 @@ class TestDashboardPilot:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 start = app.state.theme_name
-                await pilot.press("t")
+                await pilot.press("4")
                 await pilot.pause()
                 assert app.state.theme_name != start
 
@@ -533,26 +533,36 @@ class TestDashboardPilot:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 start = app.state.sort_mode
-                await pilot.press("s")
+                await pilot.press("2")
                 await pilot.pause()
                 assert app.state.sort_mode != start
 
         asyncio.run(run())
 
     def test_drawer_toggle(self):
+        # `d` now cycles through the right-side drawers: none -> detail ->
+        # system -> none. This test exercises the full cycle.
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
             _seed_state(app)
             async with app.run_test() as pilot:
                 await pilot.pause()
                 drawer = app.query_one("#drawer")
+                system_drawer = app.query_one("#system-drawer")
                 assert not drawer.has_class("open")
+                assert not system_drawer.has_class("open")
                 await pilot.press("d")
                 await pilot.pause()
                 assert drawer.has_class("open")
+                assert not system_drawer.has_class("open")
                 await pilot.press("d")
                 await pilot.pause()
                 assert not drawer.has_class("open")
+                assert system_drawer.has_class("open")
+                await pilot.press("d")
+                await pilot.pause()
+                assert not drawer.has_class("open")
+                assert not system_drawer.has_class("open")
 
         asyncio.run(run())
 
@@ -622,7 +632,7 @@ class TestDashboardActions:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 assert not app.state.active_filters
-                await pilot.press("f")
+                await pilot.press("1")
                 await pilot.pause()
                 # Panel is now open -- dismiss it
                 await pilot.press("escape")

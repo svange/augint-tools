@@ -184,8 +184,8 @@ class RepoStatus:
     # Human-filed open issues (bots + PRs filtered out).
     human_open_issues: int = 0
     # ISO-8601 UTC creation timestamp of the oldest human-filed open issue.
-    # Drives the "stale" tint on the counts line when any issue is older
-    # than three days.
+    # Drives the "stale" / "ancient" tint on the counts line and the
+    # open_issues health-check severity escalation.
     oldest_issue_created_at: str | None = None
     # Default branch name, used by checks that build links to files on GitHub.
     default_branch: str = "main"

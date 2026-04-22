@@ -827,7 +827,7 @@ class TestRepoCardRender:
         RepoCard, spec = self._spec()
         status = _status(open_issues=2)
         status.human_open_issues = 2
-        status.oldest_issue_created_at = (datetime.now(UTC) - timedelta(days=5)).isoformat()
+        status.oldest_issue_created_at = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         health = RepoHealth(status=status)
         card = RepoCard(health, theme_spec=spec)
         line = card._counts_line(health)
@@ -837,6 +837,20 @@ class TestRepoCardRender:
         styles = [str(span.style) for span in line.spans]
         assert any(medium_color in s for s in styles)
         assert not any(low_color in s for s in styles if low_color != medium_color)
+
+    def test_counts_line_red_when_ancient(self):
+        from datetime import UTC, datetime, timedelta
+
+        RepoCard, spec = self._spec()
+        status = _status(open_issues=2)
+        status.human_open_issues = 2
+        status.oldest_issue_created_at = (datetime.now(UTC) - timedelta(days=45)).isoformat()
+        health = RepoHealth(status=status)
+        card = RepoCard(health, theme_spec=spec)
+        line = card._counts_line(health)
+        # ancient beats stale -- the count tint jumps to CRITICAL.
+        critical_color = spec.severity_colors[Severity.CRITICAL]
+        assert any(critical_color in str(span.style) for span in line.spans)
 
 
 class TestFindingsLinesHealthyInfo:
@@ -856,34 +870,29 @@ class TestFindingsLinesHealthyInfo:
         assert text.plain == "healthy"
         assert url == "https://github.com/org/quiet"
 
-    def test_no_findings_with_open_issues_returns_issues_line(self):
+    def test_no_findings_open_issues_alone_falls_back_to_healthy(self):
+        # Issues are communicated by the counts-line numerical indicator and
+        # by severity escalation in the open_issues check; they deliberately
+        # don't produce an info row, so a repo with only open issues reads as
+        # "healthy" in the findings slot.
         RepoCard, spec = self._spec()
         status = _status(full_name="org/busy", open_issues=4)
         health = RepoHealth(status=status)
         card = RepoCard(health, theme_spec=spec)
         lines = card._findings_lines(health, limit=2)
-        assert any(
-            line.plain == "4 open issues" and url == "https://github.com/org/busy/issues"
-            for line, url in lines
-        )
+        assert [(line.plain, url) for line, url in lines] == [
+            ("healthy", "https://github.com/org/busy"),
+        ]
 
-    def test_no_findings_single_issue_uses_singular_noun(self):
-        RepoCard, spec = self._spec()
-        status = _status(full_name="org/busy", open_issues=1)
-        health = RepoHealth(status=status)
-        card = RepoCard(health, theme_spec=spec)
-        lines = card._findings_lines(health, limit=2)
-        assert lines[0][0].plain == "1 open issue"
-
-    def test_no_findings_with_issues_and_prs_returns_both_lines(self):
+    def test_no_findings_with_issues_and_prs_only_pr_line_emitted(self):
         RepoCard, spec = self._spec()
         status = _status(full_name="org/busy", open_issues=2, open_prs=3)
         health = RepoHealth(status=status)
         card = RepoCard(health, theme_spec=spec)
         lines = card._findings_lines(health, limit=4)
         plain = [(line.plain, url) for line, url in lines]
-        assert ("2 open issues", "https://github.com/org/busy/issues") in plain
         assert ("3 open prs", "https://github.com/org/busy/pulls") in plain
+        assert not any(line.plain.endswith("open issues") for line, _ in lines)
 
     def test_no_findings_drafts_line_separate_from_ready_prs(self):
         RepoCard, spec = self._spec()

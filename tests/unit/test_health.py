@@ -36,6 +36,7 @@ def _status(
     open_prs=0,
     draft_prs=0,
     human_open_issues=0,
+    oldest_issue_created_at=None,
     default_branch="main",
     has_workflows=True,
     looks_like_service=False,
@@ -55,6 +56,7 @@ def _status(
         open_prs=open_prs,
         draft_prs=draft_prs,
         human_open_issues=human_open_issues,
+        oldest_issue_created_at=oldest_issue_created_at,
         default_branch=default_branch,
         has_workflows=has_workflows,
         looks_like_service=looks_like_service,
@@ -607,23 +609,32 @@ class TestStalePRs:
 
 
 class TestOpenIssues:
+    @staticmethod
+    def _days_ago(days: int) -> str:
+        return (datetime.now(UTC) - timedelta(days=days)).isoformat()
+
     def test_below_threshold(self):
         result = get_check("open_issues").evaluate(
             _mock_repo(),
-            _status(open_issues=5, human_open_issues=5),
+            _status(open_issues=5, human_open_issues=5, oldest_issue_created_at=self._days_ago(2)),
             config={},
             context=_ctx(),
         )
         assert result.severity == Severity.OK
 
     def test_above_threshold(self):
+        # Too many fresh issues escalates to MEDIUM so the border turns
+        # yellow -- count alone used to be LOW (border stayed green) which
+        # the numerical counter already communicated.
         result = get_check("open_issues").evaluate(
             _mock_repo(),
-            _status(open_issues=15, human_open_issues=15),
+            _status(
+                open_issues=15, human_open_issues=15, oldest_issue_created_at=self._days_ago(2)
+            ),
             config={},
             context=_ctx(),
         )
-        assert result.severity == Severity.LOW
+        assert result.severity == Severity.MEDIUM
         assert "(15) open issues" in result.summary
         assert result.link is not None
 
@@ -632,7 +643,7 @@ class TestOpenIssues:
         # excludes bots. The check reads it straight off RepoStatus.
         result = get_check("open_issues").evaluate(
             _mock_repo(),
-            _status(open_issues=12, human_open_issues=5),
+            _status(open_issues=12, human_open_issues=5, oldest_issue_created_at=self._days_ago(2)),
             config={},
             context=_ctx(),
         )
@@ -642,11 +653,40 @@ class TestOpenIssues:
     def test_custom_threshold(self):
         result = get_check("open_issues").evaluate(
             _mock_repo(),
-            _status(open_issues=3, human_open_issues=3),
+            _status(open_issues=3, human_open_issues=3, oldest_issue_created_at=self._days_ago(1)),
             config={"open_issues_threshold": 3},
             context=_ctx(),
         )
-        assert result.severity == Severity.LOW
+        assert result.severity == Severity.MEDIUM
+
+    def test_stale_issue_medium(self):
+        result = get_check("open_issues").evaluate(
+            _mock_repo(),
+            _status(open_issues=1, human_open_issues=1, oldest_issue_created_at=self._days_ago(10)),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.MEDIUM
+        assert "10d" in result.summary
+
+    def test_ancient_issue_critical(self):
+        result = get_check("open_issues").evaluate(
+            _mock_repo(),
+            _status(open_issues=2, human_open_issues=2, oldest_issue_created_at=self._days_ago(45)),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.CRITICAL
+        assert "45d" in result.summary
+
+    def test_quiet_when_empty(self):
+        result = get_check("open_issues").evaluate(
+            _mock_repo(),
+            _status(open_issues=0, human_open_issues=0, oldest_issue_created_at=None),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.OK
 
 
 class TestOpenPRs:

@@ -5,6 +5,8 @@ Widget-per-card Textual dashboard; pluggable layouts and themes.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 from loguru import logger
 from rich import print
@@ -21,6 +23,24 @@ from ._helpers import (
 from .layouts import list_layouts
 from .prefs import load_prefs
 from .themes import list_themes
+
+
+def _apply_debug_cache_dir() -> None:
+    """Override the cache/prefs directory to ``./.cache/ai-tools-dashboard``.
+
+    Must be called before ``run_dashboard`` but after module-level imports
+    have evaluated. Patches the module-level constants in ``_data``,
+    ``awsprobe``, and ``prefs`` so every component reads/writes the local
+    directory.
+    """
+    local_cache = Path.cwd() / ".cache" / "ai-tools-dashboard"
+    from . import _data, awsprobe, prefs
+
+    _data.CACHE_DIR = local_cache
+    _data.CACHE_FILE = local_cache / "tui_cache.json"
+    awsprobe._CACHE_DIR = local_cache
+    awsprobe._CACHE_FILE = local_cache / "aws_cache.json"
+    prefs.PREFS_FILE = local_cache / "dashboard_prefs.json"
 
 
 @click.command("dashboard")
@@ -72,6 +92,11 @@ from .themes import list_themes
     default=None,
     help="Write debug logs to a file (tail -f alongside the TUI).",
 )
+@click.option(
+    "--debug",
+    is_flag=True,
+    help="Enable debug mode: log to ./tui.log and use ./.cache for cache/prefs.",
+)
 @click.pass_context
 def dashboard_command(
     ctx: click.Context,
@@ -86,8 +111,13 @@ def dashboard_command(
     no_refresh: bool,
     verbose: bool,
     log_file: str | None,
+    debug: bool,
 ) -> None:
     """Interactive Textual health dashboard for GitHub repositories."""
+    if debug:
+        if log_file is None:
+            log_file = "./tui.log"
+        _apply_debug_cache_dir()
     configure_logging(verbose, log_file=log_file)
 
     try:

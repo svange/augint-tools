@@ -131,7 +131,7 @@ class RepoCard(Widget):
         """Emitted on right-click -- app closes drawer or pops the top screen."""
 
     class ManageDeploymentsRequested(Message):
-        """Emitted on ctrl + left-click on the title -- open the deployment-links modal."""
+        """Emitted on left-click on the title -- open the deployment-links modal."""
 
         def __init__(self, full_name: str) -> None:
             super().__init__()
@@ -619,9 +619,10 @@ class RepoCard(Widget):
             return
         y = getattr(event, "y", 0)
         x = getattr(event, "x", 0)
-        # Middle-click on the title row (y=1) opens the manage-deployments
-        # modal instead of the GitHub repo page.
-        if y == 1 and event.button == 2 and self.repo_full_name:
+        # Left-click on the title row (y=1) opens the manage-deployments
+        # modal (URL box).  Middle-click on the title falls through to the
+        # general middle-click handler, which routes to the GitHub repo page.
+        if y == 1 and event.button == 1 and self.repo_full_name:
             self.post_message(self.ManageDeploymentsRequested(self.repo_full_name))
             return
         # CI-line deployment zones: left or middle click on an underlined
@@ -642,13 +643,6 @@ class RepoCard(Widget):
             self.post_message(self.OpenUrl(url))
             return
         if event.button == 1:
-            # Left-click on the repo name text (title row) opens the GitHub
-            # code page. Left-click anywhere else on the card selects it.
-            if y == 1 and self.repo_full_name and self.health is not None:
-                nx0, nx1 = self._title_name_x
-                if nx0 <= x < nx1:
-                    self.post_message(self.OpenUrl(self._repo_url(self.health)))
-                    return
             self.post_message(self.Selected(self.repo_full_name))
             if getattr(event, "chain", 1) >= 2:
                 self.post_message(self.DrilldownRequested(self.repo_full_name))

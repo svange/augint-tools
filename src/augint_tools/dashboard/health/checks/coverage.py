@@ -10,13 +10,15 @@ for signals that the coverage gate has been **actively weakened**:
   or shell suffixes such as ``|| true``, ``|| :``, ``|| echo ...``. Severity MEDIUM.
 - Python ``pytest --cov`` with no ``--cov-fail-under`` gate at all. Severity LOW
   (equivalent to a 0% threshold).
+- ``unit-tests`` job present but no coverage command inside it. Severity LOW --
+  the repo adopted the standardized job name but the gate is missing, which
+  is a regression from standard, not non-adoption.
 
-**Non-adoption is benign.** Repos that haven't adopted the
-ai-standardize-pipeline convention (no pipeline.yaml, or pipeline.yaml with
-no ``unit-tests`` job, or unit-tests job with no coverage command) return
-OK severity with an informative summary. This is observational, not a
-warning -- a repo is not "unhealthy" just because it doesn't follow the
-standard naming convention for its workflow files.
+**True non-adoption is benign.** Repos with no ``pipeline.yaml`` at all, or
+with a ``pipeline.yaml`` that has no ``unit-tests`` job, return OK severity
+with an informative summary. This is observational, not a warning -- a repo
+is not "unhealthy" just because it doesn't follow the standard naming
+convention for its workflow files.
 
 For Node repos using ``vitest``/``jest --coverage`` the threshold lives in
 ``vitest.config.*``/``jest.config.*`` rather than the workflow, so this check
@@ -122,10 +124,13 @@ class CoverageCheck:
 
         steps = unit_tests.get("steps")
         if not isinstance(steps, list):
+            # unit-tests job exists but is empty/malformed -- the standard was
+            # adopted in name but no gate is actually running.
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.OK,
-                summary="unit-tests has no steps",
+                severity=Severity.LOW,
+                summary="unit-tests job has no steps",
+                link=workflow_link,
             )
 
         return self._evaluate_steps(steps, workflow_link)
@@ -171,10 +176,16 @@ class CoverageCheck:
                 has_node_coverage = True
 
         if not coverage_seen:
+            # unit-tests job exists but runs no coverage command. Either a
+            # wrapper hides the real invocation (make/tox/nox/script) or the
+            # gate was stripped. Either way, from the dashboard's vantage
+            # point the coverage posture is unverifiable -- flag as LOW so
+            # the repo surfaces for inspection.
             return HealthCheckResult(
                 check_name=self.name,
-                severity=Severity.OK,
-                summary="no coverage command in unit-tests",
+                severity=Severity.LOW,
+                summary="unit-tests job has no coverage command",
+                link=workflow_link,
             )
 
         # Ignoring failures is worse than lowering the bar: still run tests,

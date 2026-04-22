@@ -40,6 +40,8 @@ def _status(
     has_workflows=True,
     looks_like_service=False,
     service_markers=(),
+    is_org=False,
+    is_workspace=False,
 ):
     return RepoStatus(
         name=name,
@@ -57,6 +59,8 @@ def _status(
         has_workflows=has_workflows,
         looks_like_service=looks_like_service,
         service_markers=service_markers,
+        is_org=is_org,
+        is_workspace=is_workspace,
     )
 
 
@@ -389,6 +393,33 @@ class TestServiceMissingDevBranch:
         result = get_check("service_missing_dev_branch").evaluate(
             _mock_repo(),
             _status(has_dev_branch=True, looks_like_service=False),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.OK
+
+    def test_org_repo_is_never_flagged(self):
+        # ``-org`` repos hold AWS Organization IaC, never run a dev split,
+        # and may publish convenience packages off main. Even if some future
+        # signal change set looks_like_service=True on one, the check must
+        # not fire.
+        result = get_check("service_missing_dev_branch").evaluate(
+            _mock_repo(),
+            _status(
+                is_org=True,
+                has_dev_branch=False,
+                looks_like_service=True,
+                service_markers=("template.yaml",),
+            ),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.OK
+
+    def test_workspace_repo_is_never_flagged(self):
+        result = get_check("service_missing_dev_branch").evaluate(
+            _mock_repo(),
+            _status(is_workspace=True, has_dev_branch=False, looks_like_service=False),
             config={},
             context=_ctx(),
         )

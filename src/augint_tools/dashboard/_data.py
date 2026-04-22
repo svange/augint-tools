@@ -80,10 +80,15 @@ def _detect_tags(
     return is_workspace, tuple(tags)
 
 
-# Root-tree files that mark a repo as a service rather than a library. Detected
+# Root-tree files that mark a repo as a deployable service. Detected
 # independently of branch layout so the dashboard can flag a service-shaped repo
 # whose dev branch has gone missing -- the actual configuration drift, not a
 # downstream symptom in the rollup state.
+#
+# ``Dockerfile`` is intentionally absent: many Python libraries ship a
+# Dockerfile for the dev container or CI runner without ever being deployed.
+# A SAM/CDK/Serverless config or a JS/web build are the unambiguous "this gets
+# deployed somewhere" signals.
 _SERVICE_MARKERS: tuple[str, ...] = (
     "template.yaml",
     "template.yml",
@@ -91,13 +96,42 @@ _SERVICE_MARKERS: tuple[str, ...] = (
     "serverless.yml",
     "serverless.yaml",
     "cdk.json",
-    "Dockerfile",
 )
 
 
-def _detect_service_markers(root_entries: tuple[str, ...]) -> tuple[str, ...]:
-    """Return the subset of canonical service-marker files present at the repo root."""
+def _is_org_repo(name: str) -> bool:
+    """AWS Organization IaC repos: name ends with ``-org``.
+
+    Org repos hold CloudFormation/SAM templates that manage the AWS Organization
+    itself (accounts, OUs, SCPs, StackSets). They are deployed to a single
+    account, never run a dev/main split, and may also publish convenience
+    Python packages off main. They are neither services nor libraries in the
+    standard sense and should be excluded from both classifications.
+    """
+    return name.endswith("-org")
+
+
+def _detect_service_markers(name: str, root_entries: tuple[str, ...]) -> tuple[str, ...]:
+    """Return the subset of service-marker files indicating a deployable service.
+
+    Returns an empty tuple for repos that look like *something other than* a
+    deployable service even when service markers are present:
+
+    - **Org repos** (``*-org``): IaC for an AWS Organization, no dev/main split.
+    - **Workspace repos** (``workspace.yaml``): meta-repos that coordinate other
+      repos, never deployed themselves.
+    - **Python packages** (``pyproject.toml`` without ``package.json``):
+      libraries published to PyPI that frequently ship a SAM template purely
+      for ephemeral test environments or CI infrastructure, not production
+      deploys.
+    """
+    if _is_org_repo(name):
+        return ()
     names = set(root_entries)
+    if "workspace.yaml" in names:
+        return ()
+    if "pyproject.toml" in names and "package.json" not in names:
+        return ()
     return tuple(marker for marker in _SERVICE_MARKERS if marker in names)
 
 
@@ -152,6 +186,10 @@ class RepoStatus:
     # Specific service-marker filenames detected at the repo root, surfaced in
     # diagnostic output for the missing-dev-branch alert.
     service_markers: tuple[str, ...] = ()
+    # AWS Organization IaC repo (name ends with ``-org``). Holds templates for
+    # the org itself and may publish convenience packages, but never runs a
+    # dev/main split -- excluded from the service-missing-dev alert.
+    is_org: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +242,8 @@ def build_status_from_snapshot(
     open_issues = snapshot.issue_total_count
 
     is_workspace, tags = _detect_tags(snapshot.primary_language, snapshot.root_entries)
-    service_markers = _detect_service_markers(snapshot.root_entries)
+    service_markers = _detect_service_markers(snapshot.name, snapshot.root_entries)
+    is_org = _is_org_repo(snapshot.name)
 
     main_status = translate_rollup_state(snapshot.main_rollup_state)
     dev_status: str | None = (
@@ -233,6 +272,7 @@ def build_status_from_snapshot(
         has_workflows=bool(snapshot.workflow_files),
         looks_like_service=bool(service_markers),
         service_markers=service_markers,
+        is_org=is_org,
     )
 
 

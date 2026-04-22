@@ -550,7 +550,7 @@ class MainScreen(Screen[None]):
         t = Text()
         t.append(f"{status.full_name}\n\n", style="bold")
         t.append(f"main ci: {status.main_status}\n")
-        if status.is_service and status.dev_status:
+        if status.has_dev_branch and status.dev_status:
             t.append(f"dev ci:  {status.dev_status}\n")
         # issues + PRs counts are emitted as OSC-8 hyperlinks so clicking the
         # number opens the matching GitHub listing. Matches the card's click
@@ -773,7 +773,7 @@ class MainScreen(Screen[None]):
             t.append("  ")
             t.append(f"{name:<16}", style=f"{accent} link {link_url}")
             t.append(" ")
-            if status.is_service and status.dev_status:
+            if status.has_dev_branch and status.dev_status:
                 t.append("\u25cf", style=self._ci_dot_style(status.dev_status, spec))
                 t.append(" ")
             else:
@@ -828,8 +828,8 @@ class MainScreen(Screen[None]):
         """Split of services vs libraries and their health."""
         from .health import Severity as _Sev
 
-        services = [h for h in healths if h.status.is_service]
-        libs = [h for h in healths if not h.status.is_service]
+        services = [h for h in healths if h.status.has_dev_branch or h.status.looks_like_service]
+        libs = [h for h in healths if not (h.status.has_dev_branch or h.status.looks_like_service)]
         t.append("service / lib\n", style="bold")
 
         def _line(label: str, bucket: list) -> None:
@@ -1572,7 +1572,7 @@ class DashboardApp(App[None]):
                     status_by_name[repo.full_name] = RepoStatus(
                         name=getattr(repo, "name", "?"),
                         full_name=repo.full_name,
-                        is_service=False,
+                        has_dev_branch=False,
                         main_status="unknown",
                         main_error=None,
                         dev_status=None,
@@ -1587,7 +1587,7 @@ class DashboardApp(App[None]):
             status_by_name[repo.full_name] = status
             if status.main_status == "failure":
                 failing_targets.append((repo, status.default_branch))
-            if status.is_service and status.dev_status == "failure":
+            if status.has_dev_branch and status.dev_status == "failure":
                 failing_targets.append((repo, "dev"))
 
         # Phase 2b: populate failing-run detail. GraphQL's statusCheckRollup

@@ -64,7 +64,7 @@ def _status(
     return RepoStatus(
         name=name,
         full_name=full_name,
-        is_service=False,
+        has_dev_branch=False,
         main_status=main_status,
         main_error=None,
         dev_status=None,
@@ -916,6 +916,49 @@ class TestFindingsLinesHealthyInfo:
         assert "stale" in lines[0][0].plain
         assert not any("open issues" in line.plain for line, _ in lines)
 
+    def test_limit_none_returns_all_findings(self):
+        # list-mode rendering passes limit=None: every finding should make it
+        # through. Rich handles per-line ellipsis at render time.
+        RepoCard, spec = self._spec()
+        checks = [
+            HealthCheckResult(check_name=f"chk{i}", severity=Severity.MEDIUM, summary=f"f{i}")
+            for i in range(6)
+        ]
+        status = _status(full_name="org/busy")
+        health = RepoHealth(status=status, checks=checks)
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=None)
+        assert len(lines) == 6
+
+    def test_limit_zero_treated_as_unlimited(self):
+        # Defensive: limit<=0 also means unlimited so callers can pass 0
+        # without accidentally suppressing every finding.
+        RepoCard, spec = self._spec()
+        checks = [
+            HealthCheckResult(check_name=f"chk{i}", severity=Severity.MEDIUM, summary=f"f{i}")
+            for i in range(3)
+        ]
+        status = _status(full_name="org/busy")
+        health = RepoHealth(status=status, checks=checks)
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=0)
+        assert len(lines) == 3
+
+    def test_finding_summary_is_not_pre_truncated(self):
+        # The card width controls how much text shows; the helper itself must
+        # not truncate, so resizing via ctrl+mouse-wheel can grow the visible
+        # text dynamically.
+        RepoCard, spec = self._spec()
+        long_summary = "a" * 120
+        check = HealthCheckResult(
+            check_name="renovate_enabled", severity=Severity.HIGH, summary=long_summary
+        )
+        status = _status(full_name="org/busy")
+        health = RepoHealth(status=status, checks=[check])
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=None)
+        assert long_summary in lines[0][0].plain
+
 
 class TestDetailDrawerHealthySummary:
     """_detail_drawer_content surfaces OK info with clickable links when green."""
@@ -1221,6 +1264,113 @@ class TestDetectTags:
         assert tags == ()
 
 
+class TestDetectServiceMarkers:
+    """Service-marker detection is independent of dev-branch existence so the
+    dashboard can flag service-shaped repos whose dev branch went missing.
+
+    Discriminators in priority order:
+      - ``-org`` repos are AWS Organization IaC, never services.
+      - workspace.yaml repos are meta-repos, never services.
+      - Python packages (pyproject.toml without package.json) frequently ship a
+        SAM template purely for ephemeral test environments / CI infra.
+      - Dockerfile alone is too noisy: many libraries ship a dev-container or
+        CI-runner Dockerfile without ever being deployed.
+    """
+
+    def test_no_markers_returns_empty(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers("repo", ()) == ()
+        assert _detect_service_markers("repo", ("README.md", "src")) == ()
+
+    def test_web_service_with_sam(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        # package.json + SAM is the unambiguous "deployable web service" shape.
+        markers = _detect_service_markers(
+            "aillc-web", ("package.json", "template.yaml", "Dockerfile", "src")
+        )
+        assert "template.yaml" in markers
+
+    def test_dockerfile_alone_is_not_a_marker(self):
+        # Many Python libs ship a dev-container Dockerfile. Without a deploy
+        # signal alongside it, refuse to classify as a service.
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers("somelib", ("Dockerfile",)) == ()
+
+    def test_cdk_marker_in_node_app(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers("infra", ("cdk.json", "package.json")) == ("cdk.json",)
+
+    def test_serverless_marker_in_node_app(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers("api", ("serverless.yml", "package.json")) == (
+            "serverless.yml",
+        )
+
+    def test_python_package_with_sam_for_testing_is_not_a_service(self):
+        # tagmania / ai-lls-lib pattern: a Python package that uses SAM only
+        # for ephemeral test environments. pyproject.toml without package.json
+        # outweighs the SAM signal.
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert (
+            _detect_service_markers("tagmania", ("pyproject.toml", "template.yaml", "src", "tests"))
+            == ()
+        )
+        assert (
+            _detect_service_markers(
+                "ai-lls-lib", ("pyproject.toml", "template.yaml", "Dockerfile", "src")
+            )
+            == ()
+        )
+
+    def test_python_with_package_json_is_a_service(self):
+        # pyproject.toml + package.json is rare but means there's a deployable
+        # frontend alongside Python infra automation -- treat as a service.
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        markers = _detect_service_markers(
+            "fullstack", ("pyproject.toml", "package.json", "template.yaml")
+        )
+        assert "template.yaml" in markers
+
+    def test_org_repo_is_never_a_service(self):
+        # augint-org pattern: AWS Organization IaC. The -org suffix flips it
+        # out of the service classification regardless of templates present.
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert (
+            _detect_service_markers(
+                "augint-org", ("template.yaml", "stacks", "stacksets", "pyproject.toml")
+            )
+            == ()
+        )
+
+    def test_workspace_repo_is_never_a_service(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers("ws", ("workspace.yaml", "template.yaml")) == ()
+
+
+class TestIsOrgRepo:
+    def test_org_suffix(self):
+        from augint_tools.dashboard._data import _is_org_repo
+
+        assert _is_org_repo("augint-org")
+        assert _is_org_repo("woxom-org")
+
+    def test_non_org(self):
+        from augint_tools.dashboard._data import _is_org_repo
+
+        assert not _is_org_repo("aillc-web")
+        assert not _is_org_repo("augint-tools")
+        assert not _is_org_repo("org-helper")  # only the suffix counts
+
+
 class TestBootstrapCache:
     def test_bootstrap_no_cache(self):
         from augint_tools.dashboard.state import bootstrap_from_cache
@@ -1358,7 +1508,7 @@ class TestAppMisc:
         status = RepoStatus(
             name="r0",
             full_name="org/r0",
-            is_service=False,
+            has_dev_branch=False,
             main_status="success",
             main_error=None,
             dev_status=None,

@@ -84,14 +84,6 @@ def _older_than(iso_ts: str | None, age: timedelta) -> bool:
     return datetime.now(UTC) - ts > age
 
 
-def _truncate(value: str | None, width: int) -> str:
-    if not value:
-        return ""
-    if len(value) <= width:
-        return value
-    return value[: max(0, width - 3)] + "..."
-
-
 class RepoCard(Widget):
     """Reactive card for a single repository."""
 
@@ -329,8 +321,14 @@ class RepoCard(Widget):
             return spec.severity_colors[Severity.LOW]
         return ""
 
-    def _findings_lines(self, health: RepoHealth, limit: int) -> list[tuple[Text, str]]:
+    def _findings_lines(self, health: RepoHealth, limit: int | None) -> list[tuple[Text, str]]:
         """Return up to ``limit`` finding rows paired with their click-target URLs.
+
+        ``limit=None`` (or any non-positive value) means no cap -- emit every
+        finding. Per-row text is left full-length; Rich's ``no_wrap=True`` +
+        ``overflow="ellipsis"`` (set in :meth:`_finalize`) trims at render time
+        based on the card's actual width, which the user can grow or shrink
+        with ctrl + mouse-wheel.
 
         When there are no real findings we still want the slot to carry useful
         signal rather than a flat "all green" string, so we emit OK-severity
@@ -341,6 +339,10 @@ class RepoCard(Widget):
         spec = self._theme_spec
         actions_url = self._actions_url(health)
         lines: list[tuple[Text, str]] = []
+
+        def _at_cap() -> bool:
+            return limit is not None and limit > 0 and len(lines) >= limit
+
         for error_label, error in (
             ("dev", health.status.dev_error),
             ("main", health.status.main_error),
@@ -348,25 +350,23 @@ class RepoCard(Widget):
             if error:
                 t = Text()
                 t.append(f"{error_label}: ", style="bold")
-                t.append(_truncate(error, 30), style=spec.severity_colors[Severity.CRITICAL])
+                t.append(error, style=spec.severity_colors[Severity.CRITICAL])
                 lines.append((t, actions_url))
-                if len(lines) >= limit:
+                if _at_cap():
                     return lines
         for finding in health.findings:
             t = Text()
             icon = spec.severity_icons.get(finding.severity, "*")
             t.append(f"{icon} ", style=self._severity_style(finding.severity, spec))
-            t.append(
-                _truncate(finding.summary, 40), style=self._severity_style(finding.severity, spec)
-            )
+            t.append(finding.summary, style=self._severity_style(finding.severity, spec))
             lines.append((t, finding.link or self._repo_url(health)))
-            if len(lines) >= limit:
+            if _at_cap():
                 return lines
         if not lines:
             lines.extend(self._healthy_info_lines(health, limit))
         return lines
 
-    def _healthy_info_lines(self, health: RepoHealth, limit: int) -> list[tuple[Text, str]]:
+    def _healthy_info_lines(self, health: RepoHealth, limit: int | None) -> list[tuple[Text, str]]:
         """Informative OK-severity rows used when this repo has zero findings.
 
         Surfaces open issues / PRs / drafts with click targets, so a green card
@@ -415,7 +415,9 @@ class RepoCard(Widget):
                     self._repo_url(health),
                 )
             )
-        return info[:limit] if limit > 0 else info
+        if limit is None or limit <= 0:
+            return info
+        return info[:limit]
 
     def _render_packed(self, health: RepoHealth) -> Text:
         self._click_map = {}
@@ -430,7 +432,7 @@ class RepoCard(Widget):
         parts.append(self._counts_line(health))
         self._click_map[len(parts)] = self._counts_click_region(health)
 
-        for line, url in self._findings_lines(health, 2):
+        for line, url in self._findings_lines(health, 3):
             parts.append(line)
             self._click_map[len(parts)] = _ClickRegion(url=url)
 
@@ -465,7 +467,9 @@ class RepoCard(Widget):
         parts.append(self._counts_line(health))
         self._click_map[len(parts)] = self._counts_click_region(health)
 
-        for line, url in self._findings_lines(health, 4):
+        # List mode is the verbose view -- no cap, every finding gets a row.
+        # Rich still ellipsises individual lines that exceed the card width.
+        for line, url in self._findings_lines(health, None):
             parts.append(line)
             self._click_map[len(parts)] = _ClickRegion(url=url)
 

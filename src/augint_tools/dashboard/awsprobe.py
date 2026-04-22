@@ -10,11 +10,14 @@ import json
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 _PROFILE_NAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
+
+_CACHE_DIR = Path.home() / ".cache" / "ai-gh"
+_CACHE_FILE = _CACHE_DIR / "aws_cache.json"
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,11 @@ def _is_safe_profile_name(name: str) -> bool:
 def _parse_config_for_profile(
     config: configparser.ConfigParser, profile_name: str
 ) -> dict[str, str | None]:
-    """Extract SSO and region fields from the parsed config for a profile."""
+    """Extract SSO and region fields from the parsed config for a profile.
+
+    Resolves ``sso_session`` indirection used by newer AWS CLI v2 configs,
+    where the start URL lives in a ``[sso-session NAME]`` section.
+    """
     section = "default" if profile_name == "default" else f"profile {profile_name}"
     result: dict[str, str | None] = {
         "region": None,
@@ -72,7 +79,66 @@ def _parse_config_for_profile(
         result["sso_start_url"] = config.get(section, "sso_start_url", fallback=None)
         result["sso_account_id"] = config.get(section, "sso_account_id", fallback=None)
         result["sso_role_name"] = config.get(section, "sso_role_name", fallback=None)
+        if result["sso_start_url"] is None:
+            sso_session = config.get(section, "sso_session", fallback=None)
+            if sso_session:
+                session_section = f"sso-session {sso_session}"
+                if config.has_section(session_section):
+                    result["sso_start_url"] = config.get(
+                        session_section, "sso_start_url", fallback=None
+                    )
     return result
+
+
+def _load_sso_token_cache() -> dict[str, str]:
+    """Return ``startUrl -> expiresAt`` from ``~/.aws/sso/cache``.
+
+    Used to short-circuit the sts round-trip for profiles whose SSO token
+    is already expired locally. The expiresAt is kept as the raw string
+    from AWS so parsing errors stay isolated to :func:`_sso_token_expired`.
+    """
+    cache_dir = Path.home() / ".aws" / "sso" / "cache"
+    result: dict[str, str] = {}
+    if not cache_dir.is_dir():
+        return result
+    for path in cache_dir.glob("*.json"):
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        start_url = data.get("startUrl")
+        expires_at = data.get("expiresAt")
+        if isinstance(start_url, str) and isinstance(expires_at, str):
+            result[start_url] = expires_at
+    return result
+
+
+def _sso_token_expired(expires_at_iso: str) -> bool:
+    """Return True if the ISO timestamp is already in the past (or unparseable)."""
+    try:
+        s = expires_at_iso.replace("UTC", "+00:00").replace("Z", "+00:00")
+        expires = datetime.fromisoformat(s)
+    except (ValueError, TypeError):
+        return True
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    return expires <= datetime.now(UTC)
+
+
+def _make_profile(
+    name: str, cfg: dict[str, str | None], status: str, error: str | None
+) -> AwsProfile:
+    return AwsProfile(
+        name=name,
+        region=cfg["region"],
+        sso_start_url=cfg["sso_start_url"],
+        sso_account_id=cfg["sso_account_id"],
+        sso_role_name=cfg["sso_role_name"],
+        account_id=None,
+        user_arn=None,
+        status=status,
+        error=error,
+    )
 
 
 def list_aws_profiles() -> list[str]:
@@ -102,169 +168,117 @@ def list_aws_profiles() -> list[str]:
     return sorted(profiles)
 
 
-def check_profile_status(profile_name: str) -> AwsProfile:
-    """Check the session status of a single AWS profile.
+def probe_aws_local(previous_state: AwsState | None = None) -> AwsState:
+    """Resolve AWS profile statuses purely from on-disk state.
 
-    Runs ``aws sts get-caller-identity`` with a 5-second timeout.
+    Fires zero subprocesses, so this finishes in single-digit milliseconds
+    regardless of profile count. Status is derived entirely from
+    ``~/.aws/config`` and ``~/.aws/sso/cache``:
+
+    * SSO profile + no local token        -> ``expired``
+    * SSO profile + token past expiresAt  -> ``expired``
+    * SSO profile + token still valid     -> ``active``
+    * Non-SSO profile                     -> carry previous status forward,
+                                             or ``unknown`` if we've never
+                                             successfully verified it
+
+    ``account_id`` / ``user_arn`` are carried forward from *previous_state*
+    when available (they can only be populated by a prior sts call, but
+    they rarely change so cached values are fine for display).
     """
-    # Read config metadata regardless of CLI availability
+    cli_available = _is_aws_cli_available()
+    profile_names = list_aws_profiles()
+
     config_path = _aws_config_path()
     config = configparser.ConfigParser()
     try:
         config.read(str(config_path))
     except configparser.Error:
         pass
-    cfg = _parse_config_for_profile(config, profile_name)
 
-    # Validate profile name before passing to subprocess
-    if not _is_safe_profile_name(profile_name):
-        return AwsProfile(
-            name=profile_name,
-            region=cfg["region"],
-            sso_start_url=cfg["sso_start_url"],
-            sso_account_id=cfg["sso_account_id"],
-            sso_role_name=cfg["sso_role_name"],
-            account_id=None,
-            user_arn=None,
-            status="error",
-            error=f"Invalid profile name: {profile_name}",
-        )
+    sso_tokens = _load_sso_token_cache() if cli_available else {}
+    previous_map: dict[str, AwsProfile] = {}
+    if previous_state is not None:
+        previous_map = {p.name: p for p in previous_state.profiles}
 
-    if not _is_aws_cli_available():
-        return AwsProfile(
-            name=profile_name,
-            region=cfg["region"],
-            sso_start_url=cfg["sso_start_url"],
-            sso_account_id=cfg["sso_account_id"],
-            sso_role_name=cfg["sso_role_name"],
-            account_id=None,
-            user_arn=None,
-            status="unknown",
-            error="aws CLI not found",
-        )
+    results: list[AwsProfile] = []
+    for name in profile_names:
+        cfg = _parse_config_for_profile(config, name)
+        prev = previous_map.get(name)
 
-    try:
-        result = subprocess.run(  # noqa: S603
-            [
-                "aws",
-                "sts",
-                "get-caller-identity",
-                "--profile",
-                profile_name,
-                "--output",
-                "json",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except subprocess.TimeoutExpired:
-        return AwsProfile(
-            name=profile_name,
-            region=cfg["region"],
-            sso_start_url=cfg["sso_start_url"],
-            sso_account_id=cfg["sso_account_id"],
-            sso_role_name=cfg["sso_role_name"],
-            account_id=None,
-            user_arn=None,
-            status="error",
-            error="Timed out after 5s",
-        )
+        if not cli_available:
+            results.append(_make_profile(name, cfg, "unknown", "aws CLI not found"))
+            continue
 
-    if result.returncode == 0:
-        try:
-            data = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            return AwsProfile(
-                name=profile_name,
+        sso_url = cfg["sso_start_url"]
+        if sso_url is None:
+            # Non-SSO profile: local state can't tell us anything. Preserve
+            # the previous probe's result so the drawer doesn't regress to
+            # "unknown" just because we stopped hitting sts.
+            if prev is not None:
+                results.append(prev)
+            else:
+                results.append(_make_profile(name, cfg, "unknown", "not verified"))
+            continue
+
+        token_expiry = sso_tokens.get(sso_url)
+        if token_expiry is None:
+            results.append(_make_profile(name, cfg, "expired", "no SSO token cached"))
+            continue
+        if _sso_token_expired(token_expiry):
+            results.append(_make_profile(name, cfg, "expired", "SSO token expired"))
+            continue
+
+        # Token is valid. Carry forward any previously verified identity
+        # fields so the drawer can still show account/arn next to the name.
+        account_id = prev.account_id if prev is not None else None
+        user_arn = prev.user_arn if prev is not None else None
+        results.append(
+            AwsProfile(
+                name=name,
                 region=cfg["region"],
-                sso_start_url=cfg["sso_start_url"],
+                sso_start_url=sso_url,
                 sso_account_id=cfg["sso_account_id"],
                 sso_role_name=cfg["sso_role_name"],
-                account_id=None,
-                user_arn=None,
-                status="error",
-                error="Failed to parse sts response",
+                account_id=account_id,
+                user_arn=user_arn,
+                status="active",
+                error=None,
             )
-        return AwsProfile(
-            name=profile_name,
-            region=cfg["region"],
-            sso_start_url=cfg["sso_start_url"],
-            sso_account_id=cfg["sso_account_id"],
-            sso_role_name=cfg["sso_role_name"],
-            account_id=data.get("Account"),
-            user_arn=data.get("Arn"),
-            status="active",
-            error=None,
         )
 
-    # Determine whether it's an expired token or some other error
-    stderr = result.stderr or ""
-    if "expired" in stderr.lower() or "sso session" in stderr.lower():
-        status = "expired"
-    else:
-        status = "error"
-
-    return AwsProfile(
-        name=profile_name,
-        region=cfg["region"],
-        sso_start_url=cfg["sso_start_url"],
-        sso_account_id=cfg["sso_account_id"],
-        sso_role_name=cfg["sso_role_name"],
-        account_id=None,
-        user_arn=None,
-        status=status,
-        error=stderr.strip() or "Unknown error",
-    )
-
-
-def probe_aws(profiles: list[str] | None = None) -> AwsState:
-    """Probe AWS profiles and return aggregate state.
-
-    If *profiles* is None, discovers them via :func:`list_aws_profiles`.
-    """
-    cli_available = _is_aws_cli_available()
-
-    if profiles is None:
-        profiles = list_aws_profiles()
-
-    if not cli_available:
-        # Still parse config metadata but mark everything unknown
-        config_path = _aws_config_path()
-        config = configparser.ConfigParser()
-        try:
-            config.read(str(config_path))
-        except configparser.Error:
-            pass
-
-        aws_profiles: list[AwsProfile] = []
-        for name in profiles:
-            cfg = _parse_config_for_profile(config, name)
-            aws_profiles.append(
-                AwsProfile(
-                    name=name,
-                    region=cfg["region"],
-                    sso_start_url=cfg["sso_start_url"],
-                    sso_account_id=cfg["sso_account_id"],
-                    sso_role_name=cfg["sso_role_name"],
-                    account_id=None,
-                    user_arn=None,
-                    status="unknown",
-                    error="aws CLI not found",
-                )
-            )
-        return AwsState(
-            profiles=tuple(aws_profiles),
-            aws_cli_available=False,
-            last_check_at=datetime.now(UTC).isoformat(),
-        )
-
-    checked = [check_profile_status(name) for name in profiles]
     return AwsState(
-        profiles=tuple(checked),
-        aws_cli_available=True,
+        profiles=tuple(results),
+        aws_cli_available=cli_available,
         last_check_at=datetime.now(UTC).isoformat(),
     )
+
+
+def save_aws_cache(state: AwsState) -> None:
+    """Persist AwsState to disk so the drawer paints instantly on next start."""
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    data = {
+        "profiles": [asdict(p) for p in state.profiles],
+        "aws_cli_available": state.aws_cli_available,
+        "last_check_at": state.last_check_at,
+    }
+    _CACHE_FILE.write_text(json.dumps(data, indent=2))
+
+
+def load_aws_cache() -> AwsState | None:
+    """Return the last persisted AwsState, or ``None`` if unavailable."""
+    if not _CACHE_FILE.exists():
+        return None
+    try:
+        data = json.loads(_CACHE_FILE.read_text())
+        profiles = tuple(AwsProfile(**p) for p in data.get("profiles", []))
+        return AwsState(
+            profiles=profiles,
+            aws_cli_available=bool(data.get("aws_cli_available", False)),
+            last_check_at=data.get("last_check_at"),
+        )
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return None
 
 
 def launch_sso_login(profile_name: str) -> bool:

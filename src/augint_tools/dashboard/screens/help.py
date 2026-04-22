@@ -17,25 +17,32 @@ Navigation
 
 Data
   r                   Refresh now
-  s                   Cycle sort (health, alpha, problem)
-  f                   Open filter panel (multi-select)
+  1                   Open filter panel (multi-select)
+  2                   Cycle sort (health, alpha, problem)
   m                   Manage repos (enable/disable)
   O                   Manage organizations (add/remove)
-  w                   Hide/show workspace repos
+  W                   Hide/show workspace repos
 
 Layouts and themes
-  g                   Cycle layout (packed, grouped, severity, dense, list)
-  t                   Cycle theme
+  3                   Cycle layout (packed, grouped, severity, dense, list)
+  4                   Cycle theme
+  5                   Toggle flash/blink
   ctrl + scroll       Resize card width
 
 Overlays
-  d                   Repo detail drawer
-  u                   Usage breakdown drawer
+  a                   AWS profile drawer
+  w                   Org drawer
+  s                   System drawer (CPU, docker, network)
+  d                   Repo detail / system drawer (cycle)
   e                   Toggle error drawer
   E                   Clear errors
   ?                   This help
   /                   Command palette
   esc                 Dismiss
+
+Quit
+  q                   Quit
+  ctrl+c              Quit
 
 Development
   F5                  Full restart (re-exec process)

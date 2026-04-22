@@ -1,21 +1,28 @@
-"""GitHub auth/env helpers for the dashboard.
+"""Dashboard logging helpers.
 
-Mirrors the helpers that used to live in augint-github's ``common.py``.
-Kept self-contained so the dashboard can ship as part of augint-tools without
-depending on augint-github at runtime.
+Auth/env helpers live in :mod:`augint_tools.env.auth`; ``load_env_config`` and
+``get_github_client`` are re-exported here so dashboard callers keep their
+local import path.
 """
 
 import logging
-import os
-import subprocess
 import sys
 from types import FrameType
 
-from dotenv import dotenv_values
-from github import Auth, Github
-from github.GithubException import UnknownObjectException
-from github.Repository import Repository
 from loguru import logger
+
+# Re-export the canonical auth helpers so dashboard code can keep importing
+# from ._common (the dashboard used to carry its own copies before the env
+# module existed).
+from augint_tools.env.auth import get_github_client, get_github_repo, load_env_config
+
+__all__ = [
+    "InterceptHandler",
+    "configure_logging",
+    "get_github_client",
+    "get_github_repo",
+    "load_env_config",
+]
 
 # Stdlib loggers that PyGithub, urllib3, and Textual use to emit chatty
 # request/retry records. They are silenced in the TUI (handlers never see
@@ -95,105 +102,3 @@ def configure_logging(verbose: bool, log_file: str | None = None) -> None:
     # sink still sees whatever propagates through the InterceptHandler.
     for name in _CHATTY_STDLIB_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
-
-
-def _load_dotenv_values(filename: str = ".env") -> dict[str, str]:
-    """Read key/value pairs from ``filename`` without mutating the process environment."""
-    values = dotenv_values(filename)
-    return {key: value for key, value in values.items() if value is not None}
-
-
-def load_env_config(filename: str = ".env") -> tuple[str, str, str]:
-    """Return GH_* configuration with explicit environment variables taking precedence."""
-    env_values = _load_dotenv_values(filename)
-    gh_repo = os.environ.get("GH_REPO", env_values.get("GH_REPO", ""))
-    gh_account = os.environ.get("GH_ACCOUNT", env_values.get("GH_ACCOUNT", ""))
-    gh_token = os.environ.get("GH_TOKEN", env_values.get("GH_TOKEN", ""))
-    return gh_repo, gh_account, gh_token
-
-
-def _get_gh_cli_token() -> str:
-    """Return the token from ``gh auth token`` (keyring/SSO) or an empty string.
-
-    Strips GH_TOKEN/GITHUB_TOKEN from the subprocess env so ``gh`` reports the
-    keyring token instead of echoing back whatever was already in the process
-    environment (which may be a narrow .env token auto-exported by direnv).
-    """
-    env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
-    try:
-        result = subprocess.run(
-            ["gh", "auth", "token"],
-            capture_output=True,
-            text=True,
-            env=env,
-            check=True,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return ""
-    return result.stdout.strip()
-
-
-def _resolve_token(filename: str = ".env", auth_source: str = "auto") -> str:
-    """Return a GitHub token from the configured auth source."""
-    dotenv_token = _load_dotenv_values(filename).get("GH_TOKEN", "").strip()
-
-    if auth_source == "dotenv":
-        if dotenv_token:
-            logger.debug("Using GitHub token from GH_TOKEN in .env (--env-auth).")
-            return dotenv_token
-        raise RuntimeError(
-            "No GitHub token found in .env. Remove --env-auth or add GH_TOKEN to .env."
-        )
-
-    if auth_source != "auto":
-        raise ValueError(f"Unsupported auth_source '{auth_source}'.")
-
-    gh_token = _get_gh_cli_token()
-    if gh_token:
-        logger.debug("Using GitHub token from gh auth token (keyring/SSO).")
-        return gh_token
-
-    env_token = os.environ.get("GH_TOKEN", "").strip()
-    if env_token:
-        logger.debug(
-            "Using GitHub token from GH_TOKEN environment variable (gh CLI keyring unavailable)."
-        )
-        return env_token
-
-    if dotenv_token:
-        logger.debug("Using GitHub token from GH_TOKEN in .env (keyring unavailable).")
-        return dotenv_token
-
-    raise RuntimeError(
-        "No GitHub token found. Authenticate with 'gh auth login', "
-        "or set GH_TOKEN in .env / environment."
-    )
-
-
-def get_github_repo(
-    github_account: str,
-    github_repo_name: str,
-    auth_source: str = "auto",
-) -> Repository:
-    """Get the GitHub repository object.
-
-    Tries user lookup first, falls back to organization.
-    """
-    token = _resolve_token(auth_source=auth_source)
-    auth = Auth.Token(token)
-    g = Github(auth=auth)
-    try:
-        repo = g.get_user(github_account).get_repo(github_repo_name)
-    except UnknownObjectException as e:
-        logger.critical(e)
-        repo = g.get_organization(github_account).get_repo(github_repo_name)
-        logger.critical("You must add GH_USER to your env file.")
-
-    return repo
-
-
-def get_github_client(auth_source: str = "auto") -> Github:
-    """Create an authenticated Github client from env, ``gh auth token``, or ``.env``."""
-    token = _resolve_token(auth_source=auth_source)
-    auth = Auth.Token(token)
-    return Github(auth=auth)

@@ -1,3 +1,0 @@
-# Team-wide age recipients for woxom
-# One public key per line, preceded by # name comment
-# Managed by: ai-tools team-secrets admin add-user/remove-user

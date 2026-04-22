@@ -916,6 +916,49 @@ class TestFindingsLinesHealthyInfo:
         assert "stale" in lines[0][0].plain
         assert not any("open issues" in line.plain for line, _ in lines)
 
+    def test_limit_none_returns_all_findings(self):
+        # list-mode rendering passes limit=None: every finding should make it
+        # through. Rich handles per-line ellipsis at render time.
+        RepoCard, spec = self._spec()
+        checks = [
+            HealthCheckResult(check_name=f"chk{i}", severity=Severity.MEDIUM, summary=f"f{i}")
+            for i in range(6)
+        ]
+        status = _status(full_name="org/busy")
+        health = RepoHealth(status=status, checks=checks)
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=None)
+        assert len(lines) == 6
+
+    def test_limit_zero_treated_as_unlimited(self):
+        # Defensive: limit<=0 also means unlimited so callers can pass 0
+        # without accidentally suppressing every finding.
+        RepoCard, spec = self._spec()
+        checks = [
+            HealthCheckResult(check_name=f"chk{i}", severity=Severity.MEDIUM, summary=f"f{i}")
+            for i in range(3)
+        ]
+        status = _status(full_name="org/busy")
+        health = RepoHealth(status=status, checks=checks)
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=0)
+        assert len(lines) == 3
+
+    def test_finding_summary_is_not_pre_truncated(self):
+        # The card width controls how much text shows; the helper itself must
+        # not truncate, so resizing via ctrl+mouse-wheel can grow the visible
+        # text dynamically.
+        RepoCard, spec = self._spec()
+        long_summary = "a" * 120
+        check = HealthCheckResult(
+            check_name="renovate_enabled", severity=Severity.HIGH, summary=long_summary
+        )
+        status = _status(full_name="org/busy")
+        health = RepoHealth(status=status, checks=[check])
+        card = RepoCard(health, theme_spec=spec)
+        lines = card._findings_lines(health, limit=None)
+        assert long_summary in lines[0][0].plain
+
 
 class TestDetailDrawerHealthySummary:
     """_detail_drawer_content surfaces OK info with clickable links when green."""

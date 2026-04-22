@@ -72,3 +72,37 @@ class TestRunGh:
             side_effect=FileNotFoundError,
         ):
             assert gh_cli._keyring_works() is False
+
+
+class TestAvailability:
+    def test_is_gh_available_true(self):
+        with patch("augint_tools.github.cli.run_gh") as mock_run:
+            mock_run.return_value = CompletedProcess(args=[], returncode=0, stdout="gh 2.0")
+            assert gh_cli.is_gh_available() is True
+
+    def test_is_gh_available_nonzero(self):
+        with patch("augint_tools.github.cli.run_gh") as mock_run:
+            mock_run.return_value = CompletedProcess(args=[], returncode=1, stdout="")
+            assert gh_cli.is_gh_available() is False
+
+    def test_is_gh_available_missing_binary(self):
+        with patch("augint_tools.github.cli.run_gh", side_effect=FileNotFoundError):
+            assert gh_cli.is_gh_available() is False
+
+    def test_is_gh_available_generic_exception(self):
+        with patch("augint_tools.github.cli.run_gh", side_effect=RuntimeError("boom")):
+            assert gh_cli.is_gh_available() is False
+
+    def test_is_gh_authenticated_true(self):
+        with patch("augint_tools.github.cli.run_gh") as mock_run:
+            mock_run.return_value = CompletedProcess(args=[], returncode=0, stdout="")
+            assert gh_cli.is_gh_authenticated() is True
+
+    def test_is_gh_authenticated_false(self):
+        with patch("augint_tools.github.cli.run_gh") as mock_run:
+            mock_run.return_value = CompletedProcess(args=[], returncode=1, stdout="")
+            assert gh_cli.is_gh_authenticated() is False
+
+    def test_is_gh_authenticated_exception(self):
+        with patch("augint_tools.github.cli.run_gh", side_effect=RuntimeError("boom")):
+            assert gh_cli.is_gh_authenticated() is False

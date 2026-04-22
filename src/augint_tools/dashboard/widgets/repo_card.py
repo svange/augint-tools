@@ -55,9 +55,12 @@ _STATUS_ICON = {
 # flags the card and its severity styling already communicates the concern.
 _ISSUE_HINT_THRESHOLD = 10
 
-# An open issue older than this turns the issues count yellow so it stands
-# out without escalating the whole card's severity.
-_ISSUE_STALE_AGE = timedelta(days=3)
+# Age tiers for the issues counter on the counts line. Kept in lock-step with
+# the ``open_issues`` health check (see ``stale_issue_days`` /
+# ``critical_issue_days`` defaults) so the count colour and the card border
+# severity tell the same story: stale -> yellow, ancient -> red.
+_ISSUE_STALE_AGE = timedelta(days=7)
+_ISSUE_CRITICAL_AGE = timedelta(days=30)
 
 
 def _within_window(iso_ts: str | None, window_seconds: int) -> bool:
@@ -313,11 +316,14 @@ class RepoCard(Widget):
     def _issue_count_style(self, status, spec: ThemeSpec) -> str:
         """Return the inline style for the issue count number.
 
-        Yellow when any human-filed issue is older than three days; blue when
-        there is at least one human-filed issue but the count is still below
-        the health check's threshold. Otherwise no override -- inherit the
-        card's default text colour.
+        Red when any human-filed issue is older than the critical threshold;
+        yellow at the stale threshold; blue when there is at least one
+        human-filed issue but the count is still below the health check's
+        threshold. Otherwise no override -- inherit the card's default text
+        colour.
         """
+        if _older_than(status.oldest_issue_created_at, _ISSUE_CRITICAL_AGE):
+            return spec.severity_colors[Severity.CRITICAL]
         if _older_than(status.oldest_issue_created_at, _ISSUE_STALE_AGE):
             return spec.severity_colors[Severity.MEDIUM]
         if 0 < status.human_open_issues < _ISSUE_HINT_THRESHOLD:
@@ -372,26 +378,20 @@ class RepoCard(Widget):
     def _healthy_info_lines(self, health: RepoHealth, limit: int | None) -> list[tuple[Text, str]]:
         """Informative OK-severity rows used when this repo has zero findings.
 
-        Surfaces open issues / PRs / drafts with click targets, so a green card
-        still offers a jumping-off point. Falls back to a single "healthy"
-        line linking to the repo home when there's nothing to show at all.
+        Surfaces open PRs / drafts with click targets, so a green card still
+        offers a jumping-off point. Open issues are intentionally omitted here
+        -- the counts line already carries a numerical indicator, and the
+        open_issues health check escalates severity when issues are old or
+        numerous. Falls back to a single "healthy" line linking to the repo
+        home when there's nothing to show at all.
         """
         spec = self._theme_spec
         status = health.status
         ok_style = spec.severity_colors[Severity.OK]
         full_name = status.full_name
-        issues_url = f"https://github.com/{full_name}/issues"
         pulls_url = f"https://github.com/{full_name}/pulls"
 
         info: list[tuple[Text, str]] = []
-        if status.open_issues > 0:
-            noun = "issue" if status.open_issues == 1 else "issues"
-            info.append(
-                (
-                    Text(f"{status.open_issues} open {noun}", style=ok_style),
-                    issues_url,
-                )
-            )
         # "open PRs" here means non-draft PRs -- drafts get their own line so
         # the reader can tell at a glance which ones are actually review-ready.
         ready_prs = max(0, status.open_prs - status.draft_prs)

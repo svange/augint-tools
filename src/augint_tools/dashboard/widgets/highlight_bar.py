@@ -9,6 +9,7 @@ from rich.text import Text
 from textual.widgets import Static
 
 from ..health import Severity
+from ..state import visible_healths
 from .status_bar import format_header_refresh_line
 
 if TYPE_CHECKING:
@@ -49,19 +50,23 @@ class HighlightBar(Static):
             return
 
         worst = min(state.healths, key=lambda h: h.score)
-        problems = [h for h in state.healths if h.worst_severity != Severity.OK]
+        visible = visible_healths(state)
+        total_problems = sum(1 for h in state.healths if h.worst_severity != Severity.OK)
         total_issues = sum(h.status.open_issues for h in state.healths)
         total_prs = sum(h.status.open_prs for h in state.healths)
+        visible_problems = sum(1 for h in visible if h.worst_severity != Severity.OK)
+        visible_issues = sum(h.status.open_issues for h in visible)
+        visible_prs = sum(h.status.open_prs for h in visible)
 
         line1 = Text()
         line1.append("worst: ", style="bold")
         line1.append(f"{worst.status.name} ({worst.worst_severity.name.lower()})")
         line1.append("   problems: ", style="bold")
-        line1.append(str(len(problems)))
+        line1.append(f"{visible_problems}/{total_problems}")
         line1.append("   issues: ", style="bold")
-        line1.append(str(total_issues))
+        line1.append(f"{visible_issues}/{total_issues}")
         line1.append("   prs: ", style="bold")
-        line1.append(str(total_prs))
+        line1.append(f"{visible_prs}/{total_prs}")
 
         self.update(Text("\n").join([line1, self._refresh_line(), Text(" ")]))
 

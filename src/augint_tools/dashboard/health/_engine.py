@@ -93,7 +93,7 @@ def _fetch_standards_yaml(gh: Github, url: str) -> dict:
     dashboard's GraphQL queries applies.
     """
     # ``requestJsonAndCheck`` handles auth, retries, and rate-limit headers.
-    requester = gh._Github__requester  # type: ignore[attr-defined]
+    requester = gh.requester
     path = url.replace("https://api.github.com", "")
     _headers, data = requester.requestJsonAndCheck("GET", path)
     content = data.get("content") or ""

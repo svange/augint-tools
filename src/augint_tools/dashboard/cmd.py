@@ -167,6 +167,11 @@ def dashboard_command(
     # Legacy single-org mode (--org): use exactly that org.
     # Legacy single-repo mode (no flags): GH_REPO + GH_ACCOUNT from env.
     # ------------------------------------------------------------------
+    health_config: dict = {
+        "stale_pr_days": stale_days,
+        "standards_engine": {"url": standards_yaml_url},
+    }
+
     multi_org = (show_all or interactive) and not org
 
     if multi_org:
@@ -190,10 +195,6 @@ def dashboard_command(
                 raise click.ClickException(f"No repositories found for {', '.join(owners)}.")
 
         warn_rate_limit(len(repos), refresh_seconds)
-        health_config = {
-            "stale_pr_days": stale_days,
-            "standards_engine": {"url": standards_yaml_url},
-        }
 
         try:
             run_dashboard(
@@ -245,10 +246,6 @@ def dashboard_command(
         owners = [gh_account_env]
 
     warn_rate_limit(len(repos), refresh_seconds)
-    health_config = {
-        "stale_pr_days": stale_days,
-        "standards_engine": {"url": standards_yaml_url},
-    }
 
     try:
         run_dashboard(

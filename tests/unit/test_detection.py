@@ -1,6 +1,10 @@
 """Tests for detection engine."""
 
-from augint_tools.detection.commands import resolve_command_plan
+from pathlib import Path
+from unittest.mock import patch
+
+from augint_tools.detection.commands import CommandPlan, resolve_command_plan
+from augint_tools.detection.engine import GitHubState, RepoContext, detect
 from augint_tools.detection.framework import detect_framework
 from augint_tools.detection.language import detect_language
 from augint_tools.detection.toolchain import ToolchainInfo, detect_toolchain
@@ -112,3 +116,103 @@ class TestCommandPlanResolution:
         assert plan.quality == "npx next lint"
         assert plan.tests == "npm test"
         assert plan.build == "npx next build"
+
+
+class TestDetectEngine:
+    def _toolchain(self) -> ToolchainInfo:
+        return ToolchainInfo(
+            package_manager="uv",
+            has_pre_commit=True,
+            has_pytest=True,
+            has_ruff=True,
+            has_mypy=True,
+        )
+
+    def _plan(self) -> CommandPlan:
+        return CommandPlan(quality="q", tests="t", security="s", licenses="l", build="b")
+
+    def test_detect_not_a_git_repo_defaults(self, tmp_path):
+        with (
+            patch("augint_tools.detection.engine.detect_language", return_value="python"),
+            patch("augint_tools.detection.engine.detect_framework", return_value="plain"),
+            patch("augint_tools.detection.engine.detect_toolchain", return_value=self._toolchain()),
+            patch("augint_tools.detection.engine.resolve_command_plan", return_value=self._plan()),
+            patch("augint_tools.detection.engine.is_git_repo", return_value=False),
+            patch("augint_tools.detection.engine.is_gh_available", return_value=False),
+        ):
+            ctx = detect(tmp_path)
+        assert isinstance(ctx, RepoContext)
+        assert ctx.language == "python"
+        assert ctx.default_branch == "main"
+        assert ctx.current_branch is None
+        assert ctx.target_pr_branch == "main"
+        assert ctx.github == GitHubState()
+
+    def test_detect_git_without_gh(self, tmp_path):
+        with (
+            patch("augint_tools.detection.engine.detect_language", return_value="python"),
+            patch("augint_tools.detection.engine.detect_framework", return_value="plain"),
+            patch("augint_tools.detection.engine.detect_toolchain", return_value=self._toolchain()),
+            patch("augint_tools.detection.engine.resolve_command_plan", return_value=self._plan()),
+            patch("augint_tools.detection.engine.is_git_repo", return_value=True),
+            patch("augint_tools.detection.engine.detect_base_branch", return_value="dev"),
+            patch("augint_tools.detection.engine.get_current_branch", return_value="feat/x"),
+            patch("augint_tools.detection.engine.is_gh_available", return_value=False),
+        ):
+            ctx = detect(tmp_path)
+        assert ctx.default_branch == "dev"
+        assert ctx.current_branch == "feat/x"
+        assert ctx.github.available is False
+        assert ctx.github.repo_slug is None
+
+    def test_detect_full_gh_path(self, tmp_path):
+        with (
+            patch("augint_tools.detection.engine.detect_language", return_value="python"),
+            patch("augint_tools.detection.engine.detect_framework", return_value="plain"),
+            patch("augint_tools.detection.engine.detect_toolchain", return_value=self._toolchain()),
+            patch("augint_tools.detection.engine.resolve_command_plan", return_value=self._plan()),
+            patch("augint_tools.detection.engine.is_git_repo", return_value=True),
+            patch("augint_tools.detection.engine.detect_base_branch", return_value="main"),
+            patch("augint_tools.detection.engine.get_current_branch", return_value="main"),
+            patch("augint_tools.detection.engine.is_gh_available", return_value=True),
+            patch("augint_tools.detection.engine.is_gh_authenticated", return_value=True),
+            patch(
+                "augint_tools.detection.engine.get_remote_url",
+                return_value="https://github.com/org/repo.git",
+            ),
+        ):
+            ctx = detect(tmp_path)
+        assert ctx.github.available is True
+        assert ctx.github.authenticated is True
+        assert ctx.github.repo_slug == "org/repo"
+
+    def test_detect_defaults_to_cwd(self):
+        with (
+            patch("augint_tools.detection.engine.detect_language", return_value="unknown"),
+            patch("augint_tools.detection.engine.detect_framework", return_value="plain"),
+            patch("augint_tools.detection.engine.detect_toolchain", return_value=self._toolchain()),
+            patch("augint_tools.detection.engine.resolve_command_plan", return_value=self._plan()),
+            patch("augint_tools.detection.engine.is_git_repo", return_value=False),
+            patch("augint_tools.detection.engine.is_gh_available", return_value=False),
+        ):
+            ctx = detect()
+        assert ctx.path == Path.cwd()
+
+    def test_to_dict_round_trip(self, tmp_path):
+        ctx = RepoContext(
+            language="python",
+            framework="sam",
+            default_branch="main",
+            current_branch="feat/x",
+            target_pr_branch="main",
+            toolchain=self._toolchain(),
+            command_plan=self._plan(),
+            github=GitHubState(available=True, authenticated=True, repo_slug="org/r"),
+            path=tmp_path,
+        )
+        d = ctx.to_dict()
+        assert d["language"] == "python"
+        assert d["toolchain"]["package_manager"] == "uv"
+        assert d["command_plan"]["quality"] == "q"
+        assert d["github"] == {"available": True, "authenticated": True, "repo_slug": "org/r"}
+        assert d["path"] == str(tmp_path)

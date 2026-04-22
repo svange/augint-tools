@@ -1,5 +1,6 @@
 """Tests for execution module."""
 
+import subprocess
 from unittest.mock import Mock, patch
 
 from augint_tools.execution import run_command
@@ -71,3 +72,53 @@ class TestCommandDiscovery:
         """Test when no lint command found."""
         cmd = discover_lint_command(tmp_path)
         assert cmd is None
+
+    def test_discover_test_command_pyproject(self, tmp_path):
+        (tmp_path / "pyproject.toml").touch()
+        assert discover_test_command(tmp_path) == "pytest -v"
+
+    def test_discover_test_command_npm(self, tmp_path):
+        (tmp_path / "package.json").touch()
+        assert discover_test_command(tmp_path) == "npm test"
+
+    def test_discover_test_command_make(self, tmp_path):
+        (tmp_path / "Makefile").touch()
+        assert discover_test_command(tmp_path) == "make test"
+
+    def test_discover_test_command_defaults_to_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert discover_test_command() is None
+
+    def test_discover_lint_command_npm(self, tmp_path):
+        (tmp_path / "package.json").touch()
+        assert discover_lint_command(tmp_path) == "npm run lint"
+
+    def test_discover_lint_command_make(self, tmp_path):
+        (tmp_path / "Makefile").touch()
+        assert discover_lint_command(tmp_path) == "make lint"
+
+    def test_discover_lint_command_defaults_to_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert discover_lint_command() is None
+
+
+class TestRunCommandFailurePaths:
+    def test_timeout_returns_failure_with_message(self):
+        with patch(
+            "augint_tools.execution.runner.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="x", timeout=5),
+        ):
+            result = run_command("sleep 10", timeout=5)
+        assert result.success is False
+        assert result.exit_code == -1
+        assert "timed out" in result.stderr
+
+    def test_generic_exception_returns_failure(self):
+        with patch(
+            "augint_tools.execution.runner.subprocess.run",
+            side_effect=OSError("permission denied"),
+        ):
+            result = run_command("x")
+        assert result.success is False
+        assert result.exit_code == -1
+        assert "permission denied" in result.stderr

@@ -195,10 +195,12 @@ class TestParseResponse:
         assert snap.has_dev_branch
         assert snap.dev_rollup_state == "FAILURE"
 
-    def test_dev_as_default_branch_not_double_counted(self):
-        # aillc-web-style layout: dev IS the default branch and a separate
-        # refs/heads/dev lookup aliases the same commit. Surfacing both would
-        # make broken_ci fire twice on a single failing pipeline.
+    def test_dev_as_default_branch_routes_to_dev_slot(self):
+        # aillc-web-style layout (also: new projects that stage on dev before
+        # cutting main). defaultBranchRef and refs/heads/dev alias the same
+        # commit; the parser must route the rollup into the dev slot and
+        # mark main as ABSENT so the card shows "dev X  main N/A" without
+        # double-counting a single failing pipeline in broken_ci.
         payload = _graphql_repo_payload(
             full_name="org/web",
             has_dev=True,
@@ -210,9 +212,18 @@ class TestParseResponse:
         snapshots, _, _ = parse_response(response, [_mock_repo("org/web")])
         snap = snapshots["org/web"]
         assert snap.default_branch == "dev"
-        assert snap.main_rollup_state == "FAILURE"
-        assert snap.has_dev_branch is False
-        assert snap.dev_rollup_state is None
+        assert snap.has_dev_branch is True
+        # Main slot marked absent, no SHA -- nothing to fetch a failing run for.
+        assert snap.main_rollup_state == "ABSENT"
+        assert snap.main_head_sha is None
+        # Dev slot carries the default-branch rollup + SHA (routed from main).
+        assert snap.dev_rollup_state == "FAILURE"
+        assert snap.dev_head_sha == "abc123"
+
+    def test_absent_translates_to_absent(self):
+        from augint_tools.dashboard._gql import translate_rollup_state
+
+        assert translate_rollup_state("ABSENT") == "absent"
 
     def test_renovate_dependency_dashboard_excluded_from_open_issues(self):
         # A repo whose only open issue is Renovate's "Dependency Dashboard"

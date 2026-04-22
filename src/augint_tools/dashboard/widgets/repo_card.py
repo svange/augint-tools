@@ -45,6 +45,9 @@ _STATUS_ICON = {
     "failure": "FAIL",
     "in_progress": "RUN",
     "unknown": "? ",
+    # Branch doesn't exist yet (e.g. main hasn't been cut off dev on a new
+    # project). Shown in yellow so it stands out without reading as failure.
+    "absent": "N/A",
 }
 
 # Upper bound for the subtle blue hint on the counts line. Matches the default
@@ -523,6 +526,9 @@ class RepoCard(Widget):
             return f"bold {spec.status_fail}"
         if status == "in_progress":
             return f"bold {spec.status_running}"
+        if status == "absent":
+            # Branch not yet created -- informational yellow, not alerting.
+            return "bold yellow"
         return f"bold {spec.status_unknown}"
 
     # ---- mouse + focus ----

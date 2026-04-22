@@ -36,7 +36,16 @@ class ServiceMissingDevBranchCheck:
                 severity=Severity.OK,
                 summary="not a service repo",
             )
-        if status.looks_like_service and not status.has_dev_branch:
+        # ``has_dev_branch`` is False in two different situations:
+        #   1. No refs/heads/dev exists (real drift -- fire CRITICAL).
+        #   2. refs/heads/dev *is* the default branch, so _parse_repo collapses
+        #      it into the default-branch slot to avoid double-counting in
+        #      broken_ci (e.g. aillc-web). Not drift -- stay OK.
+        if (
+            status.looks_like_service
+            and not status.has_dev_branch
+            and status.default_branch != "dev"
+        ):
             markers = ", ".join(status.service_markers) or "service markers detected"
             return HealthCheckResult(
                 check_name=self.name,

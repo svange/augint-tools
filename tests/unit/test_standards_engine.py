@@ -17,6 +17,7 @@ from augint_tools.dashboard.health._handlers import (
     all_handlers,
     register_handler,
 )
+from augint_tools.dashboard.health.checks.yaml_engine import YamlEngineCheck
 
 
 @pytest.fixture(autouse=True)
@@ -471,6 +472,84 @@ def _stub_gh_for_doc(doc: dict):
     stub = MagicMock()
     requester = MagicMock()
     requester.requestJsonAndCheck.return_value = ({}, {"content": encoded, "encoding": "base64"})
-    # Mirror the name-mangled attribute the engine reaches for.
-    stub._Github__requester = requester
+    stub.requester = requester
     return stub
+
+
+# ---------------------------------------------------------------------------
+# Engine caching (YamlEngineCheck level)
+# ---------------------------------------------------------------------------
+
+
+class TestEngineCaching:
+    """Verify the engine caches results by (SHA, rulesets) and invalidates correctly."""
+
+    def _make_config(self, doc: dict) -> dict:
+        """Build a config dict with a stubbed gh that returns ``doc``."""
+        return {
+            "standards_engine": {
+                "gh": _stub_gh_for_doc(doc),
+                "url": "stub://standards.yaml",
+            },
+        }
+
+    def _make_status(self, full_name: str = "org/repo") -> MagicMock:
+        s = MagicMock()
+        s.full_name = full_name
+        s.is_workspace = False
+        s.looks_like_service = False
+        s.is_org = False
+        s.default_branch = "main"
+        return s
+
+    def test_same_sha_same_rulesets_returns_cached(self):
+        doc = {
+            "checks": [
+                {"id": "x", "check": {"type": "handler", "name": "_test_always_pass"}},
+            ]
+        }
+        check = YamlEngineCheck()
+        config = self._make_config(doc)
+        repo = MagicMock()
+        status = self._make_status()
+        ctx1 = _ctx(main_head_sha="abc123", rulesets=[{"name": "r1"}])
+        ctx2 = _ctx(main_head_sha="abc123", rulesets=[{"name": "r1"}])
+
+        r1 = check.evaluate(repo, status, config=config, context=ctx1)
+        r2 = check.evaluate(repo, status, config=config, context=ctx2)
+        # Same object returned from cache.
+        assert r1 is r2
+
+    def test_sha_change_invalidates_cache(self):
+        doc = {
+            "checks": [
+                {"id": "x", "check": {"type": "handler", "name": "_test_always_pass"}},
+            ]
+        }
+        check = YamlEngineCheck()
+        config = self._make_config(doc)
+        repo = MagicMock()
+        status = self._make_status()
+        ctx1 = _ctx(main_head_sha="abc123", rulesets=[{"name": "r1"}])
+        ctx2 = _ctx(main_head_sha="def456", rulesets=[{"name": "r1"}])
+
+        r1 = check.evaluate(repo, status, config=config, context=ctx1)
+        r2 = check.evaluate(repo, status, config=config, context=ctx2)
+        assert r1 is not r2
+
+    def test_rulesets_change_invalidates_cache(self):
+        doc = {
+            "checks": [
+                {"id": "x", "check": {"type": "handler", "name": "_test_always_pass"}},
+            ]
+        }
+        check = YamlEngineCheck()
+        config = self._make_config(doc)
+        repo = MagicMock()
+        status = self._make_status()
+        ctx1 = _ctx(main_head_sha="abc123", rulesets=[{"name": "r1"}])
+        ctx2 = _ctx(main_head_sha="abc123", rulesets=[{"name": "r1"}, {"name": "r2"}])
+
+        r1 = check.evaluate(repo, status, config=config, context=ctx1)
+        r2 = check.evaluate(repo, status, config=config, context=ctx2)
+        assert r1 is not r2

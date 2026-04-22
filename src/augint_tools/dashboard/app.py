@@ -36,6 +36,7 @@ from ._gql import (
     pick_renovate_config,
 )
 from ._helpers import get_viewer_login, list_repos_multi, list_user_orgs, strip_dotfile_repos
+from ._rulesets import RulesetFetcher
 from .health import FetchContext, RepoHealth, run_health_checks
 from .layouts import list_layouts
 from .prefs import DashboardPrefs, save_prefs
@@ -1370,6 +1371,7 @@ class DashboardApp(App[None]):
         # network path when no client is provided (tests, offline mode).
         engine_cfg = self._health_config.setdefault("standards_engine", {})
         engine_cfg.setdefault("gh", self._github_client)
+        self._ruleset_fetcher = RulesetFetcher()
         self._auto_discover = auto_discover
         # Original repo names -- used to scope re-listing in non-discover mode.
         self._original_repo_names: set[str] = {r.full_name for r in self._repos}
@@ -1773,6 +1775,17 @@ class DashboardApp(App[None]):
             for key in stale_keys:
                 self._failing_detail_cache.pop(key, None)
 
+        # Phase 2c: Fetch rulesets via REST (separate rate-limit pool).
+        # One list call per repo per cycle; detail calls cached by updated_at.
+        rulesets_by_repo: dict[str, list[dict]] = {}
+        if self._github_client is not None and not self.state.cancel_requested:
+            for status in status_by_name.values():
+                if status.full_name in failed_repos:
+                    continue
+                rulesets_by_repo[status.full_name] = self._ruleset_fetcher.fetch(
+                    status.full_name, self._github_client
+                )
+
         # Phase 3: team assignments -- one batched GraphQL query per owner,
         # fetched on a slow cadence (teams_ttl_seconds) because team
         # membership changes rarely. Fresh snapshot replaces state.repo_teams
@@ -1826,7 +1839,7 @@ class DashboardApp(App[None]):
                         pyproject_text=pick_pyproject(snapshot),
                         package_json_text=pick_package_json(snapshot),
                         precommit_text=pick_precommit(snapshot),
-                        rulesets=[],  # Populated from REST in Phase 2c
+                        rulesets=rulesets_by_repo.get(status.full_name, []),
                         main_head_sha=snapshot.main_head_sha,
                         owner=snapshot.owner,
                         repo_name=snapshot.name,

@@ -8,7 +8,7 @@ from textual.containers import Container
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-_HELP_TEXT = """ai-gh dashboard -- controls
+_HELP_TEXT = """ai-tools dashboard -- controls
 
 Navigation
   h j k l / arrows    Move selection

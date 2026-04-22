@@ -70,6 +70,72 @@ ai-tools repo submit
 - `ci watch` - Monitor CI run
 - `ci triage` - Classify CI failures
 
+## Dashboard Deployment Links
+
+Each repo card can surface clickable shortcuts to its live deployment URLs (plus the repo's PyPI page for Python libraries). Links come from a user-global yaml file so the same config works from any terminal or WSL shell.
+
+### Yaml file
+
+Path: `~/.augint-tools/deployments.yaml` (resolves to `%USERPROFILE%\.augint-tools\deployments.yaml` on Windows).
+
+Schema: a map of `owner/repo` slugs to a flat list of `{label, url}` entries.
+
+```yaml
+augmentingintegrations/aillc-web:
+  - { label: dev,  url: "https://www.org.aillc.link/" }
+  - { label: main, url: "https://www.augmentingintegrations.com/" }
+augmentingintegrations/ai-lls-api:
+  - { label: dev,  url: "https://lls-api.lls.aillc.link" }
+  - { label: main, url: "https://lls-api.landlinescrubber.link" }
+augmentingintegrations/woxom-sales-dashboard:
+  - { label: dashboard,         url: "https://dashboard.woxom.aillc.link/" }
+  - { label: jacksonhealthcare, url: "https://jacksonhealthcare.woxom.aillc.link/" }
+```
+
+### Reserved labels
+
+| label  | glyph | treatment |
+|--------|-------|-----------|
+| `main` | `p`   | prod -- middle-click on card title opens this |
+| `dev`  | `s`   | staging -- shift + middle-click on card title opens this |
+| `pypi` | `π`   | auto-synthesized for Python libraries (see below); manual entry overrides the auto guess |
+
+Any other label is free-form; the card glyph is the first alphanumeric character of the label (lowercased).
+
+Deployment glyphs are rendered right-aligned on the CI status line of each card (e.g. `dev PASS  main PASS       s p`). Each glyph is an OSC-8 hyperlink clickable in supported terminals.
+
+### Auto-PyPI
+
+If a repo has the `py` tag, is not a service (`looks_like_service=False`), and is not an org repo (`is_org=False`), the card and drawer get an automatic `https://pypi.org/project/<repo-name>/` link rendered in a dim style. If the repo's PyPI name differs from its GitHub name, add a manual `pypi` entry in the yaml -- manual entries always win.
+
+### Interaction model
+
+**Keyboard shortcuts** (work on the selected repo, one-hand cluster):
+
+| Key | Action |
+|-----|--------|
+| `z` | Open prod/main deployment URL |
+| `x` | Open dev/staging deployment URL |
+| `c` | Open 1st supplemental link (after main/dev) |
+| `v` | Open 2nd supplemental link |
+| `b` | Open 3rd supplemental link |
+| `f` | Open the "Manage deployment links" modal |
+
+**Mouse** (on the title row; depends on terminal modifier support):
+
+- **Middle-click on the title** -> open prod URL (falls back to the GitHub repo page if no `main` link is configured).
+- **Shift + middle-click on the title** -> open dev URL, or toast "no url configured for dev" if none.
+- **Ctrl + left-click on the title** -> open the "Manage deployment links" modal for that repo.
+- **Left-click on a glyph** (`s` / `p` / `π` / first-letter) -> terminal-native OSC-8 link opens the URL directly.
+
+Note: mouse modifier support (shift+click, ctrl+click) varies by terminal. Windows Terminal may intercept ctrl+click for OSC-8 link handling. The keyboard shortcuts (`p`, `P`, `u`) are the reliable primary interface.
+
+The detail drawer (press `d`) lists every link in a `deployments:` section with the host shown as visible text and the full URL as the OSC-8 target.
+
+### Manage modal
+
+Press `f` or middle-click on the repo name to open a modal scoped to the selected repo. The modal has dedicated fields for Production and Staging URLs at the top (Set/Clear), plus an add row for supplemental links. Existing supplementals are listed inline with Remove buttons (AWS Security Groups style). Every mutation writes the yaml immediately. Auto-PyPI entries are not listed (they aren't stored in the yaml); add a manual `pypi` row to override the guess.
+
 ## Development
 
 ### Setup

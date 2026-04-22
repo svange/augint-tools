@@ -18,6 +18,7 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
 
+from .. import deployments as dep
 from ..health import RepoHealth, Severity
 
 if TYPE_CHECKING:
@@ -129,6 +130,13 @@ class RepoCard(Widget):
     class GoBack(Message):
         """Emitted on right-click -- app closes drawer or pops the top screen."""
 
+    class ManageDeploymentsRequested(Message):
+        """Emitted on ctrl + left-click on the title -- open the deployment-links modal."""
+
+        def __init__(self, full_name: str) -> None:
+            super().__init__()
+            self.full_name = full_name
+
     health: reactive[RepoHealth | None] = reactive(None)
     selected: reactive[bool] = reactive(False)
     stale: reactive[bool] = reactive(False)
@@ -153,6 +161,15 @@ class RepoCard(Widget):
         self.can_focus = True
         # Rebuilt on every render: y-coordinate inside the card -> click target.
         self._click_map: dict[int, _ClickRegion] = {}
+        # Deployment URLs resolved during render, used by click routing.
+        self._title_prod_url: str | None = None
+        self._title_dev_url: str | None = None
+        # X-range of the repo name on the title line (y=1), for left-click → GitHub.
+        self._title_name_x: tuple[int, int] = (0, 0)
+        # CI-line click zones: (x_start, x_end, left_url, middle_url, middle_only).
+        self._ci_click_zones: list[tuple[int, int, str, str, bool]] = []
+        # Y coordinate of the CI line, set during render.
+        self._ci_line_y: int = 2
 
     @property
     def repo_full_name(self) -> str:
@@ -263,10 +280,13 @@ class RepoCard(Widget):
 
     def _title_line(self, health: RepoHealth) -> Text:
         line = Text()
+        offset = self._content_start_x()
         if self.selected:
             line.append(" > ", style=f"bold black on {self._theme_spec.status_pass}")
             line.append(" ")
+        x0 = offset + len(line.plain)
         line.append(health.status.name, style="bold")
+        self._title_name_x = (x0, offset + len(line.plain))
         # "svc" is the union of both signals: a repo is service-flavoured if
         # it either runs a dev branch (gitflow-style) or carries a structural
         # marker like template.yaml/Dockerfile. Repos satisfying neither are
@@ -282,24 +302,81 @@ class RepoCard(Widget):
     def _ci_line(self, health: RepoHealth) -> Text:
         spec = self._theme_spec
         status = health.status
+        offset = self._content_start_x()
         line = Text()
+        # Deployment click zones rebuilt each render.  Each entry is
+        # (x_start, x_end, left_url, middle_url, middle_only).
+        # ``middle_only=True`` means left-click falls through to select (used
+        # for the dev/main labels so only middle-click opens the deployment).
+        # ``left_url`` / ``middle_url`` can differ (e.g. pypi vs pypistats).
+        zones: list[tuple[int, int, str, str, bool]] = []
+
+        links = dep.resolve_links(status)
+        self._title_prod_url = None
+        self._title_dev_url = None
+        dev_link = dep.find_link(links, "dev")
+        main_link = dep.find_link(links, "main")
+        if dev_link:
+            self._title_dev_url = dev_link.url
+        if main_link:
+            self._title_prod_url = main_link.url
+
+        _LINK_STYLE = "cyan underline"
+
         if status.has_dev_branch and status.dev_status is not None:
-            line.append("dev ")
+            # "dev" label -- middle-click only opens the deployment URL.
+            x0 = offset + len(line.plain)
+            line.append("dev", style=_LINK_STYLE if dev_link else "")
+            if dev_link:
+                zones.append((x0, offset + len(line.plain), dev_link.url, dev_link.url, True))
+            line.append(" ")
             line.append(
                 _STATUS_ICON.get(status.dev_status, "?"),
                 style=self._status_style(status.dev_status, spec),
             )
-            line.append("  main ")
+            line.append("  ")
+            # "main" label -- middle-click only.
+            x0 = offset + len(line.plain)
+            line.append("main", style=_LINK_STYLE if main_link else "")
+            if main_link:
+                zones.append((x0, offset + len(line.plain), main_link.url, main_link.url, True))
+            line.append(" ")
             line.append(
                 _STATUS_ICON.get(status.main_status, "?"),
                 style=self._status_style(status.main_status, spec),
             )
         else:
-            line.append("main ")
+            x0 = offset + len(line.plain)
+            line.append("main", style=_LINK_STYLE if main_link else "")
+            if main_link:
+                zones.append((x0, offset + len(line.plain), main_link.url, main_link.url, True))
+            line.append(" ")
             line.append(
                 _STATUS_ICON.get(status.main_status, "?"),
                 style=self._status_style(status.main_status, spec),
             )
+
+        # Supplemental links as bracketed badges, appended inline.
+        # Both left and middle click work on badges.
+        supplementals = [
+            link for link in dep.sort_links_for_display(links) if link.label not in ("dev", "main")
+        ]
+        for link in supplementals:
+            line.append("  ")
+            glyph = dep.tag_glyph(link.label)
+            x0 = offset + len(line.plain)
+            badge_style = "cyan bold" if link.source != "auto" else "cyan dim"
+            line.append(f"[{glyph}]", style=badge_style)
+            # PyPI: left -> pypistats (quick stats), middle -> pypi.org (package page).
+            if link.label == "pypi":
+                left_url = f"https://pypistats.org/packages/{status.name}"
+                middle_url = link.url
+            else:
+                left_url = link.url
+                middle_url = link.url
+            zones.append((x0, offset + len(line.plain), left_url, middle_url, False))
+
+        self._ci_click_zones = zones
         return line
 
     def _counts_line(self, health: RepoHealth) -> Text:
@@ -430,6 +507,7 @@ class RepoCard(Widget):
         self._click_map[len(parts)] = _ClickRegion(url=self._repo_url(health))
 
         parts.append(self._ci_line(health))
+        self._ci_line_y = len(parts)
         self._click_map[len(parts)] = _ClickRegion(url=self._actions_url(health))
 
         parts.append(self._counts_line(health))
@@ -449,6 +527,7 @@ class RepoCard(Widget):
         self._click_map[len(parts)] = _ClickRegion(url=self._repo_url(health))
 
         parts.append(self._ci_line(health))
+        self._ci_line_y = len(parts)
         self._click_map[len(parts)] = _ClickRegion(url=self._actions_url(health))
 
         for line, url in self._findings_lines(health, 1):
@@ -465,6 +544,7 @@ class RepoCard(Widget):
         self._click_map[len(parts)] = _ClickRegion(url=self._repo_url(health))
 
         parts.append(self._ci_line(health))
+        self._ci_line_y = len(parts)
         self._click_map[len(parts)] = _ClickRegion(url=self._actions_url(health))
 
         parts.append(self._counts_line(health))
@@ -537,16 +617,38 @@ class RepoCard(Widget):
         if event.button == 3:
             self.post_message(self.GoBack())
             return
+        y = getattr(event, "y", 0)
+        x = getattr(event, "x", 0)
+        # Middle-click on the title row (y=1) opens the manage-deployments
+        # modal instead of the GitHub repo page.
+        if y == 1 and event.button == 2 and self.repo_full_name:
+            self.post_message(self.ManageDeploymentsRequested(self.repo_full_name))
+            return
+        # CI-line deployment zones: left or middle click on an underlined
+        # "dev"/"main" label or a [badge] opens the deployment URL directly.
+        # Clicks outside zones fall through to the normal per-row handler
+        # (which routes to /actions for the CI row).
+        if y == self._ci_line_y and event.button in (1, 2):
+            for x_start, x_end, left_url, middle_url, middle_only in self._ci_click_zones:
+                if x_start <= x < x_end:
+                    if event.button == 2:
+                        self.post_message(self.OpenUrl(middle_url))
+                        return
+                    if event.button == 1 and not middle_only:
+                        self.post_message(self.OpenUrl(left_url))
+                        return
         if event.button == 2 or (event.button == 1 and getattr(event, "meta", False)):
             url = self._resolve_click_url(event)
             self.post_message(self.OpenUrl(url))
             return
         if event.button == 1:
-            # Single click only selects -- a plain click must never
-            # trap the user in a modal drilldown screen.  Use a
-            # double-click (chord), the Enter key, or 'o' to open full
-            # detail; ``event.chain`` is 2 on the second click of a
-            # double-click.
+            # Left-click on the repo name text (title row) opens the GitHub
+            # code page. Left-click anywhere else on the card selects it.
+            if y == 1 and self.repo_full_name and self.health is not None:
+                nx0, nx1 = self._title_name_x
+                if nx0 <= x < nx1:
+                    self.post_message(self.OpenUrl(self._repo_url(self.health)))
+                    return
             self.post_message(self.Selected(self.repo_full_name))
             if getattr(event, "chain", 1) >= 2:
                 self.post_message(self.DrilldownRequested(self.repo_full_name))

@@ -26,8 +26,13 @@ if TYPE_CHECKING:
 
     from ._gql import RepoSnapshot
 
-CACHE_DIR = Path.home() / ".cache" / "ai-gh"
+CACHE_DIR = Path.home() / ".cache" / "ai-tools-dashboard"
 CACHE_FILE = CACHE_DIR / "tui_cache.json"
+
+# One-time migration from the old cache directory name.
+_OLD_CACHE_DIR = Path.home() / ".cache" / "ai-gh"
+if _OLD_CACHE_DIR.is_dir() and not CACHE_DIR.exists():
+    _OLD_CACHE_DIR.rename(CACHE_DIR)
 
 # Renovate's default "Dependency Dashboard" issue. Users don't treat it as a
 # real issue -- it's a persistent control panel -- so the dashboard excludes

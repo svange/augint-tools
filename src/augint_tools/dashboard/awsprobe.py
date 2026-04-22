@@ -16,7 +16,7 @@ from pathlib import Path
 
 _PROFILE_NAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
-_CACHE_DIR = Path.home() / ".cache" / "ai-gh"
+_CACHE_DIR = Path.home() / ".cache" / "ai-tools-dashboard"
 _CACHE_FILE = _CACHE_DIR / "aws_cache.json"
 
 

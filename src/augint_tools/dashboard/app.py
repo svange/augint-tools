@@ -579,6 +579,7 @@ class MainScreen(Screen[None]):
             style=f"link {pulls_url}",
         )
         t.append("\n\n")
+        self._append_deployments_block(t, health)
         if health.findings:
             t.append("findings:\n", style="bold")
             for finding in health.findings:
@@ -592,6 +593,31 @@ class MainScreen(Screen[None]):
                 t.append("\n")
         t.append("\npress d to close, enter for full drilldown.", style="dim")
         return t
+
+    def _append_deployments_block(self, t: Text, health: RepoHealth) -> None:
+        """Append a ``deployments:`` section listing each configured / auto link.
+
+        Emits one line per link with the label, the URL host as the visible
+        text, and an OSC-8 hyperlink so the user can click straight to the
+        deployment. Auto-synthesised PyPI entries are rendered dim to signal
+        they came from detection, not the user's yaml.
+        """
+        from . import deployments as dep
+
+        links = dep.resolve_links(health.status)
+        if not links:
+            return
+        t.append("deployments:\n", style="bold")
+        for link in dep.sort_links_for_display(links):
+            t.append(f"  {link.label}: ")
+            # Strip the scheme for display; keep the full URL in the OSC-8 target.
+            display = link.url.split("://", 1)[-1].rstrip("/")
+            style = f"link {link.url}"
+            if link.source == "auto":
+                style = f"dim link {link.url}"
+            t.append(display, style=style)
+            t.append("\n")
+        t.append("\n")
 
     def _healthy_summary_line(
         self,
@@ -1227,7 +1253,7 @@ class MainScreen(Screen[None]):
 class DashboardApp(App[None]):
     """V2 interactive health dashboard for GitHub repositories."""
 
-    TITLE = "ai-gh dashboard"
+    TITLE = "ai-tools dashboard"
     ANIMATION_LEVEL = "full"
     CSS = """
     Screen {
@@ -1256,6 +1282,12 @@ class DashboardApp(App[None]):
         Binding("E", "clear_errors", "Clear Errors", show=False),
         Binding("m", "manage_repos", "Repos"),
         Binding("O", "manage_orgs", "Orgs"),
+        Binding("z", "open_deployment_main", "Prod", show=False),
+        Binding("x", "open_deployment_dev", "Dev", show=False),
+        Binding("c", "open_deployment_3", show=False),
+        Binding("v", "open_deployment_4", show=False),
+        Binding("b", "open_deployment_5", show=False),
+        Binding("f", "manage_deployments", "URLs"),
         Binding("question_mark", "show_help", "Help"),
         Binding("f5", "full_restart", "Restart", show=False),
         Binding("plus", "widen_card", "Wider", show=False),
@@ -2261,6 +2293,69 @@ class DashboardApp(App[None]):
         if health is not None:
             webbrowser.open(f"https://github.com/{health.status.full_name}")
 
+    def _open_deployment_by_label(self, label: str) -> None:
+        """Open a deployment link by reserved label (``main`` or ``dev``)."""
+        from .deployments import find_link, resolve_links
+
+        health = selected_health(self.state)
+        if health is None:
+            return
+        links = resolve_links(health.status)
+        link = find_link(links, label)
+        if link:
+            webbrowser.open(link.url)
+        else:
+            self.notify(
+                f"no url configured for {label} on {health.status.full_name}",
+                severity="warning",
+                timeout=3,
+            )
+
+    def _open_deployment_supplemental(self, index: int) -> None:
+        """Open a supplemental link by 0-based index (after main/dev are excluded)."""
+        from .deployments import resolve_links, sort_links_for_display
+
+        health = selected_health(self.state)
+        if health is None:
+            return
+        links = resolve_links(health.status)
+        supplementals = [
+            link for link in sort_links_for_display(links) if link.label not in ("main", "dev")
+        ]
+        if index < len(supplementals):
+            webbrowser.open(supplementals[index].url)
+        else:
+            self.notify("no supplemental link at that position", severity="warning", timeout=3)
+
+    def action_open_deployment_main(self) -> None:
+        """``z`` -- open the main/prod deployment URL for the selected repo."""
+        self._open_deployment_by_label("main")
+
+    def action_open_deployment_dev(self) -> None:
+        """``x`` -- open the dev/staging deployment URL for the selected repo."""
+        self._open_deployment_by_label("dev")
+
+    def action_open_deployment_3(self) -> None:
+        """``c`` -- open the 1st supplemental link (after main/dev)."""
+        self._open_deployment_supplemental(0)
+
+    def action_open_deployment_4(self) -> None:
+        """``v`` -- open the 2nd supplemental link."""
+        self._open_deployment_supplemental(1)
+
+    def action_open_deployment_5(self) -> None:
+        """``b`` -- open the 3rd supplemental link."""
+        self._open_deployment_supplemental(2)
+
+    def action_manage_deployments(self) -> None:
+        """``u`` -- open the manage-deployment-links modal for the selected repo."""
+        from .screens.manage_deployments import ManageDeployments
+
+        health = selected_health(self.state)
+        if health is None:
+            return
+        self.push_screen(ManageDeployments(health.status.full_name))
+
     # ---- message handlers ----
 
     def on_repo_card_selected(self, message: RepoCard.Selected) -> None:
@@ -2274,6 +2369,14 @@ class DashboardApp(App[None]):
 
     def on_repo_card_open_url(self, message: RepoCard.OpenUrl) -> None:
         webbrowser.open_new_tab(message.url)
+
+    def on_repo_card_manage_deployments_requested(
+        self,
+        message: RepoCard.ManageDeploymentsRequested,
+    ) -> None:
+        from .screens.manage_deployments import ManageDeployments
+
+        self.push_screen(ManageDeployments(message.full_name))
 
     def on_repo_card_go_back(self, _message: RepoCard.GoBack) -> None:
         if self._main is not None:

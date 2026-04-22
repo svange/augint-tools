@@ -1,9 +1,14 @@
 """GitHub authentication and env config loading.
 
 Token resolution priority (auth_source="auto"):
-1. GH_TOKEN environment variable
-2. gh auth token (GitHub CLI keyring)
+1. gh auth token (GitHub CLI keyring / SSO)
+2. GH_TOKEN environment variable
 3. GH_TOKEN from .env file
+
+Keyring wins by design: users keep GH_TOKEN in .env so it syncs to GitHub
+Actions secrets, but those tokens are often narrower-scope than their SSO
+credentials. Preferring the keyring avoids silently downgrading auth when
+shells (direnv/autoenv) auto-export .env into the process environment.
 """
 
 from __future__ import annotations
@@ -34,12 +39,19 @@ def load_env_config(filename: str = ".env") -> tuple[str, str, str]:
 
 
 def _get_gh_cli_token() -> str:
-    """Return the token from ``gh auth token`` or empty string if unavailable."""
+    """Return the token from ``gh auth token`` (keyring/SSO) or empty string.
+
+    Strips GH_TOKEN/GITHUB_TOKEN from the subprocess env so ``gh`` reports the
+    keyring token instead of echoing back whatever was already in the process
+    environment (which may be a narrow .env token auto-exported by direnv).
+    """
+    env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
     try:
         result = subprocess.run(
             ["gh", "auth", "token"],
             capture_output=True,
             text=True,
+            env=env,
             check=True,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -65,29 +77,26 @@ def resolve_token(filename: str = ".env", auth_source: str = "auto") -> str:
     if auth_source != "auto":
         raise ValueError(f"Unsupported auth_source '{auth_source}'.")
 
-    token = os.environ.get("GH_TOKEN", "").strip()
-    if token:
-        logger.debug("Using GitHub token from GH_TOKEN environment variable.")
-        return token
-
     gh_token = _get_gh_cli_token()
     if gh_token:
-        if dotenv_token:
-            logger.debug(
-                "Using GitHub token from gh auth token. Ignoring GH_TOKEN from .env; "
-                "export GH_TOKEN in the current shell to force it."
-            )
-        else:
-            logger.debug("Using GitHub token from gh auth token.")
+        logger.debug("Using GitHub token from gh auth token (keyring/SSO).")
         return gh_token
 
+    env_token = os.environ.get("GH_TOKEN", "").strip()
+    if env_token:
+        logger.debug(
+            "Using GitHub token from GH_TOKEN environment variable "
+            "(gh CLI keyring unavailable)."
+        )
+        return env_token
+
     if dotenv_token:
-        logger.debug("Using GitHub token from GH_TOKEN in .env.")
+        logger.debug("Using GitHub token from GH_TOKEN in .env (keyring unavailable).")
         return dotenv_token
 
     raise RuntimeError(
-        "No GitHub token found. Set GH_TOKEN in .env / environment, "
-        "or authenticate with: gh auth login"
+        "No GitHub token found. Authenticate with 'gh auth login', "
+        "or set GH_TOKEN in .env / environment."
     )
 
 

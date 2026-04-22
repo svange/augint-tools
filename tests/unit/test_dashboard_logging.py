@@ -72,6 +72,21 @@ def test_configure_logging_installs_intercept_handler():
         logger.remove()
 
 
+def test_configure_logging_verbose_adds_stderr_sink():
+    """With ``verbose=True`` configure_logging attaches a stderr DEBUG sink.
+
+    Smoke check only -- loguru doesn't expose handlers as a public list, so
+    we just exercise the branch and confirm it doesn't raise and still wires
+    the InterceptHandler at root level 0.
+    """
+    configure_logging(verbose=True)
+    try:
+        assert logging.getLogger().level == 0
+        assert any(isinstance(h, InterceptHandler) for h in logging.getLogger().handlers)
+    finally:
+        logger.remove()
+
+
 def test_configure_logging_writes_log_file(tmp_path):
     """End-to-end: stdlib WARNING from ``github`` lands in the ``--log`` file.
 

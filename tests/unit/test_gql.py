@@ -195,6 +195,100 @@ class TestParseResponse:
         assert snap.has_dev_branch
         assert snap.dev_rollup_state == "FAILURE"
 
+    def test_dev_as_default_branch_not_double_counted(self):
+        # aillc-web-style layout: dev IS the default branch and a separate
+        # refs/heads/dev lookup aliases the same commit. Surfacing both would
+        # make broken_ci fire twice on a single failing pipeline.
+        payload = _graphql_repo_payload(
+            full_name="org/web",
+            has_dev=True,
+            main_state="FAILURE",
+            dev_state="FAILURE",
+        )
+        payload["defaultBranchRef"]["name"] = "dev"
+        response = {"data": {"r0": payload}}
+        snapshots, _, _ = parse_response(response, [_mock_repo("org/web")])
+        snap = snapshots["org/web"]
+        assert snap.default_branch == "dev"
+        assert snap.main_rollup_state == "FAILURE"
+        assert snap.has_dev_branch is False
+        assert snap.dev_rollup_state is None
+
+    def test_renovate_dependency_dashboard_excluded_from_open_issues(self):
+        # A repo whose only open issue is Renovate's "Dependency Dashboard"
+        # control-panel issue should display as having zero open issues.
+        # Real GraphQL returns author.__typename == "Bot" for the bot App.
+        from augint_tools.dashboard._data import build_status_from_snapshot
+
+        payload = _graphql_repo_payload(
+            full_name="org/a",
+            issue_nodes=[
+                {
+                    "number": 1,
+                    "title": "Dependency Dashboard",
+                    "createdAt": "2026-04-01T10:00:00Z",
+                    "author": {"__typename": "Bot", "login": "renovate[bot]"},
+                }
+            ],
+            issue_total=1,
+        )
+        response = {"data": {"r0": payload}}
+        snapshots, _, _ = parse_response(response, [_mock_repo("org/a")])
+        snap = snapshots["org/a"]
+        assert snap.issue_total_count == 1
+        assert snap.issues[0].title == "Dependency Dashboard"
+        assert snap.issues[0].author_is_bot is True
+        status = build_status_from_snapshot(snap)
+        assert status.open_issues == 0
+        assert status.human_open_issues == 0
+
+    def test_dependency_dashboard_from_bare_login_renovate_excluded(self):
+        # Real data from svange/augint-shell issue #3: author __typename is
+        # "Bot" but login is just "renovate" (no [bot] suffix). Earlier
+        # login-based filtering missed this.
+        from augint_tools.dashboard._data import build_status_from_snapshot
+
+        payload = _graphql_repo_payload(
+            full_name="org/a",
+            issue_nodes=[
+                {
+                    "number": 3,
+                    "title": "Dependency Dashboard",
+                    "createdAt": "2026-04-01T10:00:00Z",
+                    "author": {"__typename": "Bot", "login": "renovate"},
+                }
+            ],
+            issue_total=1,
+        )
+        response = {"data": {"r0": payload}}
+        snapshots, _, _ = parse_response(response, [_mock_repo("org/a")])
+        status = build_status_from_snapshot(snapshots["org/a"])
+        assert status.open_issues == 0
+        assert status.human_open_issues == 0
+
+    def test_dependency_dashboard_only_suppressed_when_authored_by_bot(self):
+        # A human-authored issue titled "Dependency Dashboard" still counts,
+        # so a real issue with that title is never silently hidden.
+        from augint_tools.dashboard._data import build_status_from_snapshot
+
+        payload = _graphql_repo_payload(
+            full_name="org/a",
+            issue_nodes=[
+                {
+                    "number": 2,
+                    "title": "Dependency Dashboard",
+                    "createdAt": "2026-04-01T10:00:00Z",
+                    "author": {"__typename": "User", "login": "alice"},
+                }
+            ],
+            issue_total=1,
+        )
+        response = {"data": {"r0": payload}}
+        snapshots, _, _ = parse_response(response, [_mock_repo("org/a")])
+        status = build_status_from_snapshot(snapshots["org/a"])
+        assert status.open_issues == 1
+        assert status.human_open_issues == 1
+
     def test_pr_fields_parsed(self):
         payload = _graphql_repo_payload(
             full_name="org/a",

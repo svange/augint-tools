@@ -505,8 +505,20 @@ class MainScreen(Screen[None]):
             self._aws_drawer.open()
 
     def cycle_top_drawer(self) -> None:
-        """Alias for toggle_org_drawer (SHIFT+W)."""
+        """Alias for toggle_org_drawer (w key)."""
         self.toggle_org_drawer()
+
+    def toggle_system_drawer(self) -> None:
+        """Direct open/close for the system drawer (``s`` key)."""
+        if self._system_drawer.is_open:
+            self._system_drawer.close()
+            return
+        # Close the detail drawer if it happens to be open; the two share
+        # the right side and can't both be visible.
+        if self._drawer.is_open:
+            self._drawer.close()
+        self._system_drawer.refresh_content(self._state)
+        self._system_drawer.open()
 
     def refresh_system_drawer(self) -> None:
         """Update the system drawer content if it is open."""
@@ -1225,20 +1237,23 @@ class DashboardApp(App[None]):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
+        Binding("ctrl+c", "quit", show=False),
         Binding("r", "refresh_now", "Refresh"),
-        Binding("s", "cycle_sort", "Sort"),
-        Binding("f", "open_filter_panel", "Filter"),
-        Binding("g", "cycle_layout", "Layout"),
-        Binding("t", "cycle_theme", "Theme"),
-        Binding("b", "toggle_flash", "Blink"),
-        Binding("d", "toggle_drawer", "Detail"),
-        Binding("i", "toggle_org", "Org"),
+        Binding("1", "open_filter_panel", "Filter"),
+        Binding("2", "cycle_sort", "Sort"),
+        Binding("3", "cycle_layout", "Layout"),
+        Binding("4", "cycle_theme", "Theme"),
+        Binding("5", "toggle_flash", "Blink"),
         Binding("e", "toggle_errors", "Errors"),
+        Binding("a", "cycle_left_drawer", "AWS"),
+        Binding("w", "cycle_top_drawer", "Org"),
+        Binding("s", "toggle_system_drawer", "System"),
+        Binding("d", "cycle_right_drawer", "Drawer"),
+        # Displaced from lowercase `w` when the org drawer claimed it; keep
+        # a hidden alias so the workspace-hide toggle doesn't disappear.
+        Binding("W", "toggle_hide_workspace", "Workspace", show=False),
+        Binding("i", "toggle_org", "Org", show=False),
         Binding("E", "clear_errors", "Clear Errors", show=False),
-        Binding("D", "cycle_right_drawer", "Drawer", show=False),
-        Binding("A", "cycle_left_drawer", "AWS", show=False),
-        Binding("W", "cycle_top_drawer", "Org", show=False),
-        Binding("w", "toggle_hide_workspace", "Workspace"),
         Binding("m", "manage_repos", "Repos"),
         Binding("O", "manage_orgs", "Orgs"),
         Binding("question_mark", "show_help", "Help"),
@@ -1246,13 +1261,6 @@ class DashboardApp(App[None]):
         Binding("plus", "widen_card", "Wider", show=False),
         Binding("equals_sign", "widen_card", show=False),
         Binding("minus", "narrow_card", "Narrower", show=False),
-        Binding("1", "quit", show=False),
-        Binding("2", "refresh_now", show=False),
-        Binding("3", "cycle_sort", show=False),
-        Binding("4", "open_filter_panel", show=False),
-        Binding("5", "cycle_layout", show=False),
-        Binding("6", "cycle_theme", show=False),
-        Binding("7", "toggle_flash", show=False),
         Binding("enter", "open_selected", show=False, priority=True),
         Binding("o", "open_selected_browser", show=False, priority=True),
         Binding("down", "move_down", show=False, priority=True),
@@ -1369,6 +1377,14 @@ class DashboardApp(App[None]):
         bootstrap_from_cache(self.state, restrict_to=restrict)
         apply_open_source_team(self.state)
 
+        # Seed the AWS drawer from the on-disk cache so opening it doesn't
+        # stare at "loading..." while subprocesses fan out.
+        from .awsprobe import load_aws_cache
+
+        cached_aws = load_aws_cache()
+        if cached_aws is not None:
+            self.state.aws_state = cached_aws
+
         self._main = MainScreen(
             self.state,
             self._org_name,
@@ -1397,8 +1413,10 @@ class DashboardApp(App[None]):
         self.set_interval(_FLASH_TICK_SECONDS, self._tick_flash)
         # Probe host RAM / GPU in the background: once at startup so the
         # first org-drawer open already shows numbers, then every 3s while
-        # the drawer is visible (see ``_tick_sysmeter``).
-        self._refresh_sysmeter()
+        # the drawer is visible (see ``_tick_sysmeter``). Suppressed when
+        # ``skip_refresh`` is set so Pilot tests don't spawn the worker.
+        if not self._skip_refresh:
+            self._refresh_sysmeter()
         self.set_interval(3.0, self._tick_sysmeter)
 
         # System probe (CPU, docker, network): refresh every 5s while the
@@ -1907,19 +1925,29 @@ class DashboardApp(App[None]):
     # ---- AWS probe worker ----
 
     def _refresh_aws_probe(self) -> None:
-        """Kick a background AWS probe."""
-        self.run_worker(self._refresh_aws_probe_sync, thread=True, exit_on_error=False)
+        """Refresh AWS profile status from on-disk state.
 
-    def _refresh_aws_probe_sync(self) -> None:
-        from .awsprobe import probe_aws
+        Runs synchronously on the UI thread: the local probe reads
+        ``~/.aws/config`` and ``~/.aws/sso/cache`` only and finishes in
+        well under one frame, so there's no reason to hand off to a
+        worker. The previous worker-based path was firing per-profile
+        ``aws sts`` subprocesses, which is what made opening the drawer
+        feel like the UI had frozen.
+        """
+        from .awsprobe import probe_aws_local, save_aws_cache
 
         try:
-            aws_state = probe_aws()
+            aws_state = probe_aws_local(previous_state=self.state.aws_state)
         except Exception as exc:
             self.state.log_error("awsprobe", f"{exc.__class__.__name__}: {exc}")
+            self._update_aws_drawer()
             return
         self.state.aws_state = aws_state
-        self.call_from_thread(self._update_aws_drawer)
+        try:
+            save_aws_cache(aws_state)
+        except OSError as exc:
+            self.state.log_error("awsprobe", f"cache save failed: {exc}")
+        self._update_aws_drawer()
 
     def _update_aws_drawer(self) -> None:
         if self._main is not None:
@@ -2080,8 +2108,16 @@ class DashboardApp(App[None]):
             self._refresh_aws_probe()
 
     def action_cycle_top_drawer(self) -> None:
-        """SHIFT+W alias for toggle_org."""
+        """``w`` alias for toggle_org."""
         self.action_toggle_org()
+
+    def action_toggle_system_drawer(self) -> None:
+        """``s`` key: open/close the system drawer directly."""
+        if self._main is None:
+            return
+        self._main.toggle_system_drawer()
+        if self._main._system_drawer.is_open:
+            self._refresh_system_probe()
 
     def action_widen_card(self) -> None:
         self._resize_card(+PANEL_WIDTH_STEP)

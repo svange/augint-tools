@@ -29,7 +29,23 @@ if TYPE_CHECKING:
 CACHE_DIR = Path.home() / ".cache" / "ai-gh"
 CACHE_FILE = CACHE_DIR / "tui_cache.json"
 
-_BOT_LOGINS = {"renovate[bot]", "renovate-bot", "dependabot[bot]", "github-actions[bot]"}
+# Renovate's default "Dependency Dashboard" issue. Users don't treat it as a
+# real issue -- it's a persistent control panel -- so the dashboard excludes
+# it from open-issue counts. Customized titles (via dependencyDashboardTitle)
+# aren't matched; those repos fall through to the real count.
+_RENOVATE_DASHBOARD_TITLE = "Dependency Dashboard"
+
+
+def _is_renovate_dashboard(issue) -> bool:
+    """True if *issue* is Renovate's dependency-dashboard control-panel issue.
+
+    Uses GraphQL's ``__typename == "Bot"`` signal. Login allowlists don't
+    work because some Renovate installations report ``renovate`` as the
+    login (no ``[bot]`` suffix) while GraphQL still types the author as
+    ``Bot``.
+    """
+    title = (issue.title or "").strip()
+    return title == _RENOVATE_DASHBOARD_TITLE and getattr(issue, "author_is_bot", False)
 
 
 # ---------------------------------------------------------------------------
@@ -232,14 +248,17 @@ def build_status_from_snapshot(
     # full total as open_issues but only the first 100 contribute to the
     # human-filtered count. The warning threshold (default 10) is comfortably
     # below that cap.
-    human_issues = [i for i in snapshot.issues if (i.author_login or "") not in _BOT_LOGINS]
+    human_issues = [i for i in snapshot.issues if not getattr(i, "author_is_bot", False)]
     human_open_issues = len(human_issues)
     oldest = min((i.created_at for i in human_issues), default=None)
     oldest_iso = _to_iso_utc(oldest)
 
     # Total open issues (including bots) -- prefer the GraphQL totalCount
     # since it's authoritative even when the node list was truncated.
-    open_issues = snapshot.issue_total_count
+    # Subtract Renovate's Dependency Dashboard (at most one per repo) so a
+    # repo with only that control-panel issue open displays as zero.
+    dashboard_count = sum(1 for i in snapshot.issues if _is_renovate_dashboard(i))
+    open_issues = max(0, snapshot.issue_total_count - dashboard_count)
 
     is_workspace, tags = _detect_tags(snapshot.primary_language, snapshot.root_entries)
     service_markers = _detect_service_markers(snapshot.name, snapshot.root_entries)

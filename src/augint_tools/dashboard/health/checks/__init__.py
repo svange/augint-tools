@@ -9,6 +9,7 @@ from . import (
     renovate_prs,
     service_missing_dev,
     stale_prs,
+    yaml_engine,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "renovate_prs",
     "service_missing_dev",
     "stale_prs",
+    "yaml_engine",
 ]

@@ -467,7 +467,7 @@ class TestFetchWorkspaceSnapshot:
             return ({}, {"data": data})
 
         gh = MagicMock()
-        gh._Github__requester.requestJsonAndCheck.side_effect = _request  # type: ignore[attr-defined]
+        gh.requester.requestJsonAndCheck.side_effect = _request
 
         result = fetch_workspace_snapshot(gh, repos)
         # 60 repos -> 3 chunks of 25/25/10.
@@ -479,7 +479,7 @@ class TestFetchWorkspaceSnapshot:
     def test_failed_request_errors_chunk(self):
         repos = [_mock_repo(f"org/r{i}") for i in range(5)]
         gh = MagicMock()
-        gh._Github__requester.requestJsonAndCheck.side_effect = RuntimeError("boom")  # type: ignore[attr-defined]
+        gh.requester.requestJsonAndCheck.side_effect = RuntimeError("boom")
         result = fetch_workspace_snapshot(gh, repos)
         assert result.by_full_name == {}
         assert all(name in result.errored for name in (r.full_name for r in repos))
@@ -514,7 +514,7 @@ class TestFetchWorkspaceSnapshot:
             )
 
         gh = MagicMock()
-        gh._Github__requester.requestJsonAndCheck.side_effect = _request  # type: ignore[attr-defined]
+        gh.requester.requestJsonAndCheck.side_effect = _request
 
         result = fetch_workspace_snapshot(gh, repos)
         assert calls["n"] == 3
@@ -530,13 +530,11 @@ class TestFetchWorkspaceSnapshot:
 
         repos = [_mock_repo("org/a")]
         gh = MagicMock()
-        gh._Github__requester.requestJsonAndCheck.side_effect = ChunkedEncodingError(  # type: ignore[attr-defined]
-            "Connection broken"
-        )
+        gh.requester.requestJsonAndCheck.side_effect = ChunkedEncodingError("Connection broken")
         result = fetch_workspace_snapshot(gh, repos)
         assert result.by_full_name == {}
         assert "org/a" in result.errored
-        assert gh._Github__requester.requestJsonAndCheck.call_count == gql._RETRY_ATTEMPTS  # type: ignore[attr-defined]
+        assert gh.requester.requestJsonAndCheck.call_count == gql._RETRY_ATTEMPTS
 
 
 # ---------------------------------------------------------------------------
@@ -641,7 +639,7 @@ class TestTeamsQueryAndParse:
 
     def test_fetch_workspace_teams_network_failure_errors_all_owners(self):
         gh = MagicMock()
-        gh._Github__requester.requestJsonAndCheck.side_effect = RuntimeError("boom")  # type: ignore[attr-defined]
+        gh.requester.requestJsonAndCheck.side_effect = RuntimeError("boom")
         snapshot = fetch_workspace_teams(gh, ["org-a", "org-b"])
         assert "org-a" in snapshot.errored
         assert "org-b" in snapshot.errored

@@ -26,20 +26,13 @@ class HealthCheck(Protocol):
         *,
         config: dict,
         context: FetchContext,
-    ) -> HealthCheckResult:
-        """Run the check and return a result.
+    ) -> HealthCheckResult | list[HealthCheckResult]:
+        """Run the check and return a result, or a list of results.
 
-        Args:
-            repo: PyGithub Repository object. Retained for the narrow set of
-                checks that still need a live reference (none do after the
-                GraphQL migration, but the signature stays stable so future
-                checks that genuinely need REST access can use it).
-            status: Already-fetched RepoStatus.
-            config: User-configurable thresholds.
-            context: FetchContext with pre-fetched data (pulls, issues,
-                renovate config text, pipeline workflow text). Populated by
-                the workspace GraphQL query. Checks must never make their
-                own per-repo REST call.
+        Most checks return a single ``HealthCheckResult``. The YAML compliance
+        engine is the exception: it evaluates many rules per call and returns
+        a list so each rule surfaces as its own finding in the TUI. The
+        runner flattens both shapes into the per-repo result list.
         """
         ...
 

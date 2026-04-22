@@ -91,6 +91,12 @@ class IssueSnapshot:
     number: int
     created_at: datetime
     author_login: str | None
+    title: str | None = None
+    # True when GraphQL resolved ``author`` to the ``Bot`` type. This covers
+    # both canonical GitHub Apps (login ending in ``[bot]``) and self-hosted
+    # Renovate setups whose author login is just ``renovate`` -- the
+    # ``__typename`` is ``Bot`` in both cases.
+    author_is_bot: bool = False
 
 
 @dataclass
@@ -211,8 +217,9 @@ fragment RepoFields on Repository {{
     totalCount
     nodes {{
       number
+      title
       createdAt
-      author {{ login }}
+      author {{ __typename login }}
     }}
   }}
 {renovate_fields}
@@ -321,6 +328,14 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     main_head_sha = main_target.get("oid") if isinstance(main_target, dict) else None
 
     dev_ref = data.get("_dev")
+    # If the repo's default branch is already "dev" (e.g. aillc-web), the
+    # defaultBranchRef and the explicit refs/heads/dev lookup resolve to the
+    # same commit. Treating them as separate branches double-counts a single
+    # failing pipeline as both "main failing" and "dev failing" in broken_ci.
+    # In that layout there is no distinct dev branch to surface, so collapse
+    # it into the default-branch slot only.
+    if default_branch == "dev":
+        dev_ref = None
     has_dev_branch = dev_ref is not None
     dev_target = (dev_ref or {}).get("target") or {} if isinstance(dev_ref, dict) else {}
     dev_rollup_state = _resolve_rollup_state(dev_target)
@@ -379,13 +394,21 @@ def _parse_repo(data: dict) -> RepoSnapshot:
         if not isinstance(issue, dict):
             continue
         author = issue.get("author") or {}
-        author_login = author.get("login") if isinstance(author, dict) else None
+        if isinstance(author, dict):
+            author_login = author.get("login")
+            author_is_bot = author.get("__typename") == "Bot"
+        else:
+            author_login = None
+            author_is_bot = False
         ts = _parse_ts(issue.get("createdAt")) or datetime.now(UTC)
+        title = issue.get("title")
         issues.append(
             IssueSnapshot(
                 number=int(issue.get("number") or 0),
                 created_at=ts,
                 author_login=author_login,
+                title=title if isinstance(title, str) else None,
+                author_is_bot=author_is_bot,
             )
         )
 

@@ -513,7 +513,6 @@ class RepoCard(Widget):
         parts.append(self._counts_line(health))
         self._click_map[len(parts)] = self._counts_click_region(health)
 
-
         for line, url in self._findings_lines(health, 3):
             parts.append(line)
             self._click_map[len(parts)] = _ClickRegion(url=url)
@@ -645,7 +644,7 @@ class RepoCard(Widget):
         if event.button == 1:
             # Left-click on the repo name text (title row) opens the GitHub
             # code page. Left-click anywhere else on the card selects it.
-            if y == 1 and self.repo_full_name:
+            if y == 1 and self.repo_full_name and self.health is not None:
                 nx0, nx1 = self._title_name_x
                 if nx0 <= x < nx1:
                     self.post_message(self.OpenUrl(self._repo_url(self.health)))

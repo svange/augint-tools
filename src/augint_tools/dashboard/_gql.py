@@ -53,8 +53,8 @@ PACKAGE_JSON_PATHS: tuple[str, ...] = ("package.json",)
 PRECOMMIT_PATHS: tuple[str, ...] = (".pre-commit-config.yaml", ".pre-commit-config.yml")
 
 # Chunk size for repo batches per GraphQL query. GitHub's API has a per-query
-# complexity budget; at ~35 fields per repo this keeps us well under the cap
-# while still collapsing workspace-scale fetches into a handful of queries.
+# complexity budget of 500k nodes. With blob fields, rulesets, PRs, and issues
+# the fragment costs ~466 nodes per repo; 25 repos stays well under the cap.
 _BATCH_SIZE = 25
 
 # How far back to walk the default-branch / dev-branch history looking for a
@@ -147,10 +147,6 @@ class RepoSnapshot:
     package_json_contents: dict[str, str | None] = field(default_factory=dict)
     # .pre-commit-config.yaml contents; keyed by canonical path.
     precommit_contents: dict[str, str | None] = field(default_factory=dict)
-    # Rulesets as returned by GraphQL (list of rule nodes with bypass actors
-    # and parameters). Empty list when the repo has no rulesets or the field
-    # wasn't returned.
-    rulesets: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -259,26 +255,6 @@ fragment RepoFields on Repository {{
 {pyproject_fields}
 {package_json_fields}
 {precommit_fields}
-  rulesets(first: 10) {{
-    nodes {{
-      name
-      target
-      enforcement
-      bypassActors(first: 10) {{
-        nodes {{
-          actorType
-          actorId
-          bypassMode
-        }}
-      }}
-      rules(first: 20) {{
-        nodes {{
-          type
-          parameters
-        }}
-      }}
-    }}
-  }}
 }}
 """
 
@@ -493,10 +469,6 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     for i, path in enumerate(PRECOMMIT_PATHS):
         precommit_contents[path] = _extract_blob_text(data.get(f"_precommit_{i}"))
 
-    rulesets_data = data.get("rulesets") or {}
-    rulesets_nodes = rulesets_data.get("nodes") or [] if isinstance(rulesets_data, dict) else []
-    rulesets: list[dict] = [n for n in rulesets_nodes if isinstance(n, dict)]
-
     return RepoSnapshot(
         full_name=full_name,
         name=name,
@@ -520,7 +492,6 @@ def _parse_repo(data: dict) -> RepoSnapshot:
         pyproject_contents=pyproject_contents,
         package_json_contents=package_json_contents,
         precommit_contents=precommit_contents,
-        rulesets=rulesets,
     )
 
 
@@ -702,34 +673,36 @@ def pick_renovate_config(snapshot: RepoSnapshot) -> tuple[str | None, str | None
     return None, None
 
 
-def pick_pipeline_yaml(snapshot: RepoSnapshot) -> tuple[str | None, str | None]:
-    """Return the (path, text) of the first existing pipeline workflow, or (None, None)."""
-    for path in PIPELINE_PATHS:
-        text = snapshot.pipeline_contents.get(path)
+def _pick_first(
+    contents: dict[str, str | None],
+    paths: tuple[str, ...],
+) -> tuple[str | None, str | None]:
+    """Return the ``(path, text)`` of the first non-empty blob, or ``(None, None)``."""
+    for path in paths:
+        text = contents.get(path)
         if text and text.strip():
             return path, text
     return None, None
 
 
-def _pick_first(contents: dict[str, str | None], paths: tuple[str, ...]) -> str | None:
-    """Return the first non-empty text from ``contents`` for any path in ``paths``."""
-    for path in paths:
-        text = contents.get(path)
-        if text and text.strip():
-            return text
-    return None
+def pick_pipeline_yaml(snapshot: RepoSnapshot) -> tuple[str | None, str | None]:
+    """Return the (path, text) of the first existing pipeline workflow, or (None, None)."""
+    return _pick_first(snapshot.pipeline_contents, PIPELINE_PATHS)
 
 
 def pick_pyproject(snapshot: RepoSnapshot) -> str | None:
-    return _pick_first(snapshot.pyproject_contents, PYPROJECT_PATHS)
+    _, text = _pick_first(snapshot.pyproject_contents, PYPROJECT_PATHS)
+    return text
 
 
 def pick_package_json(snapshot: RepoSnapshot) -> str | None:
-    return _pick_first(snapshot.package_json_contents, PACKAGE_JSON_PATHS)
+    _, text = _pick_first(snapshot.package_json_contents, PACKAGE_JSON_PATHS)
+    return text
 
 
 def pick_precommit(snapshot: RepoSnapshot) -> str | None:
-    return _pick_first(snapshot.precommit_contents, PRECOMMIT_PATHS)
+    _, text = _pick_first(snapshot.precommit_contents, PRECOMMIT_PATHS)
+    return text
 
 
 # ---------------------------------------------------------------------------

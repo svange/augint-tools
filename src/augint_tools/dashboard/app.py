@@ -1826,7 +1826,7 @@ class DashboardApp(App[None]):
                         pyproject_text=pick_pyproject(snapshot),
                         package_json_text=pick_package_json(snapshot),
                         precommit_text=pick_precommit(snapshot),
-                        rulesets=list(snapshot.rulesets),
+                        rulesets=[],  # Populated from REST in Phase 2c
                         main_head_sha=snapshot.main_head_sha,
                         owner=snapshot.owner,
                         repo_name=snapshot.name,

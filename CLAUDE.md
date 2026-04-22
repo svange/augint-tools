@@ -82,6 +82,29 @@ Global output flags: `--json`, `--actionable`, `--summary`
 - **Check system** (`src/augint_tools/checks/`): Phase enum, presets (quick/default/full/ci), plan resolution, execution runner.
 - **Output model** (`src/augint_tools/output/response.py`): `CommandResponse` dataclass, `ExitCode` enum. All commands return structured responses via `emit_response()`.
 
+### Dashboard & Health System (`src/augint_tools/dashboard/`)
+
+The dashboard is a Textual TUI that monitors repos across orgs. Its data pipeline:
+
+1. **GraphQL fetch** (`_gql.py`): Batched query for CI status, PRs, issues, file contents. Rulesets are NOT in this query (moved to REST for rate-limit savings).
+2. **REST rulesets** (`_rulesets.py`): Fetches rulesets via REST API (separate 5,000 req/hr budget). Caches detail responses by `updated_at` -- only re-fetches when a ruleset is actually modified.
+3. **Health checks** (`health/`): Pluggable check system. Each check implements the `HealthCheck` protocol and receives a `FetchContext` with pre-fetched data. No check makes its own API call.
+4. **YAML compliance engine** (`health/_engine.py`, `health/_handlers.py`, `health/checks/yaml_engine.py`): Fetches `standards.yaml` from ai-cc-tools and evaluates declarative rules. See below.
+
+### YAML Compliance Engine
+
+**Design principle:** Rule ownership lives with the standards maintainer (ai-cc-tools repo), not here. Adding a new compliance rule is a YAML edit in ai-cc-tools, not a code change in augint-tools.
+
+Key modules:
+- `health/_engine.py` -- Core evaluation loop. Built-in check types: `file_exists`, `file_absent`, `file_content_matches`, `workflow_job_has_step`, `workflow_all_jobs_scan`, `ruleset_has_required_checks`. Template substitution (`{owner}`, `{repo_name}`, `{default_branch}`) in messages and links.
+- `health/_handlers.py` -- Escape hatch for checks needing external data (AWS, HTTP). Register new handlers with `@register_handler("name")`. Three built-in: `aws_oidc_trust_policy_scope`, `http_health_probe`, `lambda_deploy_sha_match`.
+- `health/checks/yaml_engine.py` -- The `YamlEngineCheck` class that bridges the engine to the health check protocol. Caches results per repo by `(commit_sha, rulesets_fingerprint)` -- unchanged repos skip re-evaluation.
+- `_rulesets.py` -- REST fetcher with `updated_at` caching and a format adapter that transforms REST responses to match the GraphQL shape the engine expects.
+
+**Adding a new built-in check type:** Add a function to `_BUILTIN_DISPATCH` in `_engine.py`.
+**Adding a new handler:** Decorate a function in `_handlers.py` with `@register_handler("name")`.
+**Neither needed?** Just add a YAML entry in ai-cc-tools `standards.yaml` using existing check types.
+
 ### Output Contract
 
 Every command returns a `CommandResponse` with this JSON shape:
@@ -113,6 +136,12 @@ Exit codes: 0=success, 1=failure, 2=action-required, 3=blocked, 4=partial
 ## Key Files
 
 - `pyproject.toml` - Python packaging, dependencies, tool config
+- `src/augint_tools/dashboard/_gql.py` - GraphQL query builder, response parser, `RepoSnapshot`
+- `src/augint_tools/dashboard/_rulesets.py` - REST rulesets fetcher with `updated_at` caching
+- `src/augint_tools/dashboard/health/_engine.py` - YAML compliance engine core
+- `src/augint_tools/dashboard/health/_handlers.py` - Handler registry for external-data checks
+- `src/augint_tools/dashboard/health/_registry.py` - `HealthCheck` protocol, check registration
+- `src/augint_tools/dashboard/health/__init__.py` - `FetchContext` dataclass, `run_health_checks()`
 
 ## Testing Strategy
 

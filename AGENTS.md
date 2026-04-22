@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Source code lives under `src/augint_tools/`. Keep feature logic inside the existing domain packages: `cli/` for Click entrypoints and subcommands, `checks/` for validation planning and execution, `git/` and `github/` for VCS integrations, `detection/` for repo/toolchain discovery, and `output/` for structured responses. Tests live in `tests/unit/`; shared sample data belongs in `tests/fixtures/`. CI assets and report styling live in `ci-resources/`.
+Source code lives under `src/augint_tools/`. Keep feature logic inside the existing domain packages: `cli/` for Click entrypoints and subcommands, `checks/` for validation planning and execution, `git/` and `github/` for VCS integrations, `detection/` for repo/toolchain discovery, `output/` for structured responses, and `dashboard/` for the Textual TUI and its health check system (including the YAML compliance engine -- see CLAUDE.md for architecture). Tests live in `tests/unit/`; shared sample data belongs in `tests/fixtures/`. CI assets and report styling live in `ci-resources/`.
 
 ## Build, Test, and Development Commands
 Use `uv` for local development.

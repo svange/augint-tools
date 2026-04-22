@@ -14,6 +14,8 @@ CLI orchestration layer for AI-assisted repository workflows.
 - **Repo-type aware**: Understands library and service repository patterns
 - **Safe defaults**: No destructive git operations without explicit commands
 - **GitHub integration**: Issue management, PR creation, CI status monitoring
+- **Health dashboard**: Real-time TUI showing CI, PRs, issues, and compliance across all your repos
+- **YAML compliance engine**: Declarative standards checking driven by a single `standards.yaml` -- rule ownership lives with the standards maintainer, not in this tool
 
 ## Installation
 
@@ -69,6 +71,35 @@ ai-tools repo submit
 - `submit` - Push branch and create PR with automerge
 - `ci watch` - Monitor CI run
 - `ci triage` - Classify CI failures
+
+## Dashboard & Compliance Engine
+
+The dashboard (`ai-tools dashboard`) is a Textual TUI that monitors all your repos in real time: CI status, open PRs, issue counts, and compliance findings on one screen. It refreshes via batched GraphQL queries with REST-based ruleset fetching on a separate rate-limit pool.
+
+### YAML Compliance Engine
+
+The dashboard includes a declarative compliance engine that evaluates repos against rules defined in a `standards.yaml` file maintained in the [ai-cc-tools](https://github.com/augmenting-integrations/ai-cc-tools) repo. This is the key design decision: **rule ownership lives with the standards maintainer, not in augint-tools.**
+
+Adding a new compliance rule is a single YAML entry in ai-cc-tools -- no code change in augint-tools required (unless the rule needs a new handler type).
+
+**Built-in check types:**
+- `file_exists` / `file_absent` -- verify presence of config files
+- `file_content_matches` -- regex with numeric/string assertions (e.g., coverage threshold >= 80)
+- `workflow_job_has_step` -- verify pipeline jobs contain required steps
+- `workflow_all_jobs_scan` -- detect cheat patterns (`|| true`, `continue-on-error`, `set +e`)
+- `ruleset_has_required_checks` -- verify GitHub rulesets enforce expected status checks
+
+**Handler escape hatch:** For checks that need external data (AWS API calls, HTTP probes), a `handler` type dispatches to registered Python functions. Three built-in handlers ship today: `aws_oidc_trust_policy_scope`, `http_health_probe`, and `lambda_deploy_sha_match`.
+
+**Caching:** The engine caches results per repo by `(commit_sha, rulesets_fingerprint)`. Unchanged repos skip re-evaluation entirely. Rulesets are fetched via REST with `updated_at`-based caching so config drift is detected in real time without re-fetching detail data every cycle.
+
+```bash
+# Launch the dashboard
+ai-tools dashboard --all
+
+# Override the standards URL (e.g., test a branch's rules before merge)
+ai-tools dashboard --all --standards-yaml-url "https://api.github.com/repos/org/repo/contents/standards.yaml?ref=my-branch"
+```
 
 ## Dashboard Deployment Links
 

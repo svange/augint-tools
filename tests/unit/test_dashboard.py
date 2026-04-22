@@ -64,7 +64,7 @@ def _status(
     return RepoStatus(
         name=name,
         full_name=full_name,
-        is_service=False,
+        has_dev_branch=False,
         main_status=main_status,
         main_error=None,
         dev_status=None,
@@ -1221,6 +1221,52 @@ class TestDetectTags:
         assert tags == ()
 
 
+class TestDetectServiceMarkers:
+    """Service-marker detection is independent of dev-branch existence so the
+    dashboard can flag service-shaped repos whose dev branch went missing."""
+
+    def test_no_markers_returns_empty(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers(()) == ()
+        assert _detect_service_markers(("README.md", "pyproject.toml", "src")) == ()
+
+    def test_sam_service(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        markers = _detect_service_markers(("template.yaml", "samconfig.toml", "src"))
+        assert "template.yaml" in markers
+        assert "samconfig.toml" in markers
+
+    def test_dockerfile_alone_is_a_marker(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers(("Dockerfile",)) == ("Dockerfile",)
+
+    def test_cdk_marker(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers(("cdk.json",)) == ("cdk.json",)
+
+    def test_serverless_marker(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers(("serverless.yml",)) == ("serverless.yml",)
+
+    def test_template_yml_variant(self):
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        assert _detect_service_markers(("template.yml",)) == ("template.yml",)
+
+    def test_marker_detection_is_independent_of_dev_branch(self):
+        # Only the root_entries argument matters -- branch state is not consulted.
+        from augint_tools.dashboard._data import _detect_service_markers
+
+        markers = _detect_service_markers(("Dockerfile", "template.yaml"))
+        assert "Dockerfile" in markers
+        assert "template.yaml" in markers
+
+
 class TestBootstrapCache:
     def test_bootstrap_no_cache(self):
         from augint_tools.dashboard.state import bootstrap_from_cache
@@ -1358,7 +1404,7 @@ class TestAppMisc:
         status = RepoStatus(
             name="r0",
             full_name="org/r0",
-            is_service=False,
+            has_dev_branch=False,
             main_status="success",
             main_error=None,
             dev_status=None,

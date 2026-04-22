@@ -80,6 +80,27 @@ def _detect_tags(
     return is_workspace, tuple(tags)
 
 
+# Root-tree files that mark a repo as a service rather than a library. Detected
+# independently of branch layout so the dashboard can flag a service-shaped repo
+# whose dev branch has gone missing -- the actual configuration drift, not a
+# downstream symptom in the rollup state.
+_SERVICE_MARKERS: tuple[str, ...] = (
+    "template.yaml",
+    "template.yml",
+    "samconfig.toml",
+    "serverless.yml",
+    "serverless.yaml",
+    "cdk.json",
+    "Dockerfile",
+)
+
+
+def _detect_service_markers(root_entries: tuple[str, ...]) -> tuple[str, ...]:
+    """Return the subset of canonical service-marker files present at the repo root."""
+    names = set(root_entries)
+    return tuple(marker for marker in _SERVICE_MARKERS if marker in names)
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -89,7 +110,10 @@ def _detect_tags(
 class RepoStatus:
     name: str
     full_name: str
-    is_service: bool
+    # Whether a ``dev`` branch exists on the repo. Drives the dev/main column
+    # rendering and the "dev pipeline failing" branch of broken_ci. Independent
+    # of whether the repo is *structurally* a service -- see ``looks_like_service``.
+    has_dev_branch: bool
     main_status: str
     main_error: str | None
     dev_status: str | None
@@ -120,6 +144,14 @@ class RepoStatus:
     # happened not to trigger any workflow" (common for semantic-release
     # chore commits that intentionally skip CI).
     has_workflows: bool = False
+    # Structural service detection: true when the repo root contains any
+    # canonical service-marker file (template.yaml, samconfig.toml,
+    # serverless.yml, cdk.json, Dockerfile, ...). Independent of branch layout
+    # so the dashboard can flag service-shaped repos whose dev branch is missing.
+    looks_like_service: bool = False
+    # Specific service-marker filenames detected at the repo root, surfaced in
+    # diagnostic output for the missing-dev-branch alert.
+    service_markers: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +204,7 @@ def build_status_from_snapshot(
     open_issues = snapshot.issue_total_count
 
     is_workspace, tags = _detect_tags(snapshot.primary_language, snapshot.root_entries)
+    service_markers = _detect_service_markers(snapshot.root_entries)
 
     main_status = translate_rollup_state(snapshot.main_rollup_state)
     dev_status: str | None = (
@@ -181,7 +214,7 @@ def build_status_from_snapshot(
     return RepoStatus(
         name=snapshot.name,
         full_name=snapshot.full_name,
-        is_service=snapshot.has_dev_branch,
+        has_dev_branch=snapshot.has_dev_branch,
         main_status=main_status,
         main_error=main_error,
         dev_status=dev_status,
@@ -198,6 +231,8 @@ def build_status_from_snapshot(
         oldest_issue_created_at=oldest_iso,
         default_branch=snapshot.default_branch or "main",
         has_workflows=bool(snapshot.workflow_files),
+        looks_like_service=bool(service_markers),
+        service_markers=service_markers,
     )
 
 
@@ -262,6 +297,8 @@ def load_cache() -> dict[str, RepoStatus]:
             filtered = {k: v for k, v in val.items() if k in allowed}
             if "tags" in filtered and isinstance(filtered["tags"], list):
                 filtered["tags"] = tuple(filtered["tags"])
+            if "service_markers" in filtered and isinstance(filtered["service_markers"], list):
+                filtered["service_markers"] = tuple(filtered["service_markers"])
             result[key] = RepoStatus(**filtered)
         return result
     except (json.JSONDecodeError, TypeError, KeyError):

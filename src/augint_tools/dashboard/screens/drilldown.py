@@ -41,7 +41,7 @@ class DrillDownScreen(ModalScreen[None]):
         t.append(f"branch: {status.main_status}", style="bold")
         if status.main_error:
             t.append(f"\n  main: {status.main_error}", style="red")
-        if status.is_service and status.dev_status:
+        if status.has_dev_branch and status.dev_status:
             t.append(f"\n  dev: {status.dev_status}", style="bold")
             if status.dev_error:
                 t.append(f"\n    {status.dev_error}", style="red")

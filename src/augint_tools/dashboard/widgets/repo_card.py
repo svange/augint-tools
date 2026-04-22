@@ -269,7 +269,11 @@ class RepoCard(Widget):
             line.append(" > ", style=f"bold black on {self._theme_spec.status_pass}")
             line.append(" ")
         line.append(health.status.name, style="bold")
-        if health.status.is_service:
+        # "svc" is the union of both signals: a repo is service-flavoured if
+        # it either runs a dev branch (gitflow-style) or carries a structural
+        # marker like template.yaml/Dockerfile. Repos satisfying neither are
+        # libraries.
+        if health.status.has_dev_branch or health.status.looks_like_service:
             line.append("  svc", style="dim")
         if health.status.is_workspace:
             line.append("  ws", style="dim")
@@ -281,7 +285,7 @@ class RepoCard(Widget):
         spec = self._theme_spec
         status = health.status
         line = Text()
-        if status.is_service and status.dev_status is not None:
+        if status.has_dev_branch and status.dev_status is not None:
             line.append("dev ")
             line.append(
                 _STATUS_ICON.get(status.dev_status, "?"),

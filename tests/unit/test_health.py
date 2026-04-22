@@ -27,7 +27,7 @@ from augint_tools.dashboard.health._registry import get_check
 def _status(
     name="myrepo",
     full_name="org/myrepo",
-    is_service=False,
+    has_dev_branch=False,
     main_status="success",
     main_error=None,
     dev_status=None,
@@ -38,11 +38,13 @@ def _status(
     human_open_issues=0,
     default_branch="main",
     has_workflows=True,
+    looks_like_service=False,
+    service_markers=(),
 ):
     return RepoStatus(
         name=name,
         full_name=full_name,
-        is_service=is_service,
+        has_dev_branch=has_dev_branch,
         main_status=main_status,
         main_error=main_error,
         dev_status=dev_status,
@@ -53,6 +55,8 @@ def _status(
         human_open_issues=human_open_issues,
         default_branch=default_branch,
         has_workflows=has_workflows,
+        looks_like_service=looks_like_service,
+        service_markers=service_markers,
     )
 
 
@@ -233,6 +237,7 @@ class TestRegistry:
         assert "open_issues" in names
         assert "open_prs" in names
         assert "coverage" in names
+        assert "service_missing_dev_branch" in names
 
     def test_all_checks_returns_instances(self):
         checks = all_checks()
@@ -274,7 +279,8 @@ class TestBrokenCI:
         result = get_check("broken_ci").evaluate(
             _mock_repo(),
             _status(
-                is_service=True,
+                has_dev_branch=True,
+                looks_like_service=True,
                 main_status="success",
                 dev_status="failure",
                 dev_error="deploy: Push image",
@@ -314,7 +320,8 @@ class TestBrokenCI:
         result = get_check("broken_ci").evaluate(
             _mock_repo(),
             _status(
-                is_service=True,
+                has_dev_branch=True,
+                looks_like_service=True,
                 main_status="failure",
                 main_error="err",
                 dev_status="failure",
@@ -324,6 +331,68 @@ class TestBrokenCI:
             context=_ctx(),
         )
         assert "main" in result.summary
+
+
+class TestServiceMissingDevBranch:
+    """A repo with structural service markers but no dev branch is the exact
+    drift the dashboard exists to catch -- e.g. a SAM/CDK/Dockerfile service
+    whose dev branch was deleted because the standard ruleset's deletion rule
+    wasn't in place. The check fires CRITICAL because the dev-pinned workflows
+    will start poisoning the main rollup, which is a noisy and indirect signal
+    compared to naming the actual condition."""
+
+    def test_service_with_dev_branch_is_ok(self):
+        result = get_check("service_missing_dev_branch").evaluate(
+            _mock_repo(),
+            _status(
+                has_dev_branch=True,
+                looks_like_service=True,
+                service_markers=("template.yaml",),
+            ),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.OK
+
+    def test_service_without_dev_branch_is_critical(self):
+        result = get_check("service_missing_dev_branch").evaluate(
+            _mock_repo(),
+            _status(
+                has_dev_branch=False,
+                looks_like_service=True,
+                service_markers=("template.yaml", "Dockerfile"),
+            ),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.CRITICAL
+        assert "service repo missing dev branch" in result.summary
+        assert "template.yaml" in result.summary
+        assert "Dockerfile" in result.summary
+        assert result.link == "https://github.com/org/myrepo/branches"
+
+    def test_library_without_dev_branch_is_ok(self):
+        # No service markers -> not a service -> dev branch absence is expected,
+        # not a problem. This is what guards the check from false positives on
+        # ordinary library repos.
+        result = get_check("service_missing_dev_branch").evaluate(
+            _mock_repo(),
+            _status(has_dev_branch=False, looks_like_service=False),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.OK
+
+    def test_library_with_dev_branch_is_ok(self):
+        # Some library repos legitimately maintain a dev branch (long-running
+        # rewrite, doc staging, etc.). Not a service, dev exists -> nothing to flag.
+        result = get_check("service_missing_dev_branch").evaluate(
+            _mock_repo(),
+            _status(has_dev_branch=True, looks_like_service=False),
+            config={},
+            context=_ctx(),
+        )
+        assert result.severity == Severity.OK
 
 
 class TestRenovateEnabled:

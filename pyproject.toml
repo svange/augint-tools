@@ -1,6 +1,6 @@
 [project]
 name = "augint-tools"
-version = "5.25.0"
+version = "5.26.0"
 description = "CLI for AI-assisted repository and workspace workflows"
 authors = [{name = "svange"}]
 readme = "README.md"

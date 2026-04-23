@@ -152,6 +152,41 @@ def dashboard_command(
     if layout not in layouts:
         raise click.ClickException(f"Unknown layout '{layout}'. Available: {', '.join(layouts)}")
 
+    health_config: dict = {
+        "stale_pr_days": stale_days,
+        "standards_engine": {"url": standards_yaml_url},
+    }
+
+    from ._data import load_cache_context
+
+    cache_context = load_cache_context()
+    can_warm_start = (
+        cache_context is not None
+        and not interactive  # interactive mode needs live repo list for selection
+        and not org  # explicit --org overrides cache
+    )
+
+    if can_warm_start:
+        logger.debug("warm-start: painting from cache context")
+        try:
+            run_dashboard(
+                repos=None,
+                refresh_seconds=refresh_seconds,
+                theme=theme,
+                layout=layout,
+                health_config=health_config,
+                owners=cache_context["owners"],
+                skip_refresh=no_refresh,
+                github_client=None,
+                auto_discover=show_all,
+                saved_prefs=prefs,
+                warm_start=True,
+                auth_source="dotenv" if env_auth else "auto",
+            )
+        except KeyboardInterrupt:
+            print("\n[dim]Dashboard stopped.[/dim]")
+        return
+
     _, gh_account, _ = load_env_config()
     auth_source = "dotenv" if env_auth else "auto"
     if env_auth:
@@ -167,10 +202,6 @@ def dashboard_command(
     # Legacy single-org mode (--org): use exactly that org.
     # Legacy single-repo mode (no flags): GH_REPO + GH_ACCOUNT from env.
     # ------------------------------------------------------------------
-    health_config: dict = {
-        "stale_pr_days": stale_days,
-        "standards_engine": {"url": standards_yaml_url},
-    }
 
     multi_org = (show_all or interactive) and not org
 

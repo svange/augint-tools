@@ -20,6 +20,7 @@ Runtime options (standards URL override, handler registry) come from
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import TYPE_CHECKING
 
@@ -42,6 +43,13 @@ def _rulesets_fingerprint(rulesets: list[dict] | None) -> str:
     return json.dumps(rulesets, sort_keys=True, default=str)
 
 
+def _overrides_fingerprint(text: str | None) -> str:
+    """Short hash of the compliance override file so edits bust the cache."""
+    if not text:
+        return ""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 class YamlEngineCheck:
     """Loads standards.yaml and emits one result per declared check.
 
@@ -56,8 +64,10 @@ class YamlEngineCheck:
     description = "Evaluate the canonical standards.yaml compliance rules"
 
     def __init__(self) -> None:
-        # Cache: repo_full_name -> (cache_key, results)
-        self._cache: dict[str, tuple[tuple[str | None, str], list[HealthCheckResult]]] = {}
+        # Cache: repo_full_name -> (cache_key, results).
+        # Key is (commit_sha, rulesets_fingerprint, overrides_fingerprint) --
+        # any of those three changing re-evaluates this repo's checks.
+        self._cache: dict[str, tuple[tuple[str | None, str, str], list[HealthCheckResult]]] = {}
 
     def evaluate(
         self,
@@ -74,7 +84,8 @@ class YamlEngineCheck:
         repo_key = getattr(status, "full_name", "") or ""
         sha = context.main_head_sha
         rulesets_fp = _rulesets_fingerprint(context.rulesets)
-        cache_key = (sha, rulesets_fp)
+        overrides_fp = _overrides_fingerprint(context.compliance_overrides_text)
+        cache_key = (sha, rulesets_fp, overrides_fp)
 
         cached = self._cache.get(repo_key)
         if cached is not None and cached[0] == cache_key:

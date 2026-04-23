@@ -437,6 +437,104 @@ def test_builtin_handlers_are_registered():
 
 
 # ---------------------------------------------------------------------------
+# Per-repo .ai-compliance.yaml overrides
+# ---------------------------------------------------------------------------
+
+
+def test_disabled_check_emits_ok_with_reason():
+    ctx = _ctx(
+        compliance_overrides_text="disabled_checks:\n  - x.fail\n",
+    )
+    doc = {
+        "checks": [
+            {
+                "id": "x.fail",
+                "severity": "HIGH",
+                "name": "Always fails",
+                "check": {"type": "handler", "name": "_test_always_fail"},
+            }
+        ]
+    }
+    results = _run_with_doc(doc, ctx)
+    finding = next(r for r in results if r.check_name == "x.fail")
+    assert finding.severity == Severity.OK
+    assert "disabled by .ai-compliance.yaml" in finding.summary
+
+
+def test_override_merges_into_handler_params():
+    captured: dict = {}
+
+    @register_handler("_test_capture_params")
+    def _capture(_context, params):
+        captured.update(params)
+        return True, "ok"
+
+    ctx = _ctx(
+        compliance_overrides_text=(
+            "overrides:\n"
+            "  x.probe:\n"
+            "    url: https://override.example/health\n"
+            "    timeout_seconds: 10\n"
+        ),
+    )
+    doc = {
+        "checks": [
+            {
+                "id": "x.probe",
+                "severity": "CRITICAL",
+                "check": {
+                    "type": "handler",
+                    "name": "_test_capture_params",
+                    "url": "https://default.example/health",
+                    "expected_status": 200,
+                },
+            }
+        ]
+    }
+    results = _run_with_doc(doc, ctx)
+    assert results[0].severity == Severity.OK
+    assert captured["url"] == "https://override.example/health"
+    assert captured["timeout_seconds"] == 10
+    assert captured["expected_status"] == 200
+
+
+def test_stale_override_id_surfaces_finding():
+    ctx = _ctx(
+        compliance_overrides_text="disabled_checks:\n  - retired.check.id\n",
+    )
+    doc = {
+        "checks": [
+            {
+                "id": "active.check",
+                "severity": "HIGH",
+                "check": {"type": "handler", "name": "_test_always_pass"},
+            }
+        ]
+    }
+    results = _run_with_doc(doc, ctx)
+    stale = next(r for r in results if r.check_name == "standards_engine.stale_overrides")
+    assert stale.severity == Severity.LOW
+    assert "retired.check.id" in stale.summary
+
+
+def test_malformed_compliance_yaml_does_not_break_engine():
+    ctx = _ctx(compliance_overrides_text="not: [valid: yaml::")
+    doc = {
+        "checks": [
+            {
+                "id": "active.check",
+                "severity": "HIGH",
+                "check": {"type": "handler", "name": "_test_always_pass"},
+            }
+        ]
+    }
+    # Should still evaluate the real check, treating overrides as absent.
+    results = _run_with_doc(doc, ctx)
+    assert results[0].check_name == "active.check"
+    assert results[0].severity == Severity.OK
+
+
+# ---------------------------------------------------------------------------
 # Engine without network (gh=None) returns informational result
 # ---------------------------------------------------------------------------
 

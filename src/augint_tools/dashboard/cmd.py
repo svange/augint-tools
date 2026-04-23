@@ -166,7 +166,7 @@ def dashboard_command(
         and not org  # explicit --org overrides cache
     )
 
-    if can_warm_start:
+    if can_warm_start and cache_context is not None:
         logger.debug("warm-start: painting from cache context")
         try:
             run_dashboard(

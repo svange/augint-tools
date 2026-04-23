@@ -1922,7 +1922,7 @@ class DashboardApp(App[None]):
                 healths.append(RepoHealth(status=status))
 
         try:
-            save_cache(statuses, healths=healths)
+            save_cache(statuses, healths=healths, owners=self._owners)
         except Exception as exc:
             self.state.log_error("cache", f"save failed: {exc.__class__.__name__}: {exc}")
 

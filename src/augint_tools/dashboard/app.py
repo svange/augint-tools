@@ -1405,6 +1405,9 @@ class DashboardApp(App[None]):
         self._pulse_phase: int = 0
         self._flash_enabled: bool = True
         self._restart_requested: bool = False
+        # Snapshot of healths from the previous refresh cycle, used to detect
+        # data changes that don't cross a severity boundary (for shimmer).
+        self._prev_healths: list[RepoHealth] = []
 
         # Disabled repos -- excluded from refresh and all views.
         self._disabled_repos: set[str] = set()
@@ -1683,7 +1686,10 @@ class DashboardApp(App[None]):
                     if viewer:
                         self._owners = [viewer]
                         for org_login in list_user_orgs(self._github_client):
-                            if org_login not in self._owners and org_login not in self._disabled_orgs:
+                            if (
+                                org_login not in self._owners
+                                and org_login not in self._disabled_orgs
+                            ):
                                 self._owners.append(org_login)
                 except Exception as exc:
                     logger.warning(f"warm-start org discovery: {exc}")
@@ -1981,6 +1987,7 @@ class DashboardApp(App[None]):
         # before we overwrite it. Sprite spawning has to happen *after* the
         # rerender below so the card it anchors to has a fresh region.
         transitions = self._detect_severity_transitions(healths)
+        self._prev_healths = list(self.state.healths)
         self.state.healths = healths
         self.state.health_by_name = {h.status.full_name: h for h in healths}
         self.state.stale_repos = failed_repos or set()
@@ -2015,6 +2022,17 @@ class DashboardApp(App[None]):
         if transitions and self._main is not None:
             for full_name, kind in transitions:
                 self._main.spawn_effect(full_name, kind)
+        # Shimmer effect on cards whose values changed (but no severity transition).
+        if self._main is not None:
+            transition_names = {name for name, _ in transitions} if transitions else set()
+            prior = {h.status.full_name: h for h in self._prev_healths}
+            for h in healths:
+                fn = h.status.full_name
+                if fn in transition_names:
+                    continue
+                prev = prior.get(fn)
+                if prev is not None and prev.status != h.status:
+                    self._main.spawn_effect(fn, "shimmer")
 
     def _detect_severity_transitions(
         self, healths: list[RepoHealth]

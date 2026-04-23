@@ -252,6 +252,8 @@ jobs:
 
       - name: Run semantic release
         id: release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           RELEASED="false"
 
@@ -264,7 +266,7 @@ jobs:
             echo "Semantic release succeeded"
             RELEASED="true"
           else
-            echo "No release needed"
+            echo "No release needed (exit code $SEMANTIC_EXIT_CODE)"
           fi
 
           echo "released=$RELEASED" >> $GITHUB_OUTPUT

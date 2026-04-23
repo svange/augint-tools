@@ -70,7 +70,13 @@ from .widgets.aws_drawer import AwsDrawer
 from .widgets.card_container import CardContainer
 from .widgets.dashboard_footer import DashboardFooter
 from .widgets.drawer import Drawer
-from .widgets.effect_sprite import SPRITE_WIDTH, EffectKind, EffectSprite
+from .widgets.effect_sprite import (
+    _FRAME_INTERVAL_SECONDS,
+    SPRITE_DEFS,
+    SPRITE_WIDTH,
+    EffectKind,
+    EffectSprite,
+)
 from .widgets.error_drawer import ErrorDrawer
 from .widgets.fuzzy_search import FuzzySearchBar
 from .widgets.highlight_bar import HighlightBar
@@ -329,6 +335,10 @@ class MainScreen(Screen[None]):
         # lands in the right spot whether or not card regions are settled.
         self._position_effect(full_name)
         self.call_after_refresh(self._position_effect, full_name)
+        # Schedule dict cleanup after the animation completes so resize/reflow
+        # positioning can still find the sprite during its lifetime.
+        duration = len(SPRITE_DEFS[kind]["frames"]) * _FRAME_INTERVAL_SECONDS + 0.1
+        self.set_timer(duration, lambda: self._effects_by_name.pop(full_name, None))
 
     def dismiss_all_effects(self) -> bool:
         """Remove every active sprite. Returns True if anything was cleared."""
@@ -1981,6 +1991,8 @@ class DashboardApp(App[None]):
                 out.append((full_name, "sparkle"))
             elif new_class == "critical":
                 out.append((full_name, "shockwave"))
+            elif new_class == "warning":
+                out.append((full_name, "warning"))
         return out
 
     def _update_warning_since(self, healths: list[RepoHealth]) -> None:
@@ -2355,11 +2367,9 @@ class DashboardApp(App[None]):
         self._save_prefs()
 
     def on_click(self, _event: events.Click) -> None:
-        # Any click anywhere clears persistent effect sprites. Don't stop
-        # the event -- card click handlers (selection, drilldown) still
-        # need it. If no sprites are active this is a no-op.
-        if self._main is not None:
-            self._main.dismiss_all_effects()
+        # Sprites auto-dismiss after their animation cycle; no manual
+        # cleanup needed on click.
+        pass
 
     def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
         if event.ctrl:

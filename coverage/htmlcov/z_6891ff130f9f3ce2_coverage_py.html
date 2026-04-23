@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_6891ff130f9f3ce2_open_issues_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-23 18:23 +0000
+            created at 2026-04-23 18:32 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -83,7 +83,7 @@
     <p class="pln"><span class="n"><a id="t1" href="#t1">1</a></span><span class="t"><span class="str">"""Health check: test-coverage threshold enforcement in CI.</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t2" href="#t2">2</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t3" href="#t3">3</a></span><span class="t"><span class="str">Parses the repository's canonical GitHub Actions workflow</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t4" href="#t4">4</a></span><span class="t"><span class="str">(``.github/workflows/pipeline.yaml``) and inspects the ``unit-tests`` job</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t4" href="#t4">4</a></span><span class="t"><span class="str">(``publish.yaml`` for libraries, ``deploy.yaml`` for services) and inspects the ``unit-tests`` job</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t5" href="#t5">5</a></span><span class="t"><span class="str">for signals that the coverage gate has been **actively weakened**:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t6" href="#t6">6</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t7" href="#t7">7</a></span><span class="t"><span class="str">- Python: ``pytest --cov-fail-under=N`` with N below the canonical 80% baseline</span>&nbsp;</span><span class="r"></span></p>
@@ -96,8 +96,8 @@
     <p class="pln"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="str">  the repo adopted the standardized job name but the gate is missing, which</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="str">  is a regression from standard, not non-adoption.</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="str">**True non-adoption is benign.** Repos with no ``pipeline.yaml`` at all, or</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="str">with a ``pipeline.yaml`` that has no ``unit-tests`` job, return OK severity</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="str">**True non-adoption is benign.** Repos with no canonical pipeline at all, or</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="str">with a pipeline that has no ``unit-tests`` job, return OK severity</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t"><span class="str">with an informative summary. This is observational, not a warning -- a repo</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t"><span class="str">is not "unhealthy" just because it doesn't follow the standard naming</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t"><span class="str">convention for its workflow files.</span>&nbsp;</span><span class="r"></span></p>
@@ -169,7 +169,7 @@
     <p class="run"><span class="n"><a id="t87" href="#t87">87</a></span><span class="t">            <span class="key">return</span> <span class="nam">HealthCheckResult</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t88" href="#t88">88</a></span><span class="t">                <span class="nam">check_name</span><span class="op">=</span><span class="nam">self</span><span class="op">.</span><span class="nam">name</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t89" href="#t89">89</a></span><span class="t">                <span class="nam">severity</span><span class="op">=</span><span class="nam">Severity</span><span class="op">.</span><span class="nam">OK</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t90" href="#t90">90</a></span><span class="t">                <span class="nam">summary</span><span class="op">=</span><span class="str">"not standardized (no pipeline.yaml)"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t90" href="#t90">90</a></span><span class="t">                <span class="nam">summary</span><span class="op">=</span><span class="str">"not standardized (no canonical pipeline)"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t91" href="#t91">91</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t92" href="#t92">92</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t93" href="#t93">93</a></span><span class="t">        <span class="nam">workflow_link</span> <span class="op">=</span> <span class="fst">f"</span><span class="fst">https://github.com/</span><span class="op">{</span><span class="nam">status</span><span class="op">.</span><span class="nam">full_name</span><span class="op">}</span><span class="fst">/blob/</span><span class="op">{</span><span class="nam">default_branch</span><span class="op">}</span><span class="fst">/</span><span class="op">{</span><span class="nam">used_path</span><span class="op">}</span><span class="fst">"</span>&nbsp;</span><span class="r"></span></p>
@@ -180,7 +180,7 @@
     <p class="run"><span class="n"><a id="t98" href="#t98">98</a></span><span class="t">            <span class="key">return</span> <span class="nam">HealthCheckResult</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t99" href="#t99">99</a></span><span class="t">                <span class="nam">check_name</span><span class="op">=</span><span class="nam">self</span><span class="op">.</span><span class="nam">name</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t100" href="#t100">100</a></span><span class="t">                <span class="nam">severity</span><span class="op">=</span><span class="nam">Severity</span><span class="op">.</span><span class="nam">MEDIUM</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t101" href="#t101">101</a></span><span class="t">                <span class="nam">summary</span><span class="op">=</span><span class="str">"pipeline.yaml parse error"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t101" href="#t101">101</a></span><span class="t">                <span class="nam">summary</span><span class="op">=</span><span class="str">"pipeline parse error"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t102" href="#t102">102</a></span><span class="t">                <span class="nam">link</span><span class="op">=</span><span class="nam">workflow_link</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t103" href="#t103">103</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t104" href="#t104">104</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -188,7 +188,7 @@
     <p class="mis show_mis"><span class="n"><a id="t106" href="#t106">106</a></span><span class="t">            <span class="key">return</span> <span class="nam">HealthCheckResult</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t107" href="#t107">107</a></span><span class="t">                <span class="nam">check_name</span><span class="op">=</span><span class="nam">self</span><span class="op">.</span><span class="nam">name</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t108" href="#t108">108</a></span><span class="t">                <span class="nam">severity</span><span class="op">=</span><span class="nam">Severity</span><span class="op">.</span><span class="nam">MEDIUM</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t109" href="#t109">109</a></span><span class="t">                <span class="nam">summary</span><span class="op">=</span><span class="str">"pipeline.yaml not a mapping"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t109" href="#t109">109</a></span><span class="t">                <span class="nam">summary</span><span class="op">=</span><span class="str">"pipeline not a mapping"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t110" href="#t110">110</a></span><span class="t">                <span class="nam">link</span><span class="op">=</span><span class="nam">workflow_link</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t111" href="#t111">111</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t112" href="#t112">112</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -197,7 +197,7 @@
     <p class="mis show_mis"><span class="n"><a id="t115" href="#t115">115</a></span><span class="t">            <span class="key">return</span> <span class="nam">HealthCheckResult</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t116" href="#t116">116</a></span><span class="t">                <span class="nam">check_name</span><span class="op">=</span><span class="nam">self</span><span class="op">.</span><span class="nam">name</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t117" href="#t117">117</a></span><span class="t">                <span class="nam">severity</span><span class="op">=</span><span class="nam">Severity</span><span class="op">.</span><span class="nam">OK</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t118" href="#t118">118</a></span><span class="t">                <span class="nam">summary</span><span class="op">=</span><span class="str">"pipeline.yaml has no jobs"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t118" href="#t118">118</a></span><span class="t">                <span class="nam">summary</span><span class="op">=</span><span class="str">"pipeline has no jobs"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t119" href="#t119">119</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t120" href="#t120">120</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t121" href="#t121">121</a></span><span class="t">        <span class="nam">unit_tests</span> <span class="op">=</span> <span class="nam">jobs</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"unit-tests"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -353,7 +353,7 @@
             <a class="nav" href="z_6891ff130f9f3ce2_open_issues_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-23 18:23 +0000
+            created at 2026-04-23 18:32 +0000
         </p>
     </div>
 </footer>

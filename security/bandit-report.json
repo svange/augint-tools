@@ -1,6 +1,6 @@
 {
   "errors": [],
-  "generated_at": "2026-04-23T18:22:38Z",
+  "generated_at": "2026-04-23T18:32:15Z",
   "metrics": {
     "_totals": {
       "CONFIDENCE.HIGH": 132,
@@ -11,7 +11,7 @@
       "SEVERITY.LOW": 143,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 17250,
+      "loc": 17252,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -258,7 +258,7 @@
       "SEVERITY.LOW": 1,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 702,
+      "loc": 704,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1710,7 +1710,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "626             time.sleep(backoff)\n627     assert last_exc is not None\n628     raise last_exc\n",
+      "code": "630             time.sleep(backoff)\n631     assert last_exc is not None\n632     raise last_exc\n",
       "col_offset": 4,
       "end_col_offset": 31,
       "filename": "src/augint_tools/dashboard/_gql.py",
@@ -1721,9 +1721,9 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
-      "line_number": 627,
+      "line_number": 631,
       "line_range": [
-        627
+        631
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html",
       "test_id": "B101",

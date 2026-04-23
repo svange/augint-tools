@@ -33,8 +33,6 @@ dev = [
     "pytest-html>=4.0.0",
     "pdoc>=15.0.0",
     "types-defusedxml>=0.7.0",
-    "semgrep>=0.82.0",
-    "checkov>=3.2.459",
 ]
 
 [project.scripts]

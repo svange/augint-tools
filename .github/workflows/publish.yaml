@@ -69,21 +69,21 @@ jobs:
           uv export --no-dev --no-hashes -o prod-requirements.txt
           uv run pip-audit --desc --format json --output pip-audit-report.json -r prod-requirements.txt --no-deps
       - name: Semgrep
-        # semgrep scan --error exits non-zero on findings. Declared as a dev
-        # dep in pyproject.toml for version-locked reproducibility.
+        # Installed via --with to isolate its dependency tree from the lock
+        # file (semgrep constrains transitive deps like urllib3).
         run: |
-          uv run semgrep scan \
+          uv run --with semgrep semgrep scan \
             --config p/python \
             --config p/security-audit \
             --config p/secrets \
             --config p/owasp-top-ten \
             --error
       - name: IaC policy (checkov)
-        # Runs when SAM/CDK/CloudFormation IaC is present; libraries without IaC skip cleanly.
-        # Declared as a dev dep in pyproject.toml for version-locked reproducibility.
+        # Installed via --with to isolate its dependency tree (checkov
+        # constrains urllib3<2, which conflicts with production deps).
         if: hashFiles('template.yaml', 'template.yml', 'cdk.out/**', 'infrastructure/**/*.yaml', 'infrastructure/**/*.yml') != ''
         run: |
-          uv run checkov \
+          uv run --with checkov checkov \
             --quiet \
             --download-external-modules false \
             --framework cloudformation,serverless,cdk \

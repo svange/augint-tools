@@ -372,21 +372,42 @@ def load_cache() -> dict[str, RepoStatus]:
 def save_cache(
     statuses: list[RepoStatus],
     healths: list | None = None,
+    owners: list[str] | None = None,
 ) -> None:
-    """Persist repo statuses and optional health data to disk."""
+    """Persist repo statuses and optional health data to disk.
+
+    When *owners* is provided, ``repo_list`` (derived from *statuses*) and
+    ``owners`` are written into the cache so the dashboard can warm-start
+    without waiting for GitHub auth.  When *owners* is ``None``, any existing
+    ``repo_list`` / ``owners`` values are carried forward from the current
+    cache file (same pattern as health preservation).
+    """
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     data: dict = {"repos": {s.full_name: asdict(s) for s in statuses}}
+
     if healths:
         data["health"] = {h.status.full_name: h.to_dict() for h in healths}
         data["health_ts"] = datetime.now(UTC).isoformat()
-    elif CACHE_FILE.exists():
+
+    if owners is not None:
+        data["repo_list"] = [s.full_name for s in statuses]
+        data["owners"] = owners
+
+    existing: dict = {}
+    if CACHE_FILE.exists():
         try:
             existing = json.loads(CACHE_FILE.read_text())
-            if "health" in existing:
-                data["health"] = existing["health"]
-                data["health_ts"] = existing.get("health_ts")
         except (json.JSONDecodeError, KeyError):
-            pass
+            existing = {}
+
+    if not healths and "health" in existing:
+        data["health"] = existing["health"]
+        data["health_ts"] = existing.get("health_ts")
+
+    if owners is None and "repo_list" in existing:
+        data["repo_list"] = existing["repo_list"]
+        data["owners"] = existing.get("owners")
+
     CACHE_FILE.write_text(json.dumps(data, indent=2))
 
 
@@ -426,4 +447,21 @@ def load_cache_timestamp() -> datetime | None:
             parsed = parsed.replace(tzinfo=UTC)
         return parsed.astimezone(UTC)
     except (json.JSONDecodeError, TypeError, KeyError, ValueError):
+        return None
+
+
+def load_cache_context() -> dict | None:
+    """Return ``{"repo_list": [...], "owners": [...]}`` from the cache file.
+
+    Returns ``None`` if the cache file does not exist or does not contain
+    both ``repo_list`` and ``owners`` keys (e.g. written by an older version).
+    """
+    if not CACHE_FILE.exists():
+        return None
+    try:
+        data = json.loads(CACHE_FILE.read_text())
+        if "repo_list" not in data or "owners" not in data:
+            return None
+        return {"repo_list": data["repo_list"], "owners": data["owners"]}
+    except (json.JSONDecodeError, TypeError, KeyError):
         return None

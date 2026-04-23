@@ -554,6 +554,22 @@ def _repo_applies(entry: dict, repo_tags: set[str]) -> bool:
     return any(tag in repo_tags for tag in applies_to)
 
 
+def _precondition_met(entry: dict, context: FetchContext) -> tuple[bool, str | None]:
+    """Evaluate an optional ``requires_file`` precondition.
+
+    Returns ``(True, None)`` when the precondition passes (or is absent).
+    Returns ``(False, reason)`` when the required file is missing, meaning
+    the check should auto-pass with "not applicable".
+    """
+    required = entry.get("requires_file")
+    if not required:
+        return True, None
+    text = _resolve_file_text(context, required)
+    if text is not None:
+        return True, None
+    return False, f"requires {required} (not present)"
+
+
 def _parse_compliance_overrides(text: str | None) -> tuple[set[str], dict[str, dict]]:
     """Parse ``.ai-compliance.yaml`` into ``(disabled_checks, overrides)``.
 
@@ -647,6 +663,16 @@ def run_engine(
                     check_name=check_id,
                     severity=Severity.OK,
                     summary=f"{entry.get('name') or check_id}: disabled by .ai-compliance.yaml",
+                )
+            )
+            continue
+        met, reason = _precondition_met(entry, context)
+        if not met:
+            results.append(
+                HealthCheckResult(
+                    check_name=check_id,
+                    severity=Severity.OK,
+                    summary=f"{entry.get('name') or check_id}: not applicable ({reason})",
                 )
             )
             continue

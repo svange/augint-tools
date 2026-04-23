@@ -51,6 +51,10 @@ _STANDARD_THRESHOLD = 80
 # Regex for extracting ``--cov-fail-under=N`` or ``--cov-fail-under N``.
 _FAIL_UNDER_RE = re.compile(r"--cov-fail-under[=\s]+(\d+)")
 
+# Regex for extracting ``fail_under = N`` from pyproject.toml
+# [tool.coverage.report] section.
+_PYPROJECT_FAIL_UNDER_RE = re.compile(r"fail_under\s*=\s*(\d+)")
+
 # Matches shell suffixes that swallow a non-zero exit code on the same line.
 # ``|| true``, ``|| :``, ``|| echo "whatever"``.
 _IGNORE_SUFFIX_RE = re.compile(r"\|\|\s*(true|:|echo\b)")
@@ -133,9 +137,14 @@ class CoverageCheck:
                 link=workflow_link,
             )
 
-        return self._evaluate_steps(steps, workflow_link)
+        return self._evaluate_steps(steps, workflow_link, context.pyproject_text)
 
-    def _evaluate_steps(self, steps: list[Any], workflow_link: str) -> HealthCheckResult:
+    def _evaluate_steps(
+        self,
+        steps: list[Any],
+        workflow_link: str,
+        pyproject_text: str | None = None,
+    ) -> HealthCheckResult:
         """Walk unit-tests steps and classify the coverage posture."""
         coverage_seen = False
         coverage_ignored = False
@@ -217,8 +226,17 @@ class CoverageCheck:
             )
 
         if has_python_cov_flag:
-            # Coverage collected but no fail-under gate -- CI won't fail on
-            # regressions. Treat as a lowered gate (equivalent to 0%).
+            # No --cov-fail-under on the CLI. The canonical standard places
+            # the threshold in pyproject.toml [tool.coverage.report] fail_under.
+            # This check only verifies enforcement EXISTS and isn't bypassed.
+            # Whether the value meets the standard is coverage.python_threshold_in_config's job.
+            if pyproject_text and _PYPROJECT_FAIL_UNDER_RE.search(pyproject_text):
+                return HealthCheckResult(
+                    check_name=self.name,
+                    severity=Severity.OK,
+                    summary="coverage threshold enforced via pyproject.toml",
+                )
+            # No threshold in CLI or config -- CI won't fail on regressions.
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.LOW,

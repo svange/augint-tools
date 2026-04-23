@@ -1,8 +1,8 @@
-"""SystemDrawer -- right-docked drawer showing local system info.
+"""SystemDrawer -- bottom-docked drawer showing local system info.
 
-Displays CPU, RAM, GPU, Docker containers, and network connectivity.
-Shares the right dock position with the existing Drawer widget via a
-mode property that determines which content to show.
+Displays CPU, RAM, GPU, and Docker containers in a multi-column layout.
+Docks to the bottom of the screen so it spans the full width and shows
+more information at a glance than the old right-side panel.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from rich.text import Text
 from textual import events
-from textual.containers import Container
+from textual.containers import Container, Horizontal
 from textual.widgets import Static
 
 if TYPE_CHECKING:
@@ -25,31 +25,66 @@ def _progress_bar(fraction: float, width: int) -> str:
     return "\u2588" * filled + "\u2591" * (width - filled)
 
 
+def _bar_color(fraction: float) -> str:
+    """Return a color string based on a utilization fraction."""
+    if fraction >= 0.90:
+        return "red"
+    if fraction >= 0.75:
+        return "yellow"
+    if fraction >= 0.60:
+        return "#d4a017"
+    return "green"
+
+
 class SystemDrawer(Container):
-    """Right-docked drawer for system info. Overlays the card grid."""
+    """Bottom-docked drawer for system info. Overlays the card grid."""
 
     DEFAULT_CSS = """
     SystemDrawer {
         layer: overlay;
-        dock: right;
-        width: 48;
-        height: 100%;
-        offset: 48 0;
+        dock: bottom;
+        width: 100%;
+        height: 14;
+        offset: 0 14;
         padding: 1 2;
         transition: offset 180ms in_out_cubic;
     }
     SystemDrawer.open {
         offset: 0 0;
     }
+    SystemDrawer > #sys-columns {
+        width: 100%;
+        height: 100%;
+    }
+    SystemDrawer > #sys-columns > .sys-col {
+        width: 1fr;
+        height: 100%;
+        padding: 0 1;
+    }
+    SystemDrawer > #sys-columns > #sys-col-divider,
+    SystemDrawer > #sys-columns > #sys-col-divider-2 {
+        width: 1;
+        height: 100%;
+        background: #2a2a36;
+    }
     """
 
     def __init__(self, id: str = "system-drawer") -> None:
         super().__init__(id=id)
-        self._body = Static("", id="system-drawer-body")
+        self._col_left = Static("", id="sys-col-left", classes="sys-col")
+        self._col_mid = Static("", id="sys-col-mid", classes="sys-col")
+        self._col_right = Static("", id="sys-col-right", classes="sys-col")
         self._docker_show_all: bool = True
 
     def compose(self):
-        yield self._body
+        yield Horizontal(
+            self._col_left,
+            Static("", id="sys-col-divider"),
+            self._col_mid,
+            Static("", id="sys-col-divider-2"),
+            self._col_right,
+            id="sys-columns",
+        )
 
     @property
     def is_open(self) -> bool:
@@ -72,172 +107,125 @@ class SystemDrawer(Container):
         self._docker_show_all = not self._docker_show_all
 
     def refresh_content(self, state: AppState) -> None:
-        """Rebuild the drawer body from current state."""
-        t = Text()
-        t.append("System\n\n", style="bold")
-        self._append_cpu(t, state)
-        self._append_ram(t, state)
-        self._append_gpu(t, state)
-        self._append_docker(t, state)
-        self._append_network(t, state)
-        t.append("\npress s to close, click Docker to filter.", style="dim")
-        self._body.update(t)
+        """Rebuild all three columns from current state."""
+        self._col_left.update(self._build_cpu_ram(state))
+        self._col_mid.update(self._build_gpu(state))
+        self._col_right.update(self._build_docker(state))
 
-    def _append_cpu(self, t: Text, state: AppState) -> None:
+    # ---- column builders ----
+
+    def _build_cpu_ram(self, state: AppState) -> Text:
+        t = Text()
+        t.append("CPU / RAM\n", style="bold")
         snap = state.system_snapshot
+        bar_w = 16
         if snap is None or snap.cpu is None:
             t.append("CPU  ", style="bold")
-            t.append("no data\n\n", style="dim")
-            return
-        cpu = snap.cpu
-        bar_width = 14
-        frac = cpu.usage_pct / 100.0
-        color = "green"
-        if frac >= 0.90:
-            color = "red"
-        elif frac >= 0.75:
-            color = "yellow"
-        elif frac >= 0.60:
-            color = "#d4a017"
-        t.append("CPU  ", style="bold")
-        t.append(_progress_bar(frac, bar_width), style=color)
-        t.append(f" {cpu.usage_pct:.0f}%  {cpu.core_count} cores\n")
-        t.append(
-            f"load {cpu.load_avg_1m} / {cpu.load_avg_5m} / {cpu.load_avg_15m}\n\n",
-            style="dim",
-        )
+            t.append("no data\n", style="dim")
+        else:
+            cpu = snap.cpu
+            frac = cpu.usage_pct / 100.0
+            t.append("CPU  ", style="bold")
+            t.append(_progress_bar(frac, bar_w), style=_bar_color(frac))
+            t.append(f" {cpu.usage_pct:.0f}%  {cpu.core_count}c\n")
+            t.append(
+                f"     load {cpu.load_avg_1m}/{cpu.load_avg_5m}/{cpu.load_avg_15m}\n",
+                style="dim",
+            )
 
-    def _append_ram(self, t: Text, state: AppState) -> None:
         ram = state.ram_stats
-        if ram is None:
-            return
-        bar_width = 14
-        frac = ram.used_fraction
-        color = "green"
-        if frac >= 0.90:
-            color = "red"
-        elif frac >= 0.75:
-            color = "yellow"
-        elif frac >= 0.60:
-            color = "#d4a017"
-        t.append("RAM  ", style="bold")
-        t.append(_progress_bar(frac, bar_width), style=color)
-        pct = int(round(frac * 100))
-        t.append(f" {pct}%  {ram.used_gb:.0f}/{ram.total_gb:.0f}G\n\n")
+        if ram is not None:
+            frac = ram.used_fraction
+            pct = int(round(frac * 100))
+            t.append("RAM  ", style="bold")
+            t.append(_progress_bar(frac, bar_w), style=_bar_color(frac))
+            t.append(f" {pct}%  {ram.used_gb:.0f}/{ram.total_gb:.0f}G\n")
 
-    def _append_gpu(self, t: Text, state: AppState) -> None:
+        # Network summary (kept brief; detailed DNS is in the network drawer)
+        net = snap.network if snap else None
+        if net is not None:
+            t.append("\n")
+            status_style = "green" if net.connected else "red"
+            status_word = "connected" if net.connected else "disconnected"
+            t.append("NET  ", style="bold")
+            t.append(status_word, style=status_style)
+            if net.latency_ms is not None:
+                t.append(f"  {net.latency_ms:.0f}ms", style="dim")
+            t.append("\n")
+
+        t.append("\npress s to close", style="dim")
+        return t
+
+    def _build_gpu(self, state: AppState) -> Text:
+        t = Text()
+        t.append("GPU\n", style="bold")
         gpu = state.gpu_stats
         if gpu is None:
-            return
-        bar_width = 14
-        t.append("GPU  ", style="bold")
-        t.append(f"{gpu.name[:16]}")
+            t.append("no GPU detected\n", style="dim")
+            return t
+        bar_w = 16
+        t.append(f"{gpu.name[:24]}", style="bold")
         extras: list[str] = []
         if gpu.temp_c is not None:
             extras.append(f"{gpu.temp_c}C")
         if gpu.power_w is not None:
             extras.append(f"{gpu.power_w:.0f}W")
         if extras:
-            t.append(" " + " ".join(extras), style="dim")
+            t.append("  " + " ".join(extras), style="dim")
         t.append("\n")
 
-        # Utilization bar
-        util_color = "green"
-        if gpu.util_pct >= 90:
-            util_color = "red"
-        elif gpu.util_pct >= 60:
-            util_color = "#d4a017"
         t.append("util ", style="dim")
-        t.append(_progress_bar(gpu.util_fraction, bar_width), style=util_color)
+        util_color = _bar_color(gpu.util_pct / 100.0)
+        t.append(_progress_bar(gpu.util_fraction, bar_w), style=util_color)
         t.append(f" {gpu.util_pct}%\n")
 
-        # VRAM bar
         vram_frac = gpu.vram_fraction
-        vram_color = "green"
-        if vram_frac >= 0.90:
-            vram_color = "red"
-        elif vram_frac >= 0.75:
-            vram_color = "yellow"
-        elif vram_frac >= 0.60:
-            vram_color = "#d4a017"
         vram_pct = int(round(vram_frac * 100))
         t.append("vram ", style="dim")
-        t.append(_progress_bar(vram_frac, bar_width), style=vram_color)
-        t.append(f" {vram_pct}%  {gpu.vram_used_gb:.0f}/{gpu.vram_total_gb:.0f}G\n\n")
+        t.append(_progress_bar(vram_frac, bar_w), style=_bar_color(vram_frac))
+        t.append(f" {vram_pct}%  {gpu.vram_used_gb:.0f}/{gpu.vram_total_gb:.0f}G\n")
+        return t
 
-    def _append_docker(self, t: Text, state: AppState) -> None:
+    def _build_docker(self, state: AppState) -> Text:
+        t = Text()
+        t.append("Docker\n", style="bold")
         snap = state.system_snapshot
         if snap is None:
-            t.append("Docker  ", style="bold")
-            t.append("no data\n\n", style="dim")
-            return
+            t.append("no data\n", style="dim")
+            return t
         docker = snap.docker
         if not docker.docker_available:
-            t.append("Docker  ", style="bold")
-            t.append("unavailable\n\n", style="dim")
-            return
+            t.append("unavailable\n", style="dim")
+            return t
 
         total = len(docker.containers)
         augint_count = docker.augint_shell_count
-        t.append("Docker  ", style="bold")
         t.append(f"{total} containers", style="dim")
         if augint_count:
             t.append(f" ({augint_count} augint-shell)", style="dim")
+        t.append("  ")
+        t.append("click to filter", style="dim italic")
         t.append("\n")
 
-        # Show containers based on filter
         containers = docker.containers
         if not self._docker_show_all:
             containers = tuple(c for c in containers if c.is_augint_shell)
 
-        for c in containers[:12]:
+        for c in containers[:10]:
             name_style = "bold" if c.is_augint_shell else ""
             status_style = "green" if c.status.lower() in ("running", "up") else "dim"
-            t.append(f"  {c.name[:22]:<22} ", style=name_style)
-            t.append(f"{c.status:<10}", style=status_style)
-            t.append("\n")
-        remaining = len(containers) - 12
+            t.append(f"  {c.name[:26]:<26} ", style=name_style)
+            t.append(f"{c.status}\n", style=status_style)
+        remaining = len(containers) - 10
         if remaining > 0:
             t.append(f"  (+{remaining} more)\n", style="dim")
-        t.append("\n")
-
-    def _append_network(self, t: Text, state: AppState) -> None:
-        snap = state.system_snapshot
-        if snap is None:
-            t.append("Network  ", style="bold")
-            t.append("no data\n\n", style="dim")
-            return
-        net = snap.network
-        status_style = "green" if net.connected else "red"
-        status_word = "connected" if net.connected else "disconnected"
-        t.append("Network  ", style="bold")
-        t.append(status_word, style=status_style)
-        t.append("\n")
-        if net.latency_ms is not None:
-            t.append(f"  ping   {net.latency_ms:.0f}ms (1.1.1.1)\n", style="dim")
-        if net.http_latency_ms is not None:
-            t.append(f"  http   {net.http_latency_ms:.0f}ms (gstatic.com)\n", style="dim")
-        t.append("\n")
+        return t
 
     def on_click(self, event: events.Click) -> None:
         if event.button == 3:
             self.close()
             return
-        # Check if the click is in the Docker section area -- toggle filter
-        # Simple heuristic: look at the body text around the click offset
-        # Use a message approach instead for simplicity
-        body_text = self._body.renderable
-        if isinstance(body_text, Text) and "Docker" in body_text.plain:
-            # Check if click y is in docker section
-            lines = body_text.plain.split("\n")
-            docker_start = None
-            for i, line in enumerate(lines):
-                if line.startswith("Docker"):
-                    docker_start = i
-                    break
-            if docker_start is not None:
-                # Approximate: click within the docker section toggles filter
-                # The y offset in the body corresponds to lines
-                click_y = event.y
-                if docker_start <= click_y <= docker_start + 15:
-                    self.toggle_docker_filter()
+        # Click in the docker column toggles the container filter.
+        docker_col = self._col_right
+        if docker_col.region.contains(event.screen_x, event.screen_y):
+            self.toggle_docker_filter()

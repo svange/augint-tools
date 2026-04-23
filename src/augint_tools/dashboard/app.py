@@ -500,12 +500,11 @@ class MainScreen(Screen[None]):
         )
 
     def cycle_right_drawer(self) -> None:
-        """Cycle: closed -> repo detail -> system -> network -> closed."""
-        if (
-            not self._drawer.is_open
-            and not self._system_drawer.is_open
-            and not self._network_drawer.is_open
-        ):
+        """Cycle: closed -> repo detail -> network -> closed.
+
+        The system drawer is bottom-docked and independent of this cycle.
+        """
+        if not self._drawer.is_open and not self._network_drawer.is_open:
             # Closed -> open repo detail
             health = selected_health(self._state)
             if health is not None:
@@ -513,14 +512,8 @@ class MainScreen(Screen[None]):
                 self._drawer.open_with("detail", content)
             return
         if self._drawer.is_open:
-            # Detail open -> close detail, open system
+            # Detail open -> close detail, open network
             self._drawer.close()
-            self._system_drawer.refresh_content(self._state)
-            self._system_drawer.open()
-            return
-        if self._system_drawer.is_open:
-            # System open -> close system, open network
-            self._system_drawer.close()
             self._network_drawer.refresh_content(self._state)
             self._network_drawer.open()
             return
@@ -540,15 +533,10 @@ class MainScreen(Screen[None]):
         self.toggle_org_drawer()
 
     def toggle_system_drawer(self) -> None:
-        """Direct open/close for the system drawer (``s`` key)."""
+        """Direct open/close for the bottom-docked system drawer (``s`` key)."""
         if self._system_drawer.is_open:
             self._system_drawer.close()
             return
-        # Close competing right-side drawers.
-        if self._drawer.is_open:
-            self._drawer.close()
-        if self._network_drawer.is_open:
-            self._network_drawer.close()
         self._system_drawer.refresh_content(self._state)
         self._system_drawer.open()
 
@@ -562,11 +550,9 @@ class MainScreen(Screen[None]):
         if self._network_drawer.is_open:
             self._network_drawer.close()
             return
-        # Close competing right-side drawers.
+        # Close competing right-side drawer (detail).
         if self._drawer.is_open:
             self._drawer.close()
-        if self._system_drawer.is_open:
-            self._system_drawer.close()
         self._network_drawer.refresh_content(self._state)
         self._network_drawer.open()
 

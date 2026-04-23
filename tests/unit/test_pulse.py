@@ -7,11 +7,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from augint_tools.dashboard.app import (
-    FLASH_WINDOW_SECONDS,
     _PULSE_PHASES,
     _PULSE_TICK_SECONDS,
+    FLASH_WINDOW_SECONDS,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -77,7 +76,6 @@ def _make_app() -> object:
 
 
 def test_tick_flash_increments_phase() -> None:
-    from augint_tools.dashboard.app import DashboardApp
 
     app = _make_app()
     app._tick_flash()  # type: ignore[attr-defined]
@@ -85,7 +83,6 @@ def test_tick_flash_increments_phase() -> None:
 
 
 def test_tick_flash_wraps_after_full_cycle() -> None:
-    from augint_tools.dashboard.app import DashboardApp
 
     app = _make_app()
     for _ in range(_PULSE_PHASES):
@@ -94,7 +91,6 @@ def test_tick_flash_wraps_after_full_cycle() -> None:
 
 
 def test_tick_flash_calls_apply_pulse_phase_when_main_set() -> None:
-    from augint_tools.dashboard.app import DashboardApp
 
     app = _make_app()
     mock_main = MagicMock()
@@ -102,13 +98,10 @@ def test_tick_flash_calls_apply_pulse_phase_when_main_set() -> None:
 
     app._tick_flash()  # type: ignore[attr-defined]
 
-    mock_main.apply_pulse_phase.assert_called_once_with(
-        1, window_seconds=FLASH_WINDOW_SECONDS
-    )
+    mock_main.apply_pulse_phase.assert_called_once_with(1, window_seconds=FLASH_WINDOW_SECONDS)
 
 
 def test_tick_flash_passes_zero_when_flash_disabled() -> None:
-    from augint_tools.dashboard.app import DashboardApp
 
     app = _make_app()
     app._flash_enabled = False  # type: ignore[attr-defined]
@@ -118,9 +111,7 @@ def test_tick_flash_passes_zero_when_flash_disabled() -> None:
     app._tick_flash()  # type: ignore[attr-defined]
 
     # Phase arg must be 0 regardless of internal _pulse_phase value.
-    mock_main.apply_pulse_phase.assert_called_once_with(
-        0, window_seconds=FLASH_WINDOW_SECONDS
-    )
+    mock_main.apply_pulse_phase.assert_called_once_with(0, window_seconds=FLASH_WINDOW_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +134,6 @@ def _make_card() -> object:
 
 
 def test_card_apply_pulse_phase_removes_all_on_phase_zero() -> None:
-    from augint_tools.dashboard.widgets.repo_card import RepoCard
 
     card = _make_card()
     card._is_recently_degraded.return_value = True  # type: ignore[attr-defined]

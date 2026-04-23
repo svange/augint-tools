@@ -61,21 +61,26 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras
       - name: Bandit
-        run: |
-          uv run bandit -r src/ -f json -o bandit-report.json || true
-          uv run bandit -r src/ -ll
+        # Single invocation: -ll enforces medium+ severity (exit code),
+        # -f json -o writes the artifact for the upload step below.
+        run: uv run bandit -r src/ -ll -f json -o bandit-report.json
       - name: pip-audit
         run: |
           uv export --no-dev --no-hashes -o prod-requirements.txt
           uv run pip-audit --desc --format json --output pip-audit-report.json -r prod-requirements.txt --no-deps
       - name: Semgrep
+        # Installed via --with to isolate its dependency tree from the lock
+        # file (semgrep constrains transitive deps like urllib3).
         run: |
-          uv run --with semgrep semgrep ci \
+          uv run --with semgrep semgrep scan \
             --config p/python \
             --config p/security-audit \
             --config p/secrets \
-            --config p/owasp-top-ten
+            --config p/owasp-top-ten \
+            --error
       - name: IaC policy (checkov)
+        # Installed via --with to isolate its dependency tree (checkov
+        # constrains urllib3<2, which conflicts with production deps).
         if: hashFiles('template.yaml', 'template.yml', 'cdk.out/**', 'infrastructure/**/*.yaml', 'infrastructure/**/*.yml') != ''
         run: |
           uv run --with checkov checkov \
@@ -147,6 +152,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras
       - name: Run pytest with coverage
+        # Threshold lives in pyproject.toml [tool.coverage.report] fail_under.
+        # Do NOT pass --cov-fail-under here -- the standards engine flags CLI
+        # overrides as a tamper vector.
         run: |
           uv run pytest \
             --cov=src --cov-report=html --cov-report=xml \
@@ -227,9 +235,11 @@ jobs:
 
       - name: Verify upstream has not changed
         run: |
-          set +o pipefail
-          UPSTREAM_BRANCH_NAME="$(git status -sb | head -n 1 | cut -d' ' -f2 | grep -E '\.{3}' | cut -d'.' -f4)"
-          set -o pipefail
+          RAW_REF="$(git status -sb | head -n 1 | cut -d' ' -f2)"
+          UPSTREAM_BRANCH_NAME=""
+          if echo "$RAW_REF" | grep -qE '\.{3}'; then
+            UPSTREAM_BRANCH_NAME="$(echo "$RAW_REF" | cut -d'.' -f4)"
+          fi
 
           if [ -z "$UPSTREAM_BRANCH_NAME" ]; then
               echo "::error::Unable to determine upstream branch name!"
@@ -256,11 +266,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           RELEASED="false"
-
-          set +e
-          uv run semantic-release --strict version
-          SEMANTIC_EXIT_CODE=$?
-          set -e
+          SEMANTIC_EXIT_CODE=0
+          uv run semantic-release --strict version || SEMANTIC_EXIT_CODE=$?
 
           if [ $SEMANTIC_EXIT_CODE -eq 0 ]; then
             echo "Semantic release succeeded"
@@ -273,7 +280,7 @@ jobs:
 
       - name: Upload distribution artifacts
         if: steps.release.outputs.released == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: distribution-artifacts
           path: dist/
@@ -332,37 +339,31 @@ jobs:
       - name: Generate documentation
         run: |
           mkdir -p docs
+          PDOC_EXIT=0
           uv run pdoc --output-dir docs \
             --template-directory ci-resources/pdoc-templates \
-            src/ || true
+            src/ || PDOC_EXIT=$?
+          if [ $PDOC_EXIT -ne 0 ]; then
+            echo "::warning::pdoc exited with code $PDOC_EXIT (docs may be incomplete)"
+          fi
 
-      - name: Download coverage reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: coverage-reports
-          path: docs/coverage
-        continue-on-error: true
-
-      - name: Download security scan results
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: security-reports
-          path: docs/security
-        continue-on-error: true
-
-      - name: Download compliance reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: license-reports
-          path: docs/compliance
-        continue-on-error: true
-
-      - name: Download unit test report
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: unit-test-reports
-          path: docs/tests
-        continue-on-error: true
+      - name: Download CI artifacts for docs site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          download_artifact() {
+            local name="$1" dir="$2"
+            mkdir -p "$dir"
+            EXIT=0
+            gh run download "${{ github.run_id }}" --name "$name" --dir "$dir" || EXIT=$?
+            if [ $EXIT -ne 0 ]; then
+              echo "::notice::$name not available (upstream job may have been skipped)"
+            fi
+          }
+          download_artifact coverage-reports docs/coverage
+          download_artifact security-reports docs/security
+          download_artifact license-reports docs/compliance
+          download_artifact unit-test-reports docs/tests
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e  # v4

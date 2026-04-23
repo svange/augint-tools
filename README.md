@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI](https://img.shields.io/pypi/v/augint-tools.svg)](https://pypi.org/project/augint-tools/)
-[![CI/CD Pipeline](https://github.com/svange/augint-tools/actions/workflows/pipeline.yaml/badge.svg)](https://github.com/svange/augint-tools/actions)
+[![CI/CD Pipeline](https://github.com/svange/augint-tools/actions/workflows/publish.yaml/badge.svg)](https://github.com/svange/augint-tools/actions)
 
 CLI orchestration layer for AI-assisted repository workflows.
 
@@ -10,7 +10,7 @@ CLI orchestration layer for AI-assisted repository workflows.
 
 ## Pipeline Artifacts
 
-> Reports are published to GitHub Pages on every release to the default branch.
+> Reports are published to GitHub Pages on every push to the default branch.
 
 | Report | Link |
 |--------|------|

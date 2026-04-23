@@ -443,7 +443,13 @@ def test_builtin_handlers_are_registered():
 
 def test_disabled_check_emits_ok_with_reason():
     ctx = _ctx(
-        compliance_overrides_text="disabled_checks:\n  - x.fail\n",
+        compliance_overrides_text=(
+            "disabled_checks:\n"
+            "  - id: x.fail\n"
+            '    reason: "Not applicable"\n'
+            "    created_at: 2026-04-23\n"
+            '    approved_by: "dev@example.com"\n'
+        ),
     )
     doc = {
         "checks": [
@@ -500,7 +506,13 @@ def test_override_merges_into_handler_params():
 
 def test_stale_override_id_surfaces_finding():
     ctx = _ctx(
-        compliance_overrides_text="disabled_checks:\n  - retired.check.id\n",
+        compliance_overrides_text=(
+            "disabled_checks:\n"
+            "  - id: retired.check.id\n"
+            '    reason: "Was needed before"\n'
+            "    created_at: 2026-04-23\n"
+            '    approved_by: "dev@example.com"\n'
+        ),
     )
     doc = {
         "checks": [
@@ -559,6 +571,46 @@ def test_disabled_check_object_format_with_reason():
     assert finding.severity == Severity.OK
     assert "disabled by .ai-compliance.yaml" in finding.summary
     assert "Check not applicable" in finding.summary
+
+
+def test_override_strips_metadata_keys():
+    captured: dict = {}
+
+    @register_handler("_test_capture_stripped")
+    def _capture(_context, params):
+        captured.update(params)
+        return True, "ok"
+
+    ctx = _ctx(
+        compliance_overrides_text=(
+            "overrides:\n"
+            "  x.probe:\n"
+            '    reason: "Custom health endpoint"\n'
+            "    created_at: 2026-04-23\n"
+            '    approved_by: "dev@example.com"\n'
+            "    url: https://override.example/health\n"
+        ),
+    )
+    doc = {
+        "checks": [
+            {
+                "id": "x.probe",
+                "severity": "CRITICAL",
+                "check": {
+                    "type": "handler",
+                    "name": "_test_capture_stripped",
+                    "url": "https://default.example/health",
+                },
+            }
+        ]
+    }
+    results = _run_with_doc(doc, ctx)
+    assert results[0].severity == Severity.OK
+    assert captured["url"] == "https://override.example/health"
+    # Metadata keys must NOT leak into handler params.
+    assert "reason" not in captured
+    assert "created_at" not in captured
+    assert "approved_by" not in captured
 
 
 # ---------------------------------------------------------------------------

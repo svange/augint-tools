@@ -570,33 +570,53 @@ def _precondition_met(entry: dict, context: FetchContext) -> tuple[bool, str | N
     return False, f"requires {required} (not present)"
 
 
-def _parse_compliance_overrides(text: str | None) -> tuple[set[str], dict[str, dict]]:
+_OVERRIDE_META_KEYS = frozenset({"reason", "created_at", "approved_by"})
+
+
+def _parse_compliance_overrides(
+    text: str | None,
+) -> tuple[dict[str, str | None], dict[str, dict]]:
     """Parse ``.ai-compliance.yaml`` into ``(disabled_checks, overrides)``.
 
+    ``disabled_checks`` maps each disabled check ID to its reason string
+    (or ``None`` when no reason is provided).
+
+    ``overrides`` maps each check ID to its parameter dict with metadata
+    keys (``reason``, ``created_at``, ``approved_by``) stripped out.
+
     Tolerant of absent, empty, or malformed documents -- misconfiguration
-    never breaks the refresh loop. The dashboard surfaces parse failures
-    as a visible finding so the maintainer notices.
+    never breaks the refresh loop.
     """
     if not text:
-        return set(), {}
+        return {}, {}
     try:
         doc = yaml.safe_load(text)
     except yaml.YAMLError:
-        return set(), {}
+        return {}, {}
     if not isinstance(doc, dict):
-        return set(), {}
+        return {}, {}
+
+    # --- disabled_checks ---
     raw_disabled = doc.get("disabled_checks") or []
-    disabled: set[str] = (
-        {str(x) for x in raw_disabled if isinstance(x, str)}
-        if isinstance(raw_disabled, list)
-        else set()
-    )
+    disabled: dict[str, str | None] = {}
+    if isinstance(raw_disabled, list):
+        for entry in raw_disabled:
+            if isinstance(entry, dict):
+                check_id = entry.get("id")
+                if isinstance(check_id, str):
+                    disabled[check_id] = entry.get("reason")
+            # Bare strings no longer supported -- skip silently.
+
+    # --- overrides ---
     raw_overrides = doc.get("overrides") or {}
     overrides: dict[str, dict] = {}
     if isinstance(raw_overrides, dict):
         for check_id, params in raw_overrides.items():
             if isinstance(check_id, str) and isinstance(params, dict):
-                overrides[check_id] = params
+                # Strip metadata keys; they are not check parameters.
+                overrides[check_id] = {
+                    k: v for k, v in params.items() if k not in _OVERRIDE_META_KEYS
+                }
     return disabled, overrides
 
 
@@ -646,7 +666,7 @@ def run_engine(
     }
     disabled, overrides = _parse_compliance_overrides(context.compliance_overrides_text)
     known_ids = {str(e.get("id")) for e in checks if isinstance(e, dict)}
-    stale_opt_outs = disabled - known_ids
+    stale_opt_outs = set(disabled) - known_ids
     results: list[HealthCheckResult] = []
     for entry in checks:
         if not isinstance(entry, dict):
@@ -658,11 +678,17 @@ def run_engine(
             # Surface opt-outs as OK-with-reason so coverage reduction stays
             # visible in the dashboard; silent drops are the failure mode we
             # don't want.
+            check_name = entry.get("name") or check_id
+            reason = disabled[check_id]
+            summary = f"{check_name}: disabled by .ai-compliance.yaml"
+            if reason:
+                truncated = reason[:80] + "..." if len(reason) > 80 else reason
+                summary = f"{summary} -- {truncated}"
             results.append(
                 HealthCheckResult(
                     check_name=check_id,
                     severity=Severity.OK,
-                    summary=f"{entry.get('name') or check_id}: disabled by .ai-compliance.yaml",
+                    summary=summary,
                 )
             )
             continue

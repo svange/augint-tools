@@ -534,6 +534,33 @@ def test_malformed_compliance_yaml_does_not_break_engine():
     assert results[0].severity == Severity.OK
 
 
+def test_disabled_check_object_format_with_reason():
+    ctx = _ctx(
+        compliance_overrides_text=(
+            "disabled_checks:\n"
+            "  - id: x.fail\n"
+            '    reason: "Check not applicable"\n'
+            "    created_at: 2026-04-23\n"
+            '    approved_by: "dev@example.com"\n'
+        ),
+    )
+    doc = {
+        "checks": [
+            {
+                "id": "x.fail",
+                "severity": "HIGH",
+                "name": "Always fails",
+                "check": {"type": "handler", "name": "_test_always_fail"},
+            }
+        ]
+    }
+    results = _run_with_doc(doc, ctx)
+    finding = next(r for r in results if r.check_name == "x.fail")
+    assert finding.severity == Severity.OK
+    assert "disabled by .ai-compliance.yaml" in finding.summary
+    assert "Check not applicable" in finding.summary
+
+
 # ---------------------------------------------------------------------------
 # Engine without network (gh=None) returns informational result
 # ---------------------------------------------------------------------------

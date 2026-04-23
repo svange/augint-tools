@@ -540,29 +540,29 @@ class TestDashboardPilot:
         asyncio.run(run())
 
     def test_drawer_toggle(self):
-        # `d` now cycles through the right-side drawers: none -> detail ->
-        # system -> none. This test exercises the full cycle.
+        # `d` cycles through right-side drawers: none -> detail -> network -> none.
+        # System drawer is bottom-docked and independent of this cycle.
         async def run():
             app = DashboardApp(repos=[], skip_refresh=True)
             _seed_state(app)
             async with app.run_test() as pilot:
                 await pilot.pause()
                 drawer = app.query_one("#drawer")
-                system_drawer = app.query_one("#system-drawer")
+                network_drawer = app.query_one("#network-drawer")
                 assert not drawer.has_class("open")
-                assert not system_drawer.has_class("open")
+                assert not network_drawer.has_class("open")
                 await pilot.press("d")
                 await pilot.pause()
                 assert drawer.has_class("open")
-                assert not system_drawer.has_class("open")
+                assert not network_drawer.has_class("open")
                 await pilot.press("d")
                 await pilot.pause()
                 assert not drawer.has_class("open")
-                assert system_drawer.has_class("open")
+                assert network_drawer.has_class("open")
                 await pilot.press("d")
                 await pilot.pause()
                 assert not drawer.has_class("open")
-                assert not system_drawer.has_class("open")
+                assert not network_drawer.has_class("open")
 
         asyncio.run(run())
 

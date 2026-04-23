@@ -54,9 +54,9 @@
             </div>
         </aside>
         <h2>
-            <span class="text">395 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">323<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">72<span class="text"> missing</span></button>
+            <span class="text">396 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">325<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">71<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">2<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_c9f2fb5c4632a557_status_bar_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-23 21:07 +0000
+            created at 2026-04-23 22:40 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -297,19 +297,19 @@
     <p class="run"><span class="n"><a id="t215" href="#t215">215</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">_theme_spec</span> <span class="op">=</span> <span class="nam">theme_spec</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t216" href="#t216">216</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">refresh</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t217" href="#t217">217</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t218" href="#t218">218</a></span><span class="t">    <span class="key">def</span> <span class="nam">apply_flash_phase</span><span class="op">(</span><span class="nam">self</span><span class="op">,</span> <span class="nam">phase</span><span class="op">:</span> <span class="nam">bool</span><span class="op">,</span> <span class="op">*</span><span class="op">,</span> <span class="nam">window_seconds</span><span class="op">:</span> <span class="nam">int</span><span class="op">)</span> <span class="op">-></span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t219" href="#t219">219</a></span><span class="t">        <span class="str">"""Toggle ``card--flash-on`` when this card is within the flash window.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t218" href="#t218">218</a></span><span class="t">    <span class="key">def</span> <span class="nam">apply_pulse_phase</span><span class="op">(</span><span class="nam">self</span><span class="op">,</span> <span class="nam">phase</span><span class="op">:</span> <span class="nam">int</span><span class="op">,</span> <span class="op">*</span><span class="op">,</span> <span class="nam">window_seconds</span><span class="op">:</span> <span class="nam">int</span><span class="op">)</span> <span class="op">-></span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t219" href="#t219">219</a></span><span class="t">        <span class="str">"""Apply the current pulse phase class when this card is within the pulse window.</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t220" href="#t220">220</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t221" href="#t221">221</a></span><span class="t"><span class="str">        The card is "flashing" when it's critical or warning *and* the</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t222" href="#t222">222</a></span><span class="t"><span class="str">        relevant transition (CI failure / warning_since) happened within</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t223" href="#t223">223</a></span><span class="t"><span class="str">        ``window_seconds``. Outside that window the class is always removed</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t224" href="#t224">224</a></span><span class="t"><span class="str">        so the border stays solid at its theme colour.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t221" href="#t221">221</a></span><span class="t"><span class="str">        Removes all pulse classes first, then adds ``card--pulse-{phase}`` if</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t222" href="#t222">222</a></span><span class="t"><span class="str">        the card is recently degraded and ``phase > 0``. Phase 0 means base</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t223" href="#t223">223</a></span><span class="t"><span class="str">        state (no extra border class). Phases 1-3 provide increasing brightness</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t224" href="#t224">224</a></span><span class="t"><span class="str">        for a breathing effect.</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t225" href="#t225">225</a></span><span class="t"><span class="str">        """</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t226" href="#t226">226</a></span><span class="t">        <span class="nam">on</span> <span class="op">=</span> <span class="nam">phase</span> <span class="key">and</span> <span class="nam">self</span><span class="op">.</span><span class="nam">_is_recently_degraded</span><span class="op">(</span><span class="nam">window_seconds</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t227" href="#t227">227</a></span><span class="t">        <span class="key">if</span> <span class="nam">on</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t228" href="#t228">228</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">add_class</span><span class="op">(</span><span class="str">"card--flash-on"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t229" href="#t229">229</a></span><span class="t">        <span class="key">else</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t230" href="#t230">230</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">remove_class</span><span class="op">(</span><span class="str">"card--flash-on"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t226" href="#t226">226</a></span><span class="t">        <span class="nam">is_degraded</span> <span class="op">=</span> <span class="nam">self</span><span class="op">.</span><span class="nam">_is_recently_degraded</span><span class="op">(</span><span class="nam">window_seconds</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t227" href="#t227">227</a></span><span class="t">        <span class="key">for</span> <span class="nam">i</span> <span class="key">in</span> <span class="nam">range</span><span class="op">(</span><span class="num">1</span><span class="op">,</span> <span class="num">4</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t228" href="#t228">228</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">remove_class</span><span class="op">(</span><span class="fst">f"</span><span class="fst">card--pulse-</span><span class="op">{</span><span class="nam">i</span><span class="op">}</span><span class="fst">"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t229" href="#t229">229</a></span><span class="t">        <span class="key">if</span> <span class="nam">is_degraded</span> <span class="key">and</span> <span class="nam">phase</span> <span class="op">></span> <span class="num">0</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t230" href="#t230">230</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">add_class</span><span class="op">(</span><span class="fst">f"</span><span class="fst">card--pulse-</span><span class="op">{</span><span class="nam">phase</span><span class="op">}</span><span class="fst">"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t231" href="#t231">231</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t232" href="#t232">232</a></span><span class="t">    <span class="key">def</span> <span class="nam">_is_recently_degraded</span><span class="op">(</span><span class="nam">self</span><span class="op">,</span> <span class="nam">window_seconds</span><span class="op">:</span> <span class="nam">int</span><span class="op">)</span> <span class="op">-></span> <span class="nam">bool</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t233" href="#t233">233</a></span><span class="t">        <span class="nam">health</span> <span class="op">=</span> <span class="nam">self</span><span class="op">.</span><span class="nam">health</span>&nbsp;</span><span class="r"></span></p>
@@ -764,7 +764,7 @@
             <a class="nav" href="z_c9f2fb5c4632a557_status_bar_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-23 21:07 +0000
+            created at 2026-04-23 22:40 +0000
         </p>
     </div>
 </footer>

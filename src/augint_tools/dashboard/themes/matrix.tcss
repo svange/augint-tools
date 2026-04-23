@@ -19,8 +19,12 @@ RepoCard { height: auto; min-height: 5; border: round #004020; background: #001a
 RepoCard.card--ok { border: round #00ff41; }
 RepoCard.card--warning { border: round #ffbd2e; }
 RepoCard.card--critical { border: round #ff5f56; }
-RepoCard.card--warning.card--flash-on { border: round #ffde97; }
-RepoCard.card--critical.card--flash-on { border: round #ffafab; }
+RepoCard.card--warning.card--pulse-1 { border: round #ffd07f; }
+RepoCard.card--warning.card--pulse-2 { border: round #ffde97; }
+RepoCard.card--warning.card--pulse-3 { border: round #ffd07f; }
+RepoCard.card--critical.card--pulse-1 { border: round #ff9f97; }
+RepoCard.card--critical.card--pulse-2 { border: round #ffafab; }
+RepoCard.card--critical.card--pulse-3 { border: round #ff9f97; }
 RepoCard.card--stale { border: round #666666; opacity: 0.6; }
 RepoCard.card--dense { min-height: 4; padding: 0; }
 RepoCard.card--list { min-height: 6; }

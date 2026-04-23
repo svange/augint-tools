@@ -297,6 +297,18 @@ class RepoCard(Widget):
             line.append("  ws", style="dim")
         for tag in health.status.tags:
             line.append(f"  {tag}", style="dim italic")
+        # Health score fraction (e.g. "9/10").
+        total = health.total_checks
+        if total > 0:
+            passed = health.passed_checks
+            ratio = passed / total
+            if ratio >= 1.0:
+                color = "green"
+            elif ratio > 0.5:
+                color = "yellow"
+            else:
+                color = "red"
+            line.append(f"  {passed}/{total}", style=color)
         return line
 
     def _ci_line(self, health: RepoHealth) -> Text:

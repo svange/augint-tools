@@ -81,6 +81,16 @@ class RepoHealth:
         return int(self.worst_severity) * 1000 - non_ok * 10
 
     @property
+    def passed_checks(self) -> int:
+        """Number of checks that passed (severity == OK)."""
+        return sum(1 for c in self.checks if c.severity == Severity.OK)
+
+    @property
+    def total_checks(self) -> int:
+        """Total number of checks that ran."""
+        return len(self.checks)
+
+    @property
     def findings(self) -> list[HealthCheckResult]:
         """Non-OK check results, sorted worst-first."""
         return sorted(

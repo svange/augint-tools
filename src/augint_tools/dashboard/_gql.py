@@ -158,6 +158,7 @@ class WorkspaceSnapshot:
     # Total rate-limit cost of the queries that built this snapshot.
     rate_limit_cost: int = 0
     rate_limit_remaining: int = 0
+    rate_limit_limit: int = 5000
     rate_limit_reset_at: datetime | None = None
     # Repos that couldn't be fetched (e.g. archived, renamed, permission errors).
     # Left to the caller to handle (typically by preserving previous state).
@@ -216,6 +217,17 @@ fragment RepoFields on Repository {{
     }}
   }}
   _dev: ref(qualifiedName: "refs/heads/dev") {{
+    target {{
+      ... on Commit {{
+        oid
+        statusCheckRollup {{ state }}
+        history(first: {_HISTORY_LOOKBACK}) {{
+          nodes {{ statusCheckRollup {{ state }} }}
+        }}
+      }}
+    }}
+  }}
+  _main: ref(qualifiedName: "refs/heads/main") {{
     target {{
       ... on Commit {{
         oid
@@ -365,6 +377,11 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     dev_rollup_state = _resolve_rollup_state(dev_target)
     dev_head_sha = dev_target.get("oid") if isinstance(dev_target, dict) else None
 
+    main_ref = data.get("_main")
+    main_ref_target = (main_ref or {}).get("target") or {} if isinstance(main_ref, dict) else {}
+    main_ref_rollup = _resolve_rollup_state(main_ref_target)
+    main_ref_sha = main_ref_target.get("oid") if isinstance(main_ref_target, dict) else None
+
     # When ``dev`` is the default branch -- common on new projects that stage
     # on dev before cutting main, and on repos like aillc-web -- the
     # defaultBranchRef and the refs/heads/dev lookup alias the same commit.
@@ -375,9 +392,18 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     if default_branch == "dev":
         dev_rollup_state = main_rollup_state
         dev_head_sha = main_head_sha
-        main_rollup_state = "ABSENT"
-        main_head_sha = None
         has_dev_branch = True
+        # Use the explicit main branch ref if it exists, otherwise ABSENT.
+        if main_ref is not None and main_ref_rollup is not None:
+            main_rollup_state = main_ref_rollup
+            main_head_sha = main_ref_sha
+        elif main_ref is not None:
+            # main branch exists but has no CI rollup
+            main_rollup_state = None  # will translate to "unknown"
+            main_head_sha = main_ref_sha
+        else:
+            main_rollup_state = "ABSENT"
+            main_head_sha = None
 
     root_tree = data.get("_rootTree")
     if isinstance(root_tree, dict):
@@ -597,6 +623,7 @@ def fetch_workspace_snapshot(gh: Github, repos: list[Repository]) -> WorkspaceSn
     errored: dict[str, str] = {}
     total_cost = 0
     last_remaining = 0
+    last_limit = 5000
     reset_at: datetime | None = None
 
     if not repos:
@@ -626,12 +653,14 @@ def fetch_workspace_snapshot(gh: Github, repos: list[Repository]) -> WorkspaceSn
         if isinstance(rate_limit, dict):
             total_cost += int(rate_limit.get("cost") or 0)
             last_remaining = int(rate_limit.get("remaining") or last_remaining)
+            last_limit = int(rate_limit.get("limit") or last_limit)
             reset_at = _parse_ts(rate_limit.get("resetAt")) or reset_at
 
     return WorkspaceSnapshot(
         by_full_name=by_full_name,
         rate_limit_cost=total_cost,
         rate_limit_remaining=last_remaining,
+        rate_limit_limit=last_limit,
         rate_limit_reset_at=reset_at,
         errored=errored,
     )

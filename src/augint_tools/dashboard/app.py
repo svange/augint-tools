@@ -70,6 +70,7 @@ from .widgets.dashboard_footer import DashboardFooter
 from .widgets.drawer import Drawer
 from .widgets.effect_sprite import SPRITE_WIDTH, EffectKind, EffectSprite
 from .widgets.error_drawer import ErrorDrawer
+from .widgets.fuzzy_search import FuzzySearchBar
 from .widgets.highlight_bar import HighlightBar
 from .widgets.network_drawer import NetworkDrawer
 from .widgets.repo_card import RepoCard
@@ -81,7 +82,7 @@ if TYPE_CHECKING:
     from github import Github
     from github.Repository import Repository
 
-    from ._gql import TeamsSnapshot
+    from ._gql import TeamsSnapshot, WorkspaceSnapshot
 
 
 def _progress_bar(fraction: float, width: int) -> str:
@@ -222,6 +223,7 @@ class MainScreen(Screen[None]):
         self._system_drawer = SystemDrawer()
         self._network_drawer = NetworkDrawer()
         self._aws_drawer = AwsDrawer()
+        self._fuzzy_search = FuzzySearchBar()
         self._cards_by_name: dict[str, RepoCard] = {}
         # Active effect sprites keyed by repo full_name. Persistent until
         # the user clicks anywhere; positioned over the matching card's
@@ -234,6 +236,7 @@ class MainScreen(Screen[None]):
         yield self._status_bar
         self._highlight_bar.bind_state(self._state, refresh_seconds=self._refresh_seconds)
         yield self._highlight_bar
+        yield self._fuzzy_search
         yield self._top_drawer
         yield Container(self._card_container)
         yield self._aws_drawer
@@ -288,6 +291,16 @@ class MainScreen(Screen[None]):
         # the user sees a live "next: in Xs" tick down -- proof that the
         # refresh loop is running even when the data itself hasn't changed.
         self._highlight_bar.rerender()
+
+    def toggle_fuzzy_search(self) -> None:
+        if self._fuzzy_search.is_visible:
+            self._fuzzy_search.hide()
+        else:
+            self._fuzzy_search.show()
+
+    def close_fuzzy_search(self) -> None:
+        if self._fuzzy_search.is_visible:
+            self._fuzzy_search.hide()
 
     def apply_flash_phase(self, phase: bool, *, window_seconds: int) -> None:
         """Propagate the global flash phase to each card."""
@@ -1325,6 +1338,8 @@ class DashboardApp(App[None]):
         Binding("v", "open_deployment_4", show=False),
         Binding("b", "open_deployment_5", show=False),
         Binding("f", "manage_deployments", "URLs"),
+        Binding("slash", "toggle_fuzzy_search", "Search", show=False),
+        Binding("grave_accent", "toggle_fuzzy_search", show=False),
         Binding("question_mark", "show_help", "Help"),
         Binding("f5", "full_restart", "Restart", show=False),
         Binding("plus", "widen_card", "Wider", show=False),
@@ -1865,7 +1880,13 @@ class DashboardApp(App[None]):
 
         # Commit the new state on the main thread so action handlers don't
         # observe healths and health_by_name in a half-updated state.
-        self.call_from_thread(self._commit_refresh, healths, teams_snapshot, failed_repos)
+        self.call_from_thread(
+            self._commit_refresh,
+            healths,
+            teams_snapshot,
+            failed_repos,
+            snapshot_set,
+        )
 
     def _apply_failing_detail(
         self,
@@ -1891,6 +1912,7 @@ class DashboardApp(App[None]):
         healths: list[RepoHealth],
         teams_snapshot: TeamsSnapshot | None = None,
         failed_repos: set[str] | None = None,
+        ws_snapshot: WorkspaceSnapshot | None = None,
     ) -> None:
         # Merge the batched teams snapshot if this refresh rebuilt it. The
         # main thread is the only place that mutates repo_teams / team_labels.
@@ -1916,6 +1938,22 @@ class DashboardApp(App[None]):
         self.state.stale_repos = failed_repos or set()
         self.state.last_refresh_at = datetime.now(UTC)
         self.state.is_refreshing = False
+
+        # Update API rate limit tracking.
+        if ws_snapshot is not None:
+            self.state.gql_remaining = ws_snapshot.rate_limit_remaining
+            self.state.gql_limit = ws_snapshot.rate_limit_limit
+            self.state.gql_reset_at = ws_snapshot.rate_limit_reset_at
+        if self._github_client is not None:
+            try:
+                rest_remaining, rest_limit = self._github_client.rate_limiting
+                self.state.rest_remaining = rest_remaining
+                self.state.rest_limit = rest_limit
+                self.state.rest_reset_at = datetime.fromtimestamp(
+                    self._github_client.rate_limiting_resettime, tz=UTC
+                )
+            except Exception:
+                pass  # REST rate limit info is best-effort
         vis = visible_healths(self.state)
         logger.debug(
             f"commit: {len(healths)} total, {len(vis)} visible, "
@@ -2205,6 +2243,16 @@ class DashboardApp(App[None]):
         self.state.active_filters = set(message.selected)
         self._rerender()
 
+    def on_fuzzy_search_bar_changed(self, message: FuzzySearchBar.Changed) -> None:
+        self.state.search_text = message.query
+        self._rerender()
+
+    def on_fuzzy_search_bar_dismissed(self, message: FuzzySearchBar.Dismissed) -> None:
+        self.state.search_text = ""
+        if self._main is not None:
+            self._main.close_fuzzy_search()
+        self._rerender()
+
     def action_cycle_layout(self) -> None:
         layouts = list_layouts()
         try:
@@ -2348,6 +2396,10 @@ class DashboardApp(App[None]):
 
     def action_show_help(self) -> None:
         self.push_screen(HelpScreen())
+
+    def action_toggle_fuzzy_search(self) -> None:
+        if self._main is not None:
+            self._main.toggle_fuzzy_search()
 
     def action_manage_repos(self) -> None:
         """Open the repo manager to enable/disable individual repos."""

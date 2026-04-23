@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -9,7 +10,7 @@ from rich.text import Text
 from textual.widgets import Static
 
 from ..health import Severity
-from ..state import visible_healths
+from ..state import owner_of, visible_healths
 from .status_bar import format_header_refresh_line
 
 if TYPE_CHECKING:
@@ -67,6 +68,38 @@ class HighlightBar(Static):
         line1.append(f"{visible_issues}/{total_issues}")
         line1.append("   prs: ", style="bold")
         line1.append(f"{visible_prs}/{total_prs}")
+
+        # Per-org health score fractions.
+        org_passed: dict[str, int] = defaultdict(int)
+        org_total: dict[str, int] = defaultdict(int)
+        for h in state.healths:
+            org = owner_of(h.status.full_name)
+            org_passed[org] += h.passed_checks
+            org_total[org] += h.total_checks
+        for owner in sorted(org_passed):
+            p, t = org_passed[owner], org_total[owner]
+            line1.append(f"   {owner}: ", style="bold")
+            ratio = p / t if t > 0 else 1.0
+            color = "green" if ratio >= 1.0 else "yellow" if ratio > 0.5 else "red"
+            line1.append(f"{p}/{t}", style=color)
+
+        # Rate limit display.
+        now = datetime.now(UTC)
+        for label, remaining, limit, reset_at in [
+            ("GQL", state.gql_remaining, state.gql_limit, state.gql_reset_at),
+            ("REST", state.rest_remaining, state.rest_limit, state.rest_reset_at),
+        ]:
+            used = limit - remaining
+            ratio = remaining / limit if limit > 0 else 1.0
+            color = "green" if ratio > 0.5 else "yellow" if ratio > 0.2 else "red"
+            line1.append("   ", style="bold")
+            line1.append(f"{label}: ", style="bold")
+            line1.append(f"{used}/{limit}", style=color)
+            if reset_at is not None:
+                secs = max(0, int((reset_at - now).total_seconds()))
+                mins, s = divmod(secs, 60)
+                reset_label = f"{mins}m" if mins > 0 else f"{s}s"
+                line1.append(f" ({reset_label})", style="dim")
 
         self.update(Text("\n").join([line1, self._refresh_line(), Text(" ")]))
 

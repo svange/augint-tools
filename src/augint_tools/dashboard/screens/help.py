@@ -37,7 +37,7 @@ Overlays
   e                   Toggle error drawer
   E                   Clear errors
   ?                   This help
-  /                   Command palette
+  / or `              Fuzzy search repos
   esc                 Dismiss
 
 Quit

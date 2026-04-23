@@ -29,7 +29,7 @@ PANEL_WIDTH_STEP = 2
 UNASSIGNED_TEAM = "unassigned"
 OPEN_SOURCE_TEAM = "__open_source__"
 
-SORT_MODES: tuple[str, ...] = ("health", "alpha")
+SORT_MODES: tuple[str, ...] = ("health", "alpha", "issues", "prs")
 
 # --- Filter categories ---------------------------------------------------
 VISIBILITY_FILTERS: tuple[str, ...] = ("private", "public")
@@ -101,6 +101,7 @@ class AppState:
     sort_mode: str = SORT_MODES[0]
     active_filters: set[str] = field(default_factory=set)
     hide_workspace: bool = False
+    search_text: str = ""
     layout_name: str = "packed"
     theme_name: str = "default"
     panel_width: int = PANEL_WIDTH_DEFAULT
@@ -112,6 +113,14 @@ class AppState:
     is_refreshing: bool = False
     consecutive_errors: int = 0
     last_error_message: str | None = None
+
+    # API rate limit tracking (updated after each refresh).
+    gql_remaining: int = 5000
+    gql_limit: int = 5000
+    gql_reset_at: datetime | None = None
+    rest_remaining: int = 5000
+    rest_limit: int = 5000
+    rest_reset_at: datetime | None = None
 
     # Repos whose most recent refresh attempt failed (shown gray/stale).
     stale_repos: set[str] = field(default_factory=set)
@@ -265,6 +274,10 @@ def apply_sort(
 ) -> list[RepoHealth]:
     if mode == "alpha":
         return sorted(healths, key=lambda h: h.status.name.lower())
+    if mode == "issues":
+        return sorted(healths, key=lambda h: h.status.open_issues, reverse=True)
+    if mode == "prs":
+        return sorted(healths, key=lambda h: h.status.open_prs, reverse=True)
     # "health": primary=severity, secondary=team, tertiary=problem count.
     teams = repo_teams or {}
     return sorted(
@@ -378,12 +391,34 @@ def available_filter_modes(
     return [*FILTER_MODES, *sections.orgs, *sections.teams]
 
 
+def fuzzy_match(haystack: str, needle: str) -> bool:
+    """fzf-style fuzzy match: chars of needle appear in order in haystack."""
+    if not needle:
+        return True
+    hay = haystack.lower()
+    ndl = needle.lower()
+    it = iter(hay)
+    return all(c in it for c in ndl)
+
+
+def apply_fuzzy_filter(
+    healths: list[RepoHealth],
+    query: str,
+) -> list[RepoHealth]:
+    """Filter repos by fuzzy-matching the query against full_name."""
+    if not query:
+        return healths
+    return [h for h in healths if fuzzy_match(h.status.full_name, query)]
+
+
 def visible_healths(state: AppState) -> list[RepoHealth]:
     pool = state.healths
     if state.hide_workspace:
         pool = [h for h in pool if not h.status.is_workspace]
+    pool = apply_active_filters(pool, state.active_filters, state.repo_teams)
+    pool = apply_fuzzy_filter(pool, state.search_text)
     return apply_sort(
-        apply_active_filters(pool, state.active_filters, state.repo_teams),
+        pool,
         state.sort_mode,
         state.repo_teams,
     )

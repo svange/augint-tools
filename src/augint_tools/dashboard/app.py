@@ -1369,9 +1369,13 @@ class DashboardApp(App[None]):
         github_client: Github | None = None,
         auto_discover: bool = False,
         saved_prefs: DashboardPrefs | None = None,
+        warm_start: bool = False,
+        auth_source: str = "auto",
     ) -> None:
         super().__init__()
         self._repos = list(repos or [])
+        self._warm_start = warm_start
+        self._auth_source = auth_source
         self._refresh_seconds = refresh_seconds
         self._health_config = health_config or {}
         self._org_name = org_name
@@ -1466,6 +1470,18 @@ class DashboardApp(App[None]):
         bootstrap_from_cache(self.state, restrict_to=restrict)
         apply_open_source_team(self.state)
 
+        if self._warm_start and self.state.last_refresh_at is not None:
+            age = datetime.now(UTC) - self.state.last_refresh_at
+            if age.total_seconds() < 60:
+                age_label = f"{int(age.total_seconds())}s"
+            elif age.total_seconds() < 3600:
+                age_label = f"{int(age.total_seconds() / 60)}m"
+            else:
+                age_label = f"{age.total_seconds() / 3600:.1f}h"
+            self.notify(f"Cached data from {age_label} ago -- refreshing...", timeout=8)
+        elif self._warm_start:
+            self.notify("Cached data (age unknown) -- refreshing...", timeout=8)
+
         # Seed the AWS drawer from the on-disk cache so opening it doesn't
         # stare at "loading..." while subprocesses fan out.
         from .awsprobe import load_aws_cache
@@ -1482,7 +1498,7 @@ class DashboardApp(App[None]):
         )
         self.push_screen(self._main)
 
-        if self._repos and not self._skip_refresh:
+        if (self._repos or self._warm_start) and not self._skip_refresh:
             # Seed the countdown before the first worker lands so the
             # status bar shows "next refresh in ..." from paint zero.
             # _trigger_refresh also sets next_refresh_at, but seeding
@@ -1641,6 +1657,38 @@ class DashboardApp(App[None]):
         # Clear stale refresh errors from the previous cycle.  If the same
         # problems still exist they'll be re-logged during this cycle.
         self.state.errors = [e for e in self.state.errors if e.source != "refresh"]
+
+        # Deferred auth: acquire GitHub client on first refresh when warm-started.
+        if self._github_client is None and self._warm_start:
+            from ._common import get_github_client
+
+            try:
+                self._github_client = get_github_client(auth_source=self._auth_source)
+                engine_cfg = self._health_config.setdefault("standards_engine", {})
+                engine_cfg["gh"] = self._github_client
+            except Exception as exc:
+                msg = f"Auth failed: {exc.__class__.__name__}: {exc}"
+                self.state.log_error("refresh", msg)
+                logger.error(f"warm-start auth: {msg}")
+                self.state.is_refreshing = False
+                self.call_from_thread(
+                    self.notify, "Auth failed -- showing cached data", severity="error", timeout=6
+                )
+                self.call_from_thread(self._rerender)
+                return
+
+            if self._auto_discover:
+                try:
+                    viewer = get_viewer_login(self._github_client) or ""
+                    if viewer:
+                        self._owners = [viewer]
+                        for org_login in list_user_orgs(self._github_client):
+                            if org_login not in self._owners and org_login not in self._disabled_orgs:
+                                self._owners.append(org_login)
+                except Exception as exc:
+                    logger.warning(f"warm-start org discovery: {exc}")
+
+            self._warm_start = False
 
         # Phase 0: reconcile the repo list against the live org listing.
         self._refresh_repo_list()
@@ -1961,6 +2009,9 @@ class DashboardApp(App[None]):
             f"sort={self.state.sort_mode}, errors={len(self.state.errors)}"
         )
         self._rerender()
+        if not hasattr(self, "_first_refresh_done"):
+            self._first_refresh_done = True
+            self.notify("Refresh complete", timeout=3)
         if transitions and self._main is not None:
             for full_name, kind in transitions:
                 self._main.spawn_effect(full_name, kind)
@@ -2654,7 +2705,7 @@ class DashboardApp(App[None]):
 
 
 def run_dashboard(
-    repos: list[Repository],
+    repos: list[Repository] | None,
     *,
     refresh_seconds: int = 600,
     theme: str = "default",
@@ -2666,12 +2717,15 @@ def run_dashboard(
     github_client: Github | None = None,
     auto_discover: bool = False,
     saved_prefs: DashboardPrefs | None = None,
+    warm_start: bool = False,
+    auth_source: str = "auto",
 ) -> None:
     """Launch the v2 interactive dashboard."""
     app_cls = DashboardApp
     cur_theme = theme
     cur_layout = layout
     cur_prefs = saved_prefs
+    cur_warm_start = warm_start
 
     while True:
         app = app_cls(
@@ -2686,11 +2740,16 @@ def run_dashboard(
             github_client=github_client,
             auto_discover=auto_discover,
             saved_prefs=cur_prefs,
+            warm_start=cur_warm_start,
+            auth_source=auth_source,
         )
         app.run()
 
         if not getattr(app, "_restart_requested", False):
             break
+
+        # Restarted sessions use the normal (non-warm) path.
+        cur_warm_start = False
 
         # Purge all augint_tools modules so re-import picks up code changes.
         stale_mods = [k for k in sys.modules if k.startswith("augint_tools")]

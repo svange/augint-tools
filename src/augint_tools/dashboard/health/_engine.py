@@ -44,9 +44,10 @@ DEFAULT_STANDARDS_URL = (
     "contents/plugins/ai-standardize/standards.yaml?ref=main"
 )
 
-# Cache TTL for the standards document. Short enough that edits surface on the
-# next scheduled refresh; long enough that rapid refreshes don't re-fetch.
-_CACHE_TTL_SECONDS = 3600
+# Cache TTL for the standards document. Zero means re-fetch every refresh
+# cycle. The call is a single REST request for a ~10KB file -- negligible
+# compared to the batched GraphQL queries the dashboard already makes.
+_CACHE_TTL_SECONDS = 0
 
 
 # ---------------------------------------------------------------------------
@@ -578,12 +579,6 @@ def _parse_compliance_overrides(
     text: str | None,
 ) -> tuple[dict[str, str | None], dict[str, dict]]:
     """Parse ``.github/.ai-compliance.yaml`` into ``(disabled_checks, overrides)``.
-
-    ``disabled_checks`` maps each disabled check ID to its reason string
-    (or ``None`` when no reason is provided).
-
-    ``overrides`` maps each check ID to its parameter dict with metadata
-    keys (``reason``, ``created_at``, ``approved_by``) stripped out.
 
     ``disabled_checks`` maps each disabled check ID to its reason string
     (or ``None`` when no reason is provided).

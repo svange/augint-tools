@@ -215,19 +215,19 @@ class RepoCard(Widget):
         self._theme_spec = theme_spec
         self.refresh()
 
-    def apply_flash_phase(self, phase: bool, *, window_seconds: int) -> None:
-        """Toggle ``card--flash-on`` when this card is within the flash window.
+    def apply_pulse_phase(self, phase: int, *, window_seconds: int) -> None:
+        """Apply the current pulse phase class when this card is within the pulse window.
 
-        The card is "flashing" when it's critical or warning *and* the
-        relevant transition (CI failure / warning_since) happened within
-        ``window_seconds``. Outside that window the class is always removed
-        so the border stays solid at its theme colour.
+        Removes all pulse classes first, then adds ``card--pulse-{phase}`` if
+        the card is recently degraded and ``phase > 0``. Phase 0 means base
+        state (no extra border class). Phases 1-3 provide increasing brightness
+        for a breathing effect.
         """
-        on = phase and self._is_recently_degraded(window_seconds)
-        if on:
-            self.add_class("card--flash-on")
-        else:
-            self.remove_class("card--flash-on")
+        is_degraded = self._is_recently_degraded(window_seconds)
+        for i in range(1, 4):
+            self.remove_class(f"card--pulse-{i}")
+        if is_degraded and phase > 0:
+            self.add_class(f"card--pulse-{phase}")
 
     def _is_recently_degraded(self, window_seconds: int) -> bool:
         health = self.health

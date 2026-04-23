@@ -107,13 +107,13 @@ def _concat_sections(sections: list[tuple[str, Text]]) -> Text:
     return out
 
 
-# How long a newly-broken (or newly-degraded-to-yellow) repo keeps flashing
+# How long a newly-broken (or newly-degraded-to-yellow) repo keeps pulsing
 # its border. Past this window the border stays solid. Kept deliberately long
-# enough to catch a post-push glance without turning into a permanent flash.
+# enough to catch a post-push glance without turning into a permanent effect.
 FLASH_WINDOW_SECONDS = 12 * 60 * 60
-# Period of the flash oscillation, in seconds. Even (on/off) — don't change
-# this without also checking the motion isn't distracting on slow terminals.
-_FLASH_TICK_SECONDS = 0.6
+# Period of each pulse tick, in seconds. 4 phases * 0.4s = 1.6s full cycle.
+_PULSE_TICK_SECONDS = 0.4
+_PULSE_PHASES = 4
 
 
 def _card_severity_class(health: RepoHealth | None) -> str | None:
@@ -304,10 +304,10 @@ class MainScreen(Screen[None]):
         if self._fuzzy_search.is_visible:
             self._fuzzy_search.hide()
 
-    def apply_flash_phase(self, phase: bool, *, window_seconds: int) -> None:
-        """Propagate the global flash phase to each card."""
+    def apply_pulse_phase(self, phase: int, *, window_seconds: int) -> None:
+        """Propagate the global pulse phase to each card."""
         for card in self._cards_by_name.values():
-            card.apply_flash_phase(phase, window_seconds=window_seconds)
+            card.apply_pulse_phase(phase, window_seconds=window_seconds)
 
     def spawn_effect(self, full_name: str, kind: EffectKind) -> None:
         """Mount (or replace) a pixel-art sprite for ``full_name``.
@@ -1384,11 +1384,11 @@ class DashboardApp(App[None]):
         self.state.layout_name = initial_layout
 
         self._main: MainScreen | None = None
-        # Flash-phase state for the "recently broken" border flash.
-        # Cards in the flash window alternate class `card--flash-on` every
-        # `_FLASH_TICK_SECONDS` so the border bounces between its severity
-        # colour and a lighter shade defined in each theme's .tcss.
-        self._flash_phase: bool = False
+        # Pulse-phase state for the "recently broken" border breathing effect.
+        # Cards in the pulse window cycle through classes card--pulse-{1,2,3}
+        # every `_PULSE_TICK_SECONDS`, creating a 4-phase breathing animation.
+        # Phase 0 = base (no extra class), phases 1-3 = increasing brightness.
+        self._pulse_phase: int = 0
         self._flash_enabled: bool = True
         self._restart_requested: bool = False
 
@@ -1489,7 +1489,7 @@ class DashboardApp(App[None]):
             self.set_interval(self._refresh_seconds, self._trigger_refresh)
             self._trigger_refresh()
         self.set_interval(1.0, self._tick_status)
-        self.set_interval(_FLASH_TICK_SECONDS, self._tick_flash)
+        self.set_interval(_PULSE_TICK_SECONDS, self._tick_flash)
         # Probe host RAM / GPU in the background: once at startup so the
         # first org-drawer open already shows numbers, then every 3s while
         # the drawer is visible (see ``_tick_sysmeter``). Suppressed when
@@ -2180,16 +2180,16 @@ class DashboardApp(App[None]):
             self._main.tick_status()
 
     def _tick_flash(self) -> None:
-        """Advance the flash phase and push it to every visible card.
+        """Advance the pulse phase and push it to every visible card.
 
-        Cheap: only toggles a CSS class, no widget rebuild. Cards decide
-        themselves whether they're currently in the flash window.
+        Cheap: only toggles CSS classes, no widget rebuild. Cards decide
+        themselves whether they're currently in the pulse window.
         """
-        self._flash_phase = not self._flash_phase
+        self._pulse_phase = (self._pulse_phase + 1) % _PULSE_PHASES
         if self._main is None:
             return
-        phase = self._flash_phase if self._flash_enabled else False
-        self._main.apply_flash_phase(phase, window_seconds=FLASH_WINDOW_SECONDS)
+        phase = self._pulse_phase if self._flash_enabled else 0
+        self._main.apply_pulse_phase(phase, window_seconds=FLASH_WINDOW_SECONDS)
 
     # ---- actions ----
 

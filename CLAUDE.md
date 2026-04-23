@@ -27,7 +27,7 @@ uv sync --all-extras
 uv run pytest                                # Run all tests
 uv run pytest tests/unit/test_cli.py        # Run specific test file
 uv run pytest -k test_name                  # Run tests matching pattern
-uv run pytest --cov=src --cov-fail-under=80 # Tests with coverage threshold
+uv run pytest --cov=src                    # Tests with coverage (threshold in pyproject.toml)
 
 # Code quality
 uv run ruff check src/ tests/          # Lint

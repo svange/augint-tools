@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from loguru import logger
+
 from augint_tools.detection.commands import CommandPlan, resolve_command_plan
 from augint_tools.detection.framework import detect_framework
 from augint_tools.detection.language import detect_language
@@ -113,7 +115,7 @@ def detect(path: Path | None = None) -> RepoContext:
             if remote_url:
                 github.repo_slug = extract_repo_slug(remote_url)
 
-    return RepoContext(
+    ctx = RepoContext(
         language=language,
         framework=framework,
         default_branch=default_branch,
@@ -124,3 +126,11 @@ def detect(path: Path | None = None) -> RepoContext:
         github=github,
         path=path,
     )
+    logger.debug(
+        "detect: lang={} framework={} branch={} toolchain={}",
+        language,
+        framework,
+        current_branch,
+        toolchain.package_manager,
+    )
+    return ctx

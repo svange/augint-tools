@@ -2,13 +2,29 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI](https://img.shields.io/pypi/v/augint-tools.svg)](https://pypi.org/project/augint-tools/)
-[![Tests](https://github.com/svange/augint-tools/actions/workflows/pipeline.yaml/badge.svg)](https://github.com/svange/augint-tools/actions)
+[![CI/CD Pipeline](https://github.com/svange/augint-tools/actions/workflows/pipeline.yaml/badge.svg)](https://github.com/svange/augint-tools/actions)
 
 CLI orchestration layer for AI-assisted repository workflows.
 
-`augint-tools` provides a stable, machine-parseable command surface for humans and AI agents to coordinate development workflows. It is designed to be called directly by AI skills, replacing ad-hoc shell scripts with reliable, JSON-enabled commands.
+---
 
-## Features
+## Pipeline Artifacts
+
+> Reports are published to GitHub Pages on every release to the default branch.
+
+| Report | Link |
+|--------|------|
+| API Documentation | [svange.github.io/augint-tools](https://svange.github.io/augint-tools/) |
+| Coverage Report | [svange.github.io/augint-tools/coverage](https://svange.github.io/augint-tools/coverage/) |
+| Security Reports | [svange.github.io/augint-tools/security](https://svange.github.io/augint-tools/security/) |
+| License Reports | [svange.github.io/augint-tools/compliance](https://svange.github.io/augint-tools/compliance/) |
+| Test Report | [svange.github.io/augint-tools/tests](https://svange.github.io/augint-tools/tests/) |
+
+---
+
+## What This Does
+
+`augint-tools` provides a stable, machine-parseable command surface for humans and AI agents to coordinate development workflows. It is designed to be called directly by AI skills, replacing ad-hoc shell scripts with reliable, JSON-enabled commands.
 
 - **AI-first design**: Every command supports `--json` output for agent parsing
 - **Repo-type aware**: Understands library and service repository patterns
@@ -17,7 +33,41 @@ CLI orchestration layer for AI-assisted repository workflows.
 - **Health dashboard**: Real-time TUI showing CI, PRs, issues, and compliance across all your repos
 - **YAML compliance engine**: Declarative standards checking driven by a single `standards.yaml` -- rule ownership lives with the standards maintainer, not in this tool
 
-## Installation
+---
+
+## Getting Started
+
+> This project uses AI-assisted development. You do not need to memorize
+> git commands or CI configuration -- your AI agent handles that.
+
+### Prerequisites
+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) package manager
+
+### First-time setup
+
+```bash
+uv sync --all-extras
+```
+
+### Running locally
+
+```bash
+# CLI help
+uv run ai-tools --help
+
+# Check repository status
+uv run ai-tools repo status --json
+
+# Run all pre-commit hooks
+uv run pre-commit run --all-files
+
+# Run tests
+uv run pytest
+```
+
+### Installation (from PyPI)
 
 ```bash
 pip install augint-tools
@@ -29,77 +79,60 @@ Or with `uv`:
 uv tool install augint-tools
 ```
 
-## Quick Start
+---
 
-### Single Repository Workflows
+## How to Contribute
+
+> Contributions are made through AI agents (Claude Code, Copilot, etc.).
+> You describe what you want changed in plain language; the agent handles
+> branching, coding, testing, and submitting a pull request.
+
+1. **Open Claude Code** (or your AI agent) in this repo.
+2. **Describe the change** you want -- a bug fix, a new feature, a doc update.
+3. The agent will:
+   - Create a feature branch
+   - Make the changes
+   - Run pre-commit checks and tests
+   - Open a pull request
+4. **Review the PR** when the agent is done. CI runs automatically.
+5. **Merge** once CI is green.
+
+If you need to work manually, see the full [contributor guide](CONTRIBUTING.md) (if available).
+
+---
+
+## Architecture
+
+### Command Surface
 
 ```bash
-# Initialize repo metadata
-ai-tools init --library
-
-# Check repository status
-ai-tools repo status --json
-
-# Search/pick issues
-ai-tools repo issues pick "bug"
-
-# Create feature branch
-ai-tools repo branch prepare --issue 42 --description "fix the thing"
-
-# Run checks
-ai-tools repo check run
-ai-tools repo check run --preset full --fix
-
-# Submit work (push + create PR)
-ai-tools repo submit
+ai-tools repo status        # git state + upstream + open PR + CI + next action
+ai-tools repo branch prepare # create work branch from correct base
+ai-tools repo submit        # run checks, push branch, create PR, enable automerge
+ai-tools repo ci triage     # classify CI failures
+ai-tools repo check run     # execute validation plan
+ai-tools repo issues pick   # issue recommendation and search
+ai-tools dashboard --all    # launch the compliance TUI
 ```
 
-## Command Reference
-
-### Top-Level Commands
-
-- `ai-tools init [--library|--service]` - Initialize repository metadata
-
-### Repository Commands (`ai-tools repo`)
-
-- `inspect` - One-call repo snapshot (kind, branch, toolchain, command plan)
-- `status` - Show repository status (branch, dirty state, PRs, CI)
-- `issues pick [query]` - Issue recommendation and search
-- `branch prepare` - Create work branch from correct base
-- `check plan` - Resolve validation plan without running
-- `check run` - Execute validation plan
-- `submit` - Push branch and create PR with automerge
-- `ci watch` - Monitor CI run
-- `ci triage` - Classify CI failures
-
-## Dashboard & Compliance Engine
-
-The dashboard (`ai-tools dashboard`) is a Textual TUI that monitors all your repos in real time: CI status, open PRs, issue counts, and compliance findings on one screen. It refreshes via batched GraphQL queries with REST-based ruleset fetching on a separate rate-limit pool.
+Global output flags: `--json`, `--actionable`, `--summary`
 
 ### YAML Compliance Engine
 
-The dashboard includes a declarative compliance engine that evaluates repos against rules defined in a `standards.yaml` file maintained in the [ai-cc-tools](https://github.com/augmenting-integrations/ai-cc-tools) repo. This is the key design decision: **rule ownership lives with the standards maintainer, not in augint-tools.**
+The dashboard includes a declarative compliance engine that evaluates repos against rules defined in a `standards.yaml` file maintained in the [ai-cc-tools](https://github.com/augmenting-integrations/ai-cc-tools) repo. **Rule ownership lives with the standards maintainer, not in augint-tools.**
 
 Adding a new compliance rule is a single YAML entry in ai-cc-tools -- no code change in augint-tools required (unless the rule needs a new handler type).
 
 **Built-in check types:**
 - `file_exists` / `file_absent` -- verify presence of config files
-- `file_content_matches` -- regex with numeric/string assertions (e.g., coverage threshold >= 80)
+- `file_content_matches` -- regex with numeric/string assertions
 - `workflow_job_has_step` -- verify pipeline jobs contain required steps
 - `workflow_all_jobs_scan` -- detect cheat patterns (`|| true`, `continue-on-error`, `set +e`)
 - `ruleset_has_required_checks` -- verify GitHub rulesets enforce expected status checks
 
-**Handler escape hatch:** For checks that need external data (AWS API calls, HTTP probes), a `handler` type dispatches to registered Python functions. Three built-in handlers ship today: `aws_oidc_trust_policy_scope`, `http_health_probe`, and `lambda_deploy_sha_match`.
+**Handler escape hatch:** For checks that need external data (AWS API calls, HTTP probes), a `handler` type dispatches to registered Python functions. Three built-in handlers: `aws_oidc_trust_policy_scope`, `http_health_probe`, and `lambda_deploy_sha_match`.
 
-**Caching:** The engine caches results per repo by `(commit_sha, rulesets_fingerprint)`. Unchanged repos skip re-evaluation entirely. Rulesets are fetched via REST with `updated_at`-based caching so config drift is detected in real time without re-fetching detail data every cycle.
-
-```bash
-# Launch the dashboard
-ai-tools dashboard --all
-
-# Override the standards URL (e.g., test a branch's rules before merge)
-ai-tools dashboard --all --standards-yaml-url "https://api.github.com/repos/org/repo/contents/standards.yaml?ref=my-branch"
-```
+---
 
 ## Dashboard Deployment Links
 
@@ -118,9 +151,6 @@ augmentingintegrations/aillc-web:
 augmentingintegrations/ai-lls-api:
   - { label: dev,  url: "https://lls-api.lls.aillc.link" }
   - { label: main, url: "https://lls-api.landlinescrubber.link" }
-augmentingintegrations/woxom-sales-dashboard:
-  - { label: dashboard,         url: "https://dashboard.woxom.aillc.link/" }
-  - { label: jacksonhealthcare, url: "https://jacksonhealthcare.woxom.aillc.link/" }
 ```
 
 ### Reserved labels
@@ -129,15 +159,7 @@ augmentingintegrations/woxom-sales-dashboard:
 |--------|-------|-----------|
 | `main` | `p`   | prod -- middle-click on card title opens this |
 | `dev`  | `s`   | staging -- shift + middle-click on card title opens this |
-| `pypi` | `π`   | auto-synthesized for Python libraries (see below); manual entry overrides the auto guess |
-
-Any other label is free-form; the card glyph is the first alphanumeric character of the label (lowercased).
-
-Deployment glyphs are rendered right-aligned on the CI status line of each card (e.g. `dev PASS  main PASS       s p`). Each glyph is an OSC-8 hyperlink clickable in supported terminals.
-
-### Auto-PyPI
-
-If a repo has the `py` tag, is not a service (`looks_like_service=False`), and is not an org repo (`is_org=False`), the card and drawer get an automatic `https://pypi.org/project/<repo-name>/` link rendered in a dim style. If the repo's PyPI name differs from its GitHub name, add a manual `pypi` entry in the yaml -- manual entries always win.
+| `pypi` | `π`   | auto-synthesized for Python libraries; manual entry overrides |
 
 ### Interaction model
 
@@ -152,53 +174,20 @@ If a repo has the `py` tag, is not a service (`looks_like_service=False`), and i
 | `b` | Open 3rd supplemental link |
 | `f` | Open the "Manage deployment links" modal |
 
-**Mouse** (on the title row; depends on terminal modifier support):
+**Mouse** (on the title row):
 
-- **Middle-click on the title** -> open prod URL (falls back to the GitHub repo page if no `main` link is configured).
-- **Shift + middle-click on the title** -> open dev URL, or toast "no url configured for dev" if none.
-- **Ctrl + left-click on the title** -> open the "Manage deployment links" modal for that repo.
-- **Left-click on a glyph** (`s` / `p` / `π` / first-letter) -> terminal-native OSC-8 link opens the URL directly.
-
-Note: mouse modifier support (shift+click, ctrl+click) varies by terminal. Windows Terminal may intercept ctrl+click for OSC-8 link handling. The keyboard shortcuts (`p`, `P`, `u`) are the reliable primary interface.
+- **Middle-click on the title** -> open prod URL (falls back to GitHub repo page if no `main` link)
+- **Shift + middle-click on the title** -> open dev URL
+- **Ctrl + left-click on the title** -> open the "Manage deployment links" modal
+- **Left-click on a glyph** -> terminal-native OSC-8 link opens the URL directly
 
 The detail drawer (press `d`) lists every link in a `deployments:` section with the host shown as visible text and the full URL as the OSC-8 target.
 
 ### Manage modal
 
-Press `f` or middle-click on the repo name to open a modal scoped to the selected repo. The modal has dedicated fields for Production and Staging URLs at the top (Set/Clear), plus an add row for supplemental links. Existing supplementals are listed inline with Remove buttons (AWS Security Groups style). Every mutation writes the yaml immediately. Auto-PyPI entries are not listed (they aren't stored in the yaml); add a manual `pypi` row to override the guess.
+Press `f` or middle-click on the repo name to open a modal scoped to the selected repo. The modal has dedicated fields for Production and Staging URLs at the top (Set/Clear), plus an add row for supplemental links. Existing supplementals are listed inline with Remove buttons. Every mutation writes the yaml immediately.
 
-## Development
-
-### Setup
-
-```bash
-uv sync --all-extras
-```
-
-### Running Tests
-
-```bash
-uv run pytest                    # Run all tests
-uv run pytest --cov             # With coverage
-uv run pytest -k test_name      # Specific test
-```
-
-### Code Quality
-
-```bash
-uv run ruff check src/ tests/   # Lint
-uv run ruff format src/ tests/  # Format
-uv run mypy src/               # Type check
-uv run pre-commit run --all-files  # All hooks
-```
-
-## Design Principles
-
-1. **Human and AI first** - Commands work well for both interactive use and programmatic calls
-2. **JSON always available** - Every orchestration command supports stable `--json` output
-3. **Safe defaults** - No destructive behavior without explicit confirmation
-4. **Repo-type aware** - Different defaults for libraries, services, and workspaces
-5. **Skills call tools** - AI skills orchestrate this CLI, not replace it with shell scripts
+---
 
 ## License
 

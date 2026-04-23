@@ -1,33 +1,161 @@
+# === Secrets and Credentials ===
 .env
 .env.*
 !.env.example
+.env.local
+.env.*.local
+*.env
+!*.env.example
 *.pem
+*.key
+*.crt
+*.cer
+!*.example.pem
+!*.example.key
+
+# === Claude Code / AI Tool History ===
+.claude/settings.local.json
+**/.claude/worktrees/
+.aider.chat.history.md
+.aider.input.history
+.aider/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 .venv/
 venv/
 ENV/
 env/
 !src/**/env/
 **/.venv/
-__pycache__/
-*.py[cod]
 *.egg-info/
 dist/
 build/
+*.egg
 .pytest_cache/
 .coverage
 .coverage.*
 coverage.xml
+coverage.json
 htmlcov/
+.tox/
 .mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
 .ruff_cache/
 *.log
-.claude/settings.local.json
+.ipynb_checkpoints/
+
+# === Node.js ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.yarn/integrity
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+.next/
+.nuxt/
+.cache/
+
+# === Vite / Vue ===
+dist-ssr/
+*.local
+*.tsbuildinfo
+.vite/
+.vitepress/dist/
+.vitepress/cache/
+vite.log
+
+# === Next.js ===
+out/
+.turbo/
+.vercel/
+.swc/
+
+# === Storybook ===
+storybook-static/
+
+# === AWS SAM ===
+samconfig.toml.local
+packaged.yaml
+packaged.yml
+layers/dependencies/python/
+layers/*/python/
+.sam-build/
+
+# === AWS and IaC ===
+.aws-sam/
+cdk.out/
+.terraform/
+*.tfstate
+*.tfstate.*
+!*.tfstate.example
+.terraform.lock.hcl
+.serverless/
+
+# === Testing ===
+coverage/
+.nyc_output/
+.hypothesis/
+test-results/
+test-results.json
+junit.xml
+*.lcov
+logs/
+playwright-report/
+blob-report/
+.playwright/
+
+# === Security / Compliance Reports ===
+bandit-report.json
+safety-report.json
+pip-audit-report.json
+semgrep.sarif
+license-report.json
+runtime-requirements.txt
+
+# === IDE ===
 .idea/
 .vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+*.sublime-*
+*.iml
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# === OS Files ===
 .DS_Store
 Thumbs.db
-.cache/
+*.swp
+*.swo
+*~
+.*.sw?
+
+# === Temporary Files ===
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
 tmp/
 temp/
+
+# === Project-specific ===
 .ai-shell.toml
 ai-shell.toml

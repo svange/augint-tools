@@ -50,7 +50,7 @@ wheels = [
 
 [[package]]
 name = "augint-tools"
-version = "5.40.1"
+version = "5.41.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },

@@ -58,7 +58,9 @@ class FetchContext:
     pyproject_text: str | None = None
     package_json_text: str | None = None
     precommit_text: str | None = None
-    # Per-repo compliance engine overrides (.ai-compliance.yaml contents).
+    # .github/CODEOWNERS contents. None when the file doesn't exist.
+    codeowners_text: str | None = None
+    # Per-repo compliance engine overrides (.github/.ai-compliance.yaml contents).
     # None when the repo has no override file. Parsed and applied by
     # ``_engine.apply_overrides`` to disabled_checks / overrides.
     compliance_overrides_text: str | None = None

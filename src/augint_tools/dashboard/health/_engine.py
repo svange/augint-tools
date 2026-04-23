@@ -320,7 +320,7 @@ def _check_workflow_job_has_step(
 # Shell suffixes that swallow non-zero exit codes. ``|| true``, ``|| :``,
 # ``|| echo ...``. Mirrors the pattern used by the legacy coverage check.
 _CHEAT_SUFFIX_RE = re.compile(r"\|\|\s*(true|:|echo\b)")
-_SET_PLUS_E_RE = re.compile(r"(?m)^\s*set\s+\+e\b")
+_SET_PLUS_E_RE = re.compile(r"(?m)^\s*set\s+(?:\+e\b|\+o\s+(?:pipefail|errexit)\b)")
 
 
 def _check_workflow_all_jobs_scan(
@@ -450,6 +450,7 @@ def _resolve_file_text(context: FetchContext, key: Any) -> str | None:
         ".pre-commit-config.yaml": context.precommit_text,
         "precommit": context.precommit_text,
         "renovate": context.renovate_config_text,
+        "codeowners": context.codeowners_text,
     }
     return mapping.get(key)
 
@@ -497,7 +498,7 @@ def _evaluate_one_check(
     # Strip ``type`` from params when inlined (params == check_cfg).
     if isinstance(params, dict):
         params = {k: v for k, v in params.items() if k != "type"}
-    # Per-repo overrides from .ai-compliance.yaml merge on top of the canonical
+    # Per-repo overrides from .github/.ai-compliance.yaml merge on top of the canonical
     # params so repos can supply real URLs / role names without editing the
     # canonical standards.yaml.
     if param_override:
@@ -535,7 +536,7 @@ def _evaluate_one_check(
     return HealthCheckResult(
         check_name=check_id,
         severity=severity,
-        summary=f"{entry.get('name') or check_id}: {fail_message} ({detail})"
+        summary=f"{entry.get('name') or check_id}: {detail}"
         if detail
         else f"{entry.get('name') or check_id}: {fail_message}",
         link=link,
@@ -576,7 +577,13 @@ _OVERRIDE_META_KEYS = frozenset({"reason", "created_at", "approved_by"})
 def _parse_compliance_overrides(
     text: str | None,
 ) -> tuple[dict[str, str | None], dict[str, dict]]:
-    """Parse ``.ai-compliance.yaml`` into ``(disabled_checks, overrides)``.
+    """Parse ``.github/.ai-compliance.yaml`` into ``(disabled_checks, overrides)``.
+
+    ``disabled_checks`` maps each disabled check ID to its reason string
+    (or ``None`` when no reason is provided).
+
+    ``overrides`` maps each check ID to its parameter dict with metadata
+    keys (``reason``, ``created_at``, ``approved_by``) stripped out.
 
     ``disabled_checks`` maps each disabled check ID to its reason string
     (or ``None`` when no reason is provided).
@@ -680,7 +687,7 @@ def run_engine(
             # don't want.
             check_name = entry.get("name") or check_id
             reason = disabled[check_id]
-            summary = f"{check_name}: disabled by .ai-compliance.yaml"
+            summary = f"{check_name}: disabled by .github/.ai-compliance.yaml"
             if reason:
                 truncated = reason[:80] + "..." if len(reason) > 80 else reason
                 summary = f"{summary} -- {truncated}"
@@ -706,14 +713,14 @@ def run_engine(
             _evaluate_one_check(context, entry, options, template_vars, overrides.get(check_id))
         )
     # Surface stale opt-outs as one informational finding so maintainers
-    # clean up .ai-compliance.yaml entries that reference retired checks.
+    # clean up .github/.ai-compliance.yaml entries that reference retired checks.
     if stale_opt_outs:
         results.append(
             HealthCheckResult(
                 check_name="standards_engine.stale_overrides",
                 severity=Severity.LOW,
                 summary=(
-                    ".ai-compliance.yaml references unknown check IDs: "
+                    ".github/.ai-compliance.yaml references unknown check IDs: "
                     + ", ".join(sorted(stale_opt_outs))
                 ),
             )

@@ -29,6 +29,7 @@ from ._data import RepoStatus, build_status_from_snapshot, fetch_failing_run_det
 from ._gql import (
     fetch_workspace_snapshot,
     fetch_workspace_teams,
+    pick_codeowners,
     pick_compliance,
     pick_package_json,
     pick_pipeline_yaml,
@@ -1843,6 +1844,7 @@ class DashboardApp(App[None]):
                         pyproject_text=pick_pyproject(snapshot),
                         package_json_text=pick_package_json(snapshot),
                         precommit_text=pick_precommit(snapshot),
+                        codeowners_text=pick_codeowners(snapshot),
                         compliance_overrides_text=pick_compliance(snapshot),
                         rulesets=rulesets_by_repo.get(status.full_name, []),
                         main_head_sha=snapshot.main_head_sha,

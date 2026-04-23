@@ -1978,9 +1978,9 @@ class DashboardApp(App[None]):
             if prev_class == new_class:
                 continue
             if new_class == "ok":
-                out.append((full_name, "fireworks"))
+                out.append((full_name, "sparkle"))
             elif new_class == "critical":
-                out.append((full_name, "mushroom"))
+                out.append((full_name, "shockwave"))
         return out
 
     def _update_warning_since(self, healths: list[RepoHealth]) -> None:
@@ -2280,7 +2280,7 @@ class DashboardApp(App[None]):
         self._flash_enabled = not self._flash_enabled
         if not self._flash_enabled and self._main is not None:
             # Clear the flash phase class immediately so nothing stays lit.
-            self._main.apply_flash_phase(False, window_seconds=FLASH_WINDOW_SECONDS)
+            self._main.apply_pulse_phase(0, window_seconds=FLASH_WINDOW_SECONDS)
         self._save_prefs()
         state = "on" if self._flash_enabled else "off"
         self.notify(f"flash: {state}", timeout=2)

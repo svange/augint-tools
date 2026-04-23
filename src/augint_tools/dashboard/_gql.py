@@ -57,7 +57,8 @@ PACKAGE_JSON_PATHS: tuple[str, ...] = ("package.json",)
 PRECOMMIT_PATHS: tuple[str, ...] = (".pre-commit-config.yaml", ".pre-commit-config.yml")
 # Per-repo compliance engine overrides (opt-outs + handler param overrides).
 # Placed by /ai-standardize-compliance; read by _engine.apply_overrides.
-COMPLIANCE_PATHS: tuple[str, ...] = (".ai-compliance.yaml", ".ai-compliance.yml")
+COMPLIANCE_PATHS: tuple[str, ...] = (".github/.ai-compliance.yaml", ".github/.ai-compliance.yml")
+CODEOWNERS_PATHS: tuple[str, ...] = (".github/CODEOWNERS",)
 
 # Chunk size for repo batches per GraphQL query. GitHub's API has a per-query
 # complexity budget of 500k nodes. With blob fields, PRs, and issues the
@@ -155,8 +156,10 @@ class RepoSnapshot:
     package_json_contents: dict[str, str | None] = field(default_factory=dict)
     # .pre-commit-config.yaml contents; keyed by canonical path.
     precommit_contents: dict[str, str | None] = field(default_factory=dict)
-    # .ai-compliance.yaml contents (per-repo engine overrides); keyed by path.
+    # .github/.ai-compliance.yaml contents (per-repo engine overrides); keyed by path.
     compliance_contents: dict[str, str | None] = field(default_factory=dict)
+    # .github/CODEOWNERS contents; keyed by canonical path.
+    codeowners_contents: dict[str, str | None] = field(default_factory=dict)
 
 
 @dataclass
@@ -210,6 +213,11 @@ def _fragment() -> str:
         f'    _compliance_{i}: object(expression: "HEAD:{path}") {{ '
         f"... on Blob {{ text isTruncated }} }}"
         for i, path in enumerate(COMPLIANCE_PATHS)
+    )
+    codeowners_fields = "\n".join(
+        f'    _codeowners_{i}: object(expression: "HEAD:{path}") {{ '
+        f"... on Blob {{ text isTruncated }} }}"
+        for i, path in enumerate(CODEOWNERS_PATHS)
     )
     return f"""
 fragment RepoFields on Repository {{
@@ -283,6 +291,7 @@ fragment RepoFields on Repository {{
 {package_json_fields}
 {precommit_fields}
 {compliance_fields}
+{codeowners_fields}
 }}
 """
 
@@ -515,6 +524,10 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     for i, path in enumerate(COMPLIANCE_PATHS):
         compliance_contents[path] = _extract_blob_text(data.get(f"_compliance_{i}"))
 
+    codeowners_contents: dict[str, str | None] = {}
+    for i, path in enumerate(CODEOWNERS_PATHS):
+        codeowners_contents[path] = _extract_blob_text(data.get(f"_codeowners_{i}"))
+
     return RepoSnapshot(
         full_name=full_name,
         name=name,
@@ -539,6 +552,7 @@ def _parse_repo(data: dict) -> RepoSnapshot:
         package_json_contents=package_json_contents,
         precommit_contents=precommit_contents,
         compliance_contents=compliance_contents,
+        codeowners_contents=codeowners_contents,
     )
 
 
@@ -755,6 +769,11 @@ def pick_precommit(snapshot: RepoSnapshot) -> str | None:
 
 def pick_compliance(snapshot: RepoSnapshot) -> str | None:
     _, text = _pick_first(snapshot.compliance_contents, COMPLIANCE_PATHS)
+    return text
+
+
+def pick_codeowners(snapshot: RepoSnapshot) -> str | None:
+    _, text = _pick_first(snapshot.codeowners_contents, CODEOWNERS_PATHS)
     return text
 
 

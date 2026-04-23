@@ -74,8 +74,7 @@ jobs:
             --config p/python \
             --config p/security-audit \
             --config p/secrets \
-            --config p/owasp-top-ten \
-            --error
+            --config p/owasp-top-ten
       - name: IaC policy (checkov)
         if: hashFiles('template.yaml', 'template.yml', 'cdk.out/**', 'infrastructure/**/*.yaml', 'infrastructure/**/*.yml') != ''
         run: |

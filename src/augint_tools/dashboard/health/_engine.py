@@ -585,6 +585,12 @@ def _parse_compliance_overrides(
     ``overrides`` maps each check ID to its parameter dict with metadata
     keys (``reason``, ``created_at``, ``approved_by``) stripped out.
 
+    ``disabled_checks`` maps each disabled check ID to its reason string
+    (or ``None`` when no reason is provided).
+
+    ``overrides`` maps each check ID to its parameter dict with metadata
+    keys (``reason``, ``created_at``, ``approved_by``) stripped out.
+
     Tolerant of absent, empty, or malformed documents -- misconfiguration
     never breaks the refresh loop.
     """

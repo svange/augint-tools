@@ -573,6 +573,34 @@ def test_disabled_check_object_format_with_reason():
     assert "Check not applicable" in finding.summary
 
 
+def test_disabled_check_reason_truncated_at_80_chars():
+    long_reason = "A" * 120
+    ctx = _ctx(
+        compliance_overrides_text=(
+            "disabled_checks:\n"
+            "  - id: x.fail\n"
+            f'    reason: "{long_reason}"\n'
+            "    created_at: 2026-04-23\n"
+            '    approved_by: "dev@example.com"\n'
+        ),
+    )
+    doc = {
+        "checks": [
+            {
+                "id": "x.fail",
+                "severity": "HIGH",
+                "name": "Always fails",
+                "check": {"type": "handler", "name": "_test_always_fail"},
+            }
+        ]
+    }
+    results = _run_with_doc(doc, ctx)
+    finding = next(r for r in results if r.check_name == "x.fail")
+    # Reason should be truncated to 80 chars with ellipsis.
+    assert len(finding.summary) < 200
+    assert finding.summary.endswith("...")
+
+
 def test_override_strips_metadata_keys():
     captured: dict = {}
 

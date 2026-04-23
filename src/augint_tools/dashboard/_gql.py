@@ -40,7 +40,11 @@ RENOVATE_PATHS: tuple[str, ...] = (
 )
 
 # Pipeline workflow paths, canonical first. Mirrors the CoverageCheck probe list.
+# Libraries use publish.yaml, services use deploy.yaml. Legacy pipeline.yaml
+# is probed last for repos not yet re-standardized.
 PIPELINE_PATHS: tuple[str, ...] = (
+    ".github/workflows/publish.yaml",
+    ".github/workflows/deploy.yaml",
     ".github/workflows/pipeline.yaml",
     ".github/workflows/pipeline.yml",
 )

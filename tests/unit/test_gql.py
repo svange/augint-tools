@@ -329,7 +329,7 @@ class TestParseResponse:
         payload = _graphql_repo_payload(
             full_name="org/a",
             renovate_hits={"renovate.json5": '{"extends":["config:base"]}'},
-            pipeline_hits={".github/workflows/pipeline.yaml": "jobs:\n  unit-tests: {}"},
+            pipeline_hits={".github/workflows/publish.yaml": "jobs:\n  unit-tests: {}"},
         )
         response = {"data": {"r0": payload}}
         snapshots, _, _ = parse_response(response, [_mock_repo("org/a")])
@@ -338,7 +338,7 @@ class TestParseResponse:
         assert rpath == "renovate.json5"
         assert "config:base" in rtext
         ppath, ptext = pick_pipeline_yaml(snap)
-        assert ppath == ".github/workflows/pipeline.yaml"
+        assert ppath == ".github/workflows/publish.yaml"
         assert "unit-tests" in ptext
 
     def test_rollup_walks_history_when_tip_has_no_rollup(self):

@@ -1,7 +1,7 @@
 """Health check: test-coverage threshold enforcement in CI.
 
 Parses the repository's canonical GitHub Actions workflow
-(``.github/workflows/pipeline.yaml``) and inspects the ``unit-tests`` job
+(``publish.yaml`` for libraries, ``deploy.yaml`` for services) and inspects the ``unit-tests`` job
 for signals that the coverage gate has been **actively weakened**:
 
 - Python: ``pytest --cov-fail-under=N`` with N below the canonical 80% baseline
@@ -14,8 +14,8 @@ for signals that the coverage gate has been **actively weakened**:
   the repo adopted the standardized job name but the gate is missing, which
   is a regression from standard, not non-adoption.
 
-**True non-adoption is benign.** Repos with no ``pipeline.yaml`` at all, or
-with a ``pipeline.yaml`` that has no ``unit-tests`` job, return OK severity
+**True non-adoption is benign.** Repos with no canonical pipeline at all, or
+with a pipeline that has no ``unit-tests`` job, return OK severity
 with an informative summary. This is observational, not a warning -- a repo
 is not "unhealthy" just because it doesn't follow the standard naming
 convention for its workflow files.
@@ -87,7 +87,7 @@ class CoverageCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.OK,
-                summary="not standardized (no pipeline.yaml)",
+                summary="not standardized (no canonical pipeline)",
             )
 
         workflow_link = f"https://github.com/{status.full_name}/blob/{default_branch}/{used_path}"
@@ -98,7 +98,7 @@ class CoverageCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.MEDIUM,
-                summary="pipeline.yaml parse error",
+                summary="pipeline parse error",
                 link=workflow_link,
             )
 
@@ -106,7 +106,7 @@ class CoverageCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.MEDIUM,
-                summary="pipeline.yaml not a mapping",
+                summary="pipeline not a mapping",
                 link=workflow_link,
             )
 
@@ -115,7 +115,7 @@ class CoverageCheck:
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.OK,
-                summary="pipeline.yaml has no jobs",
+                summary="pipeline has no jobs",
             )
 
         unit_tests = jobs.get("unit-tests")

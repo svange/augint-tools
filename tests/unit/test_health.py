@@ -827,7 +827,7 @@ jobs:
         run: uv run pytest -v
 """
 
-    def _evaluate(self, text: str | None, *, path: str = ".github/workflows/pipeline.yaml"):
+    def _evaluate(self, text: str | None, *, path: str = ".github/workflows/publish.yaml"):
         ctx = _ctx(
             pipeline_path=path if text is not None else None,
             pipeline_text=text,
@@ -845,7 +845,7 @@ jobs:
         assert "60" in result.summary
         assert "reduced" in result.summary
         assert result.link is not None
-        assert "pipeline.yaml" in result.link
+        assert "publish.yaml" in result.link
 
     def test_no_fail_under_is_low(self):
         result = self._evaluate(self._NO_FAIL_UNDER_PY)

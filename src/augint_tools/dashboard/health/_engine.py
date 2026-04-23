@@ -484,6 +484,7 @@ def _evaluate_one_check(
     entry: dict,
     options: EngineOptions,
     template_vars: dict[str, str],
+    param_override: dict | None = None,
 ) -> HealthCheckResult:
     """Run a single YAML check entry and produce a result."""
     check_id = str(entry.get("id") or "unknown")
@@ -496,6 +497,11 @@ def _evaluate_one_check(
     # Strip ``type`` from params when inlined (params == check_cfg).
     if isinstance(params, dict):
         params = {k: v for k, v in params.items() if k != "type"}
+    # Per-repo overrides from .ai-compliance.yaml merge on top of the canonical
+    # params so repos can supply real URLs / role names without editing the
+    # canonical standards.yaml.
+    if param_override:
+        params = _merge_overrides(params, _format_template(param_override, template_vars))
 
     try:
         if ctype == "handler":
@@ -548,6 +554,45 @@ def _repo_applies(entry: dict, repo_tags: set[str]) -> bool:
     return any(tag in repo_tags for tag in applies_to)
 
 
+def _parse_compliance_overrides(text: str | None) -> tuple[set[str], dict[str, dict]]:
+    """Parse ``.ai-compliance.yaml`` into ``(disabled_checks, overrides)``.
+
+    Tolerant of absent, empty, or malformed documents -- misconfiguration
+    never breaks the refresh loop. The dashboard surfaces parse failures
+    as a visible finding so the maintainer notices.
+    """
+    if not text:
+        return set(), {}
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return set(), {}
+    if not isinstance(doc, dict):
+        return set(), {}
+    raw_disabled = doc.get("disabled_checks") or []
+    disabled: set[str] = (
+        {str(x) for x in raw_disabled if isinstance(x, str)}
+        if isinstance(raw_disabled, list)
+        else set()
+    )
+    raw_overrides = doc.get("overrides") or {}
+    overrides: dict[str, dict] = {}
+    if isinstance(raw_overrides, dict):
+        for check_id, params in raw_overrides.items():
+            if isinstance(check_id, str) and isinstance(params, dict):
+                overrides[check_id] = params
+    return disabled, overrides
+
+
+def _merge_overrides(base: Any, override: dict) -> Any:
+    """Shallow-merge override keys into the base params mapping."""
+    if not isinstance(base, dict):
+        return override
+    merged = dict(base)
+    merged.update(override)
+    return merged
+
+
 def run_engine(
     context: FetchContext,
     options: EngineOptions,
@@ -583,11 +628,42 @@ def run_engine(
         "repo_name": context.repo_name or "",
         "default_branch": default_branch or "main",
     }
+    disabled, overrides = _parse_compliance_overrides(context.compliance_overrides_text)
+    known_ids = {str(e.get("id")) for e in checks if isinstance(e, dict)}
+    stale_opt_outs = disabled - known_ids
     results: list[HealthCheckResult] = []
     for entry in checks:
         if not isinstance(entry, dict):
             continue
         if not _repo_applies(entry, repo_tags):
             continue
-        results.append(_evaluate_one_check(context, entry, options, template_vars))
+        check_id = str(entry.get("id") or "")
+        if check_id in disabled:
+            # Surface opt-outs as OK-with-reason so coverage reduction stays
+            # visible in the dashboard; silent drops are the failure mode we
+            # don't want.
+            results.append(
+                HealthCheckResult(
+                    check_name=check_id,
+                    severity=Severity.OK,
+                    summary=f"{entry.get('name') or check_id}: disabled by .ai-compliance.yaml",
+                )
+            )
+            continue
+        results.append(
+            _evaluate_one_check(context, entry, options, template_vars, overrides.get(check_id))
+        )
+    # Surface stale opt-outs as one informational finding so maintainers
+    # clean up .ai-compliance.yaml entries that reference retired checks.
+    if stale_opt_outs:
+        results.append(
+            HealthCheckResult(
+                check_name="standards_engine.stale_overrides",
+                severity=Severity.LOW,
+                summary=(
+                    ".ai-compliance.yaml references unknown check IDs: "
+                    + ", ".join(sorted(stale_opt_outs))
+                ),
+            )
+        )
     return results

@@ -58,6 +58,10 @@ class FetchContext:
     pyproject_text: str | None = None
     package_json_text: str | None = None
     precommit_text: str | None = None
+    # Per-repo compliance engine overrides (.ai-compliance.yaml contents).
+    # None when the repo has no override file. Parsed and applied by
+    # ``_engine.apply_overrides`` to disabled_checks / overrides.
+    compliance_overrides_text: str | None = None
     # Repository rulesets (from GraphQL). Each entry is the decoded nodes
     # payload with rules and bypass actors. None when unavailable.
     rulesets: list[dict] | None = None

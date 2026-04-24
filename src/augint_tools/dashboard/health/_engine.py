@@ -668,7 +668,7 @@ def run_engine(
     }
     disabled, overrides = _parse_compliance_overrides(context.compliance_overrides_text)
     known_ids = {str(e.get("id")) for e in checks if isinstance(e, dict)}
-    stale_opt_outs = set(disabled) - known_ids
+    stale_opt_outs = (set(disabled) | set(overrides)) - known_ids
     results: list[HealthCheckResult] = []
     for entry in checks:
         if not isinstance(entry, dict):

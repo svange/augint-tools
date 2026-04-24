@@ -59,6 +59,13 @@ PRECOMMIT_PATHS: tuple[str, ...] = (".pre-commit-config.yaml", ".pre-commit-conf
 # Placed by /ai-standardize-compliance; read by _engine.apply_overrides.
 COMPLIANCE_PATHS: tuple[str, ...] = (".github/.ai-compliance.yaml", ".github/.ai-compliance.yml")
 CODEOWNERS_PATHS: tuple[str, ...] = (".github/CODEOWNERS",)
+# Nested CDK paths to probe when cdk.json isn't at root. Common subdirectory
+# layouts used by repos that keep CDK infrastructure separate from app code.
+CDK_NESTED_PATHS: tuple[str, ...] = (
+    "cdk/cdk.json",
+    "infrastructure/cdk.json",
+    "infra/cdk.json",
+)
 
 # Chunk size for repo batches per GraphQL query. GitHub's API has a per-query
 # complexity budget of 500k nodes. With blob fields, PRs, and issues the
@@ -160,6 +167,9 @@ class RepoSnapshot:
     compliance_contents: dict[str, str | None] = field(default_factory=dict)
     # .github/CODEOWNERS contents; keyed by canonical path.
     codeowners_contents: dict[str, str | None] = field(default_factory=dict)
+    # Nested CDK paths found (e.g. "cdk/cdk.json", "infrastructure/cdk.json").
+    # Used by service-marker detection when cdk.json isn't at root.
+    nested_cdk_paths: tuple[str, ...] = ()
 
 
 @dataclass
@@ -218,6 +228,11 @@ def _fragment() -> str:
         f'    _codeowners_{i}: object(expression: "HEAD:{path}") {{ '
         f"... on Blob {{ text isTruncated }} }}"
         for i, path in enumerate(CODEOWNERS_PATHS)
+    )
+    cdk_nested_fields = "\n".join(
+        f'    _cdk_nested_{i}: object(expression: "HEAD:{path}") {{ '
+        f"... on Blob {{ text isTruncated }} }}"
+        for i, path in enumerate(CDK_NESTED_PATHS)
     )
     return f"""
 fragment RepoFields on Repository {{
@@ -292,6 +307,7 @@ fragment RepoFields on Repository {{
 {precommit_fields}
 {compliance_fields}
 {codeowners_fields}
+{cdk_nested_fields}
 }}
 """
 
@@ -528,6 +544,12 @@ def _parse_repo(data: dict) -> RepoSnapshot:
     for i, path in enumerate(CODEOWNERS_PATHS):
         codeowners_contents[path] = _extract_blob_text(data.get(f"_codeowners_{i}"))
 
+    nested_cdk: list[str] = []
+    for i, path in enumerate(CDK_NESTED_PATHS):
+        blob = data.get(f"_cdk_nested_{i}")
+        if isinstance(blob, dict):
+            nested_cdk.append(path)
+
     return RepoSnapshot(
         full_name=full_name,
         name=name,
@@ -553,6 +575,7 @@ def _parse_repo(data: dict) -> RepoSnapshot:
         precommit_contents=precommit_contents,
         compliance_contents=compliance_contents,
         codeowners_contents=codeowners_contents,
+        nested_cdk_paths=tuple(nested_cdk),
     )
 
 

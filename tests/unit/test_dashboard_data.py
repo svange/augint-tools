@@ -82,6 +82,59 @@ class TestServiceMarkers:
         markers = _detect_service_markers("svc", ("template.yaml", "cdk.json"))
         assert set(markers) == {"template.yaml", "cdk.json"}
 
+    def test_nested_cdk_detected_as_service(self):
+        """Repos with cdk.json in a subdirectory should be classified as services."""
+        markers = _detect_service_markers(
+            "svc", ("package.json",), nested_cdk_paths=("cdk/cdk.json",)
+        )
+        assert "cdk/cdk.json" in markers
+
+    def test_python_with_nested_cdk_is_service(self):
+        """Python repos with nested CDK infra must not be excluded as libraries."""
+        markers = _detect_service_markers(
+            "svc",
+            ("pyproject.toml",),
+            nested_cdk_paths=("infrastructure/cdk.json",),
+        )
+        assert "infrastructure/cdk.json" in markers
+
+    def test_python_with_root_cdk_is_service(self):
+        """Python repos with root cdk.json must not be excluded as libraries."""
+        markers = _detect_service_markers("svc", ("pyproject.toml", "cdk.json"))
+        assert "cdk.json" in markers
+
+    def test_nested_cdk_excluded_for_org_repo(self):
+        """Org repos are excluded even with nested CDK."""
+        assert (
+            _detect_service_markers(
+                "my-org", ("pyproject.toml",), nested_cdk_paths=("cdk/cdk.json",)
+            )
+            == ()
+        )
+
+    def test_nested_cdk_excluded_for_workspace(self):
+        """Workspace repos are excluded even with nested CDK."""
+        assert (
+            _detect_service_markers("svc", ("workspace.yaml",), nested_cdk_paths=("cdk/cdk.json",))
+            == ()
+        )
+
+
+class TestDetectTagsNestedCdk:
+    def test_nested_cdk_adds_cdk_tag(self):
+        """Nested CDK paths should produce a 'cdk' tag."""
+        _, tags = _detect_tags("Python", ("pyproject.toml",), nested_cdk_paths=("cdk/cdk.json",))
+        assert "cdk" in tags
+
+    def test_no_duplicate_cdk_tag_when_root_and_nested(self):
+        """Root + nested CDK should produce exactly one 'cdk' tag."""
+        _, tags = _detect_tags(
+            "TypeScript",
+            ("cdk.json", "package.json"),
+            nested_cdk_paths=("infrastructure/cdk.json",),
+        )
+        assert tags.count("cdk") == 1
+
 
 class TestToIsoUtc:
     def test_none_passthrough(self):

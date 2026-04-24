@@ -75,7 +75,9 @@ _LANG_MAP: dict[str, str] = {
 
 
 def _detect_tags(
-    primary_language: str | None, root_entries: tuple[str, ...]
+    primary_language: str | None,
+    root_entries: tuple[str, ...],
+    nested_cdk_paths: tuple[str, ...] = (),
 ) -> tuple[bool, tuple[str, ...]]:
     """Derive workspace-flag and framework/IaC tags from tree entry names."""
     tags: list[str] = []
@@ -86,7 +88,7 @@ def _detect_tags(
     names = set(root_entries)
     is_workspace = "workspace.yaml" in names
 
-    if "cdk.json" in names:
+    if "cdk.json" in names or nested_cdk_paths:
         tags.append("cdk")
     if "template.yaml" in names or "samconfig.toml" in names:
         tags.append("sam")
@@ -132,7 +134,11 @@ def _is_org_repo(name: str) -> bool:
     return name.endswith("-org")
 
 
-def _detect_service_markers(name: str, root_entries: tuple[str, ...]) -> tuple[str, ...]:
+def _detect_service_markers(
+    name: str,
+    root_entries: tuple[str, ...],
+    nested_cdk_paths: tuple[str, ...] = (),
+) -> tuple[str, ...]:
     """Return the subset of service-marker files indicating a deployable service.
 
     Returns an empty tuple for repos that look like *something other than* a
@@ -144,16 +150,25 @@ def _detect_service_markers(name: str, root_entries: tuple[str, ...]) -> tuple[s
     - **Python packages** (``pyproject.toml`` without ``package.json``):
       libraries published to PyPI that frequently ship a SAM template purely
       for ephemeral test environments or CI infrastructure, not production
-      deploys.
+      deploys. Exception: CDK presence (root or nested) always indicates a
+      deployable service.
     """
     if _is_org_repo(name):
         return ()
     names = set(root_entries)
     if "workspace.yaml" in names:
         return ()
-    if "pyproject.toml" in names and "package.json" not in names:
+
+    has_cdk = "cdk.json" in names or bool(nested_cdk_paths)
+
+    # Python packages without a package.json are treated as libraries UNLESS
+    # CDK infrastructure is detected (root or nested).
+    if not has_cdk and "pyproject.toml" in names and "package.json" not in names:
         return ()
-    return tuple(marker for marker in _SERVICE_MARKERS if marker in names)
+
+    markers = [marker for marker in _SERVICE_MARKERS if marker in names]
+    markers.extend(nested_cdk_paths)
+    return tuple(markers)
 
 
 # ---------------------------------------------------------------------------
@@ -265,8 +280,12 @@ def build_status_from_snapshot(
     dashboard_count = sum(1 for i in snapshot.issues if _is_renovate_dashboard(i))
     open_issues = max(0, snapshot.issue_total_count - dashboard_count)
 
-    is_workspace, tags = _detect_tags(snapshot.primary_language, snapshot.root_entries)
-    service_markers = _detect_service_markers(snapshot.name, snapshot.root_entries)
+    is_workspace, tags = _detect_tags(
+        snapshot.primary_language, snapshot.root_entries, snapshot.nested_cdk_paths
+    )
+    service_markers = _detect_service_markers(
+        snapshot.name, snapshot.root_entries, snapshot.nested_cdk_paths
+    )
     is_org = _is_org_repo(snapshot.name)
 
     main_status = translate_rollup_state(snapshot.main_rollup_state)

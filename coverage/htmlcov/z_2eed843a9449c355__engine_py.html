@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_2eed843a9449c355__handlers_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-23 22:40 +0000
+            created at 2026-04-24 05:30 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -750,7 +750,7 @@
     <p class="run run2"><span class="n"><a id="t668" href="#t668">668</a></span><span class="t">    <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t669" href="#t669">669</a></span><span class="t">    <span class="nam">disabled</span><span class="op">,</span> <span class="nam">overrides</span> <span class="op">=</span> <span class="nam">_parse_compliance_overrides</span><span class="op">(</span><span class="nam">context</span><span class="op">.</span><span class="nam">compliance_overrides_text</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t670" href="#t670">670</a></span><span class="t">    <span class="nam">known_ids</span> <span class="op">=</span> <span class="op">{</span><span class="nam">str</span><span class="op">(</span><span class="nam">e</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"id"</span><span class="op">)</span><span class="op">)</span> <span class="key">for</span> <span class="nam">e</span> <span class="key">in</span> <span class="nam">checks</span> <span class="key">if</span> <span class="nam">isinstance</span><span class="op">(</span><span class="nam">e</span><span class="op">,</span> <span class="nam">dict</span><span class="op">)</span><span class="op">}</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t671" href="#t671">671</a></span><span class="t">    <span class="nam">stale_opt_outs</span> <span class="op">=</span> <span class="nam">set</span><span class="op">(</span><span class="nam">disabled</span><span class="op">)</span> <span class="op">-</span> <span class="nam">known_ids</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t671" href="#t671">671</a></span><span class="t">    <span class="nam">stale_opt_outs</span> <span class="op">=</span> <span class="op">(</span><span class="nam">set</span><span class="op">(</span><span class="nam">disabled</span><span class="op">)</span> <span class="op">|</span> <span class="nam">set</span><span class="op">(</span><span class="nam">overrides</span><span class="op">)</span><span class="op">)</span> <span class="op">-</span> <span class="nam">known_ids</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t672" href="#t672">672</a></span><span class="t">    <span class="nam">results</span><span class="op">:</span> <span class="nam">list</span><span class="op">[</span><span class="nam">HealthCheckResult</span><span class="op">]</span> <span class="op">=</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t673" href="#t673">673</a></span><span class="t">    <span class="key">for</span> <span class="nam">entry</span> <span class="key">in</span> <span class="nam">checks</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t674" href="#t674">674</a></span><span class="t">        <span class="key">if</span> <span class="key">not</span> <span class="nam">isinstance</span><span class="op">(</span><span class="nam">entry</span><span class="op">,</span> <span class="nam">dict</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -812,7 +812,7 @@
             <a class="nav" href="z_2eed843a9449c355__handlers_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-23 22:40 +0000
+            created at 2026-04-24 05:30 +0000
         </p>
     </div>
 </footer>

@@ -529,6 +529,33 @@ def test_stale_override_id_surfaces_finding():
     assert "retired.check.id" in stale.summary
 
 
+def test_stale_override_key_surfaces_finding():
+    """Override keys referencing retired check IDs should surface as stale."""
+    ctx = _ctx(
+        compliance_overrides_text=(
+            "overrides:\n"
+            "  retired.override.id:\n"
+            "    url: https://example.com/health\n"
+            '    reason: "Custom endpoint"\n'
+            "    created_at: 2026-04-23\n"
+            '    approved_by: "dev@example.com"\n'
+        ),
+    )
+    doc = {
+        "checks": [
+            {
+                "id": "active.check",
+                "severity": "HIGH",
+                "check": {"type": "handler", "name": "_test_always_pass"},
+            }
+        ]
+    }
+    results = _run_with_doc(doc, ctx)
+    stale = next(r for r in results if r.check_name == "standards_engine.stale_overrides")
+    assert stale.severity == Severity.LOW
+    assert "retired.override.id" in stale.summary
+
+
 def test_malformed_compliance_yaml_does_not_break_engine():
     ctx = _ctx(compliance_overrides_text="not: [valid: yaml::")
     doc = {

@@ -30,6 +30,17 @@ class BrokenCICheck:
 
         if status.main_status == "failure":
             detail = f": {status.main_error}" if status.main_error else ""
+            # When dev is the default branch, a failing main is a promotion
+            # target that hasn't received the latest pipeline yet -- not an
+            # active development failure. Downgrade to LOW so it surfaces for
+            # awareness without painting the card red.
+            if status.default_branch == "dev" and status.dev_status not in ("failure", None):
+                return HealthCheckResult(
+                    check_name=self.name,
+                    severity=Severity.LOW,
+                    summary=f"main pipeline stale (dev is default and passing){detail}",
+                    link=actions_url,
+                )
             return HealthCheckResult(
                 check_name=self.name,
                 severity=Severity.CRITICAL,

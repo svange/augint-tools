@@ -234,11 +234,12 @@ class RepoCard(Widget):
         if health is None:
             return False
         status = health.status
-        # Critical: flash while any failing branch is within the window.
-        if status.main_status == "failure" or status.dev_status == "failure":
-            return _within_window(status.main_failing_since, window_seconds) or _within_window(
-                status.dev_failing_since, window_seconds
-            )
+        # Critical: flash while the actively-failing branch is within the window.
+        # A stale main failure on a dev-default repo is not an active degradation.
+        if status.dev_status == "failure":
+            return _within_window(status.dev_failing_since, window_seconds)
+        if status.main_status == "failure" and status.default_branch != "dev":
+            return _within_window(status.main_failing_since, window_seconds)
         # Warning: flash while the repo has only recently crossed into yellow.
         if "card--warning" in self.classes:
             return _within_window(health.warning_since, window_seconds)
@@ -252,7 +253,13 @@ class RepoCard(Widget):
         if health is None:
             return
         status = health.status
-        if status.main_status == "failure" or status.dev_status == "failure":
+        # Only force critical for an actively-failing default branch. A stale
+        # main failure on a dev-default repo is handled by broken_ci (which
+        # returns LOW), so let worst_severity drive the card color instead.
+        if status.dev_status == "failure":
+            self.add_class("card--critical")
+            return
+        if status.main_status == "failure" and status.default_branch != "dev":
             self.add_class("card--critical")
             return
         worst = health.worst_severity

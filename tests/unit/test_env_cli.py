@@ -123,7 +123,15 @@ class TestOutputQuieting:
     """Default mode emits clean lines; --verbose preserves loguru detail; --json stays parseable."""
 
     def _make_perform_sync_stub(self):
-        async def _stub(filename, dry_run, *, force_var=None, force_secret=None, quiet_writer=None):
+        async def _stub(
+            filename,
+            dry_run,
+            *,
+            env_file=None,
+            force_var=None,
+            force_secret=None,
+            quiet_writer=None,
+        ):
             if quiet_writer is not None:
                 quiet_writer("set FOO_KEY (secret)")
                 quiet_writer("set BAR_NAME (var)")
@@ -172,7 +180,15 @@ class TestOutputQuieting:
 
         from loguru import logger
 
-        async def _stub(filename, dry_run, *, force_var=None, force_secret=None, quiet_writer=None):
+        async def _stub(
+            filename,
+            dry_run,
+            *,
+            env_file=None,
+            force_var=None,
+            force_secret=None,
+            quiet_writer=None,
+        ):
             logger.info("Creating secret VERBOSE_KEY...")
             return {"secrets": ["VERBOSE_KEY"], "variables": []}
 

@@ -11,14 +11,15 @@ import click
 import yaml
 from loguru import logger
 
+from augint_tools.config import get_augint_home
 from augint_tools.team_secrets.age import decrypt_file_with_password
 from augint_tools.team_secrets.checkout import DEFAULT_ORG
 from augint_tools.team_secrets.models import TeamConfig
 
 
 def get_config_dir() -> Path:
-    """Return the augint-tools config directory (~/.augint-tools/)."""
-    return Path.home() / ".augint-tools"
+    """Return the augint config directory (~/.augint/)."""
+    return get_augint_home()
 
 
 def get_teams_config_path() -> Path:
@@ -32,7 +33,7 @@ def get_key_cache_path(team: str) -> Path:
 
 
 def load_teams_config() -> dict[str, TeamConfig]:
-    """Load all team configurations from ~/.augint-tools/teams.yaml."""
+    """Load all team configurations from ~/.augint/teams.yaml."""
     config_path = get_teams_config_path()
     if not config_path.exists():
         return {}
@@ -57,7 +58,7 @@ def load_team_config(team: str) -> TeamConfig | None:
 
 
 def save_team_config(config: TeamConfig) -> None:
-    """Save or update a team's configuration in ~/.augint-tools/teams.yaml."""
+    """Save or update a team's configuration in ~/.augint/teams.yaml."""
     config_path = get_teams_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
 

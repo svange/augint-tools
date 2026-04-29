@@ -106,6 +106,7 @@ async def _run_github_sync(
     sync_github: bool,
     dry_run: bool,
     *,
+    env_file: str | None = None,
     quiet_writer: QuietWriter | None = None,
 ) -> dict[str, list[str]] | None:
     """Run the GitHub secrets sync if enabled."""
@@ -114,7 +115,7 @@ async def _run_github_sync(
     if quiet_writer is not None:
         quiet_writer("github: sync")
     logger.info("Syncing secrets to GitHub...")
-    return await perform_sync(filename, dry_run, quiet_writer=quiet_writer)
+    return await perform_sync(filename, dry_run, env_file=env_file, quiet_writer=quiet_writer)
 
 
 async def _run_pipelines_concurrently(
@@ -125,6 +126,7 @@ async def _run_pipelines_concurrently(
     sync_github: bool,
     verbose: bool,
     dry_run: bool,
+    env_file: str | None = None,
     quiet_writer: QuietWriter | None = None,
 ) -> tuple[bool, dict[str, list[str]] | None]:
     """Run chezmoi and GitHub sync pipelines concurrently.
@@ -145,7 +147,9 @@ async def _run_pipelines_concurrently(
         )
     )
     github_task = asyncio.create_task(
-        _run_github_sync(filename, sync_github, dry_run, quiet_writer=quiet_writer)
+        _run_github_sync(
+            filename, sync_github, dry_run, env_file=env_file, quiet_writer=quiet_writer
+        )
     )
 
     results = await asyncio.gather(chezmoi_task, github_task, return_exceptions=True)
@@ -172,6 +176,7 @@ def chezmoi_backup(
     sync_github: bool = True,
     verbose: bool = False,
     dry_run: bool = False,
+    env_file: str | None = None,
     quiet_writer: QuietWriter | None = None,
 ) -> dict[str, object]:
     """Back up an env file to chezmoi and optionally sync secrets to GitHub.
@@ -197,6 +202,7 @@ def chezmoi_backup(
             sync_github=sync_github,
             verbose=verbose,
             dry_run=dry_run,
+            env_file=env_file,
             quiet_writer=quiet_writer,
         )
     )

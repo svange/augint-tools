@@ -84,7 +84,7 @@ class _TeamSecretsGroup(click.Group):
 def team_secrets_group(ctx, org):
     """Team shared secrets management (SOPS + age).
 
-    TEAM is optional if exactly one team is configured in ~/.augint-tools/teams.yaml.
+    TEAM is optional if exactly one team is configured in ~/.augint/teams.yaml.
     """
     ctx.ensure_object(dict)
     explicit_team = ctx.obj.get("_explicit_team")

@@ -1009,9 +1009,9 @@ class TestIdeCli:
         assert data["command"] == "ide reset"
         assert data["result"]["deleted"] is False
 
-    def test_init_command_exists(self) -> None:
+    def test_new_command_exists(self) -> None:
         runner = CliRunner()
-        result = runner.invoke(cli, ["init", "--help"])
+        result = runner.invoke(cli, ["new", "--help"])
         assert result.exit_code == 0
         assert "wizard" in result.output.lower()
 

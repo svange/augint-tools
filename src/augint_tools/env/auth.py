@@ -1,14 +1,11 @@
 """GitHub authentication and env config loading.
 
-Token resolution priority (auth_source="auto"):
-1. gh auth token (GitHub CLI keyring / SSO)
-2. GH_TOKEN environment variable
-3. GH_TOKEN from .env file
+Default token resolution (no ``--env``):
+1. ``gh auth token`` (GitHub CLI keyring / SSO)
+2. ``GH_TOKEN`` environment variable
 
-Keyring wins by design: users keep GH_TOKEN in .env so it syncs to GitHub
-Actions secrets, but those tokens are often narrower-scope than their SSO
-credentials. Preferring the keyring avoids silently downgrading auth when
-shells (direnv/autoenv) auto-export .env into the process environment.
+With ``--env [file]``:
+  Reads ``GH_TOKEN`` from the layered .env (``~/.augint/.env`` + ``[file]``).
 """
 
 from __future__ import annotations
@@ -16,25 +13,39 @@ from __future__ import annotations
 import os
 import subprocess
 
-from dotenv import dotenv_values
 from github import Auth, Github
 from github.GithubException import UnknownObjectException
 from github.Repository import Repository
 from loguru import logger
 
-
-def _load_dotenv_values(filename: str = ".env") -> dict[str, str]:
-    """Read key/value pairs from *filename* without mutating the process environment."""
-    values = dotenv_values(filename)
-    return {key: value for key, value in values.items() if value is not None}
+from augint_tools.config import augint_env_values, detect_github_remote
 
 
-def load_env_config(filename: str = ".env") -> tuple[str, str, str]:
-    """Return (GH_REPO, GH_ACCOUNT, GH_TOKEN) with env vars taking precedence over .env."""
-    env_values = _load_dotenv_values(filename)
-    gh_repo = os.environ.get("GH_REPO", env_values.get("GH_REPO", ""))
-    gh_account = os.environ.get("GH_ACCOUNT", env_values.get("GH_ACCOUNT", ""))
-    gh_token = os.environ.get("GH_TOKEN", env_values.get("GH_TOKEN", ""))
+def load_env_config(env_file: str | None = None) -> tuple[str, str, str]:
+    """Return (GH_REPO, GH_ACCOUNT, GH_TOKEN).
+
+    Resolution order for GH_REPO / GH_ACCOUNT:
+    1. ``--env`` file values (if *env_file* provided)
+    2. ``GH_REPO`` / ``GH_ACCOUNT`` environment variables
+    3. Inferred from ``git remote origin``
+    """
+    if env_file:
+        values = augint_env_values(env_file)
+    else:
+        values = {}
+
+    gh_repo = values.get("GH_REPO", "") or os.environ.get("GH_REPO", "")
+    gh_account = values.get("GH_ACCOUNT", "") or os.environ.get("GH_ACCOUNT", "")
+    gh_token = values.get("GH_TOKEN", "") or os.environ.get("GH_TOKEN", "")
+
+    if not gh_repo or not gh_account:
+        remote = detect_github_remote()
+        if remote:
+            if not gh_account:
+                gh_account = remote[0]
+            if not gh_repo:
+                gh_repo = remote[1]
+
     return gh_repo, gh_account, gh_token
 
 
@@ -59,23 +70,18 @@ def _get_gh_cli_token() -> str:
     return result.stdout.strip()
 
 
-def resolve_token(filename: str = ".env", auth_source: str = "auto") -> str:
-    """Return a GitHub token from the configured auth source.
+def resolve_token(env_file: str | None = None) -> str:
+    """Return a GitHub token.
 
-    Raises RuntimeError if no token can be found.
+    With *env_file*: reads GH_TOKEN from the layered .env.
+    Without: ``gh auth token`` -> ``GH_TOKEN`` env var -> error.
     """
-    dotenv_token = _load_dotenv_values(filename).get("GH_TOKEN", "").strip()
-
-    if auth_source == "dotenv":
-        if dotenv_token:
-            logger.debug("Using GitHub token from GH_TOKEN in .env (--env-auth).")
-            return dotenv_token
-        raise RuntimeError(
-            "No GitHub token found in .env. Remove --env-auth or add GH_TOKEN to .env."
-        )
-
-    if auth_source != "auto":
-        raise ValueError(f"Unsupported auth_source '{auth_source}'.")
+    if env_file:
+        token = augint_env_values(env_file).get("GH_TOKEN", "").strip()
+        if token:
+            logger.debug("Using GitHub token from .env (--env).")
+            return token
+        raise RuntimeError("No GH_TOKEN found in .env. Remove --env or add GH_TOKEN to the file.")
 
     gh_token = _get_gh_cli_token()
     if gh_token:
@@ -84,28 +90,22 @@ def resolve_token(filename: str = ".env", auth_source: str = "auto") -> str:
 
     env_token = os.environ.get("GH_TOKEN", "").strip()
     if env_token:
-        logger.debug(
-            "Using GitHub token from GH_TOKEN environment variable (gh CLI keyring unavailable)."
-        )
+        logger.debug("Using GitHub token from GH_TOKEN environment variable.")
         return env_token
-
-    if dotenv_token:
-        logger.debug("Using GitHub token from GH_TOKEN in .env (keyring unavailable).")
-        return dotenv_token
 
     raise RuntimeError(
         "No GitHub token found. Authenticate with 'gh auth login', "
-        "or set GH_TOKEN in .env / environment."
+        "set GH_TOKEN in the environment, or pass --env <file>."
     )
 
 
 def get_github_repo(
     github_account: str,
     github_repo_name: str,
-    auth_source: str = "auto",
+    env_file: str | None = None,
 ) -> Repository:
     """Get the GitHub repository object (tries user, falls back to org)."""
-    token = resolve_token(auth_source=auth_source)
+    token = resolve_token(env_file=env_file)
     auth = Auth.Token(token)
     g = Github(auth=auth)
     try:
@@ -114,8 +114,8 @@ def get_github_repo(
         return g.get_organization(github_account).get_repo(github_repo_name)
 
 
-def get_github_client(auth_source: str = "auto") -> Github:
+def get_github_client(env_file: str | None = None) -> Github:
     """Create an authenticated Github client."""
-    token = resolve_token(auth_source=auth_source)
+    token = resolve_token(env_file=env_file)
     auth = Auth.Token(token)
     return Github(auth=auth)

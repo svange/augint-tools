@@ -7,14 +7,12 @@ Classification is handled by augint_tools.env.classify.
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import Callable
 from typing import Any
 
-from dotenv import load_dotenv
 from loguru import logger
 
-from augint_tools.env.auth import get_github_repo
+from augint_tools.env.auth import get_github_repo, load_env_config
 from augint_tools.env.classify import partition_env
 
 # Type alias for an optional quiet-mode writer. When provided, it is invoked
@@ -107,27 +105,33 @@ async def perform_sync(
     filename: str = ".env",
     dry_run: bool = False,
     *,
+    env_file: str | None = None,
     force_var: frozenset[str] | set[str] | None = None,
     force_secret: frozenset[str] | set[str] | None = None,
     quiet_writer: QuietWriter | None = None,
 ) -> dict[str, list[str]]:
     """Sync .env file to GitHub secrets and variables.
 
-    Returns dict with 'secrets' and 'variables' keys listing synced names.
+    *filename* is the data source (the .env whose contents are pushed).
+    *env_file* controls auth/config: when provided, GH_REPO, GH_ACCOUNT,
+    and GH_TOKEN are read from the layered .env; otherwise from the
+    process environment and ``gh auth token``.
     """
     if not filename:
         raise ValueError("No filename specified.")
 
-    load_dotenv(str(filename), override=True)
-    gh_repo = os.environ.get("GH_REPO", "")
-    gh_account = os.environ.get("GH_ACCOUNT", "")
+    gh_repo, gh_account, _ = load_env_config(env_file=env_file)
 
     if not gh_repo or not gh_account:
-        raise RuntimeError("GH_REPO and GH_ACCOUNT must be set in .env or environment.")
+        raise RuntimeError(
+            "Could not determine GitHub repo. "
+            "Run from a git repo with a GitHub remote, set GH_REPO/GH_ACCOUNT, "
+            "or use --env <file>."
+        )
 
     secrets, variables = partition_env(filename, force_var=force_var, force_secret=force_secret)
 
-    repo = get_github_repo(gh_account, gh_repo)
+    repo = get_github_repo(gh_account, gh_repo, env_file=env_file)
 
     synced_secrets = await _sync_secrets(repo, secrets, dry_run, quiet_writer=quiet_writer)
     synced_variables = await _sync_variables(repo, variables, dry_run, quiet_writer=quiet_writer)

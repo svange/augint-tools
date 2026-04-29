@@ -4,7 +4,7 @@ Layout modeled after AWS Security Groups: dedicated rows for production
 and staging, then an add-row for supplementals followed by a list of
 existing supplemental entries each with an inline Remove button.
 
-Every mutation writes ``~/.augint-tools/deployments.yaml`` immediately.
+Every mutation writes ``~/.augint/deployments.yaml`` immediately.
 """
 
 from __future__ import annotations

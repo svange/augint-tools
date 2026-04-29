@@ -1,4 +1,4 @@
-"""New project scaffolding wizard (ai-tools init).
+"""New project scaffolding wizard (ai-tools new).
 
 Guides the user through selecting a project type and setting up scaffolding
 using the appropriate tools (uv, npm, cdk, sam, npx).  After scaffolding,
@@ -290,7 +290,7 @@ def _find_type(type_id: str) -> ProjectType | None:
 
 def _print_header() -> None:
     click.echo("")
-    click.echo(click.style("ai-tools init", bold=True) + "  --  new project wizard")
+    click.echo(click.style("ai-tools new", bold=True) + "  --  new project wizard")
     click.echo(_DIVIDER)
     click.echo("")
 
@@ -378,7 +378,7 @@ def _print_next_steps(project_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@click.command("init")
+@click.command("new")
 @click.argument("path", default=None, required=False)
 @click.option(
     "--type",
@@ -407,7 +407,7 @@ def _print_next_steps(project_dir: Path) -> None:
     help="Skip git init (useful when called from /ai-new-project).",
 )
 @click.pass_context
-def init(
+def new(
     ctx: click.Context,
     path: str | None,
     type_id: str | None,

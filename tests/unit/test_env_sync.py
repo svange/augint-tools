@@ -62,13 +62,9 @@ class TestSyncVariables:
 class TestPerformSync:
     @patch("augint_tools.env.sync.get_github_repo")
     @patch("augint_tools.env.sync.partition_env")
-    @patch("augint_tools.env.sync.load_dotenv")
-    def test_perform_sync_calls_partition(
-        self, mock_dotenv, mock_partition, mock_repo, monkeypatch
-    ):
-        monkeypatch.setenv("GH_REPO", "test-repo")
-        monkeypatch.setenv("GH_ACCOUNT", "test-account")
-
+    @patch("augint_tools.env.sync.load_env_config")
+    def test_perform_sync_uses_env_vars(self, mock_config, mock_partition, mock_repo):
+        mock_config.return_value = ("test-repo", "test-account", "tok")
         mock_partition.return_value = ({"SECRET_KEY": "val"}, {"APP_NAME": "myapp"})
 
         repo = MagicMock()
@@ -83,13 +79,31 @@ class TestPerformSync:
         result = asyncio.run(perform_sync(".env", dry_run=False))
         assert "SECRET_KEY" in result["secrets"]
         assert "APP_NAME" in result["variables"]
+        mock_config.assert_called_once_with(env_file=None)
 
-    @patch("augint_tools.env.sync.load_dotenv")
-    def test_missing_gh_repo_raises(self, mock_dotenv, monkeypatch):
-        monkeypatch.delenv("GH_REPO", raising=False)
-        monkeypatch.delenv("GH_ACCOUNT", raising=False)
+    @patch("augint_tools.env.sync.get_github_repo")
+    @patch("augint_tools.env.sync.partition_env")
+    @patch("augint_tools.env.sync.load_env_config")
+    def test_perform_sync_passes_env_file(self, mock_config, mock_partition, mock_repo):
+        mock_config.return_value = ("test-repo", "test-account", "tok")
+        mock_partition.return_value = ({}, {})
+
+        repo = MagicMock()
+        repo.get_secrets.return_value = []
+        repo.get_variables.return_value = []
+        mock_repo.return_value = repo
 
         from augint_tools.env.sync import perform_sync
 
-        with pytest.raises(RuntimeError, match="GH_REPO and GH_ACCOUNT"):
+        asyncio.run(perform_sync(".env", dry_run=True, env_file="custom.env"))
+        mock_config.assert_called_once_with(env_file="custom.env")
+        mock_repo.assert_called_once_with("test-account", "test-repo", env_file="custom.env")
+
+    @patch("augint_tools.env.sync.load_env_config")
+    def test_missing_gh_repo_raises(self, mock_config):
+        mock_config.return_value = ("", "", "")
+
+        from augint_tools.env.sync import perform_sync
+
+        with pytest.raises(RuntimeError, match="Could not determine GitHub repo"):
             asyncio.run(perform_sync(".env"))

@@ -140,7 +140,7 @@ Each repo card can surface clickable shortcuts to its live deployment URLs (plus
 
 ### Yaml file
 
-Path: `~/.augint-tools/deployments.yaml` (resolves to `%USERPROFILE%\.augint-tools\deployments.yaml` on Windows).
+Path: `~/.augint/deployments.yaml` (resolves to `%USERPROFILE%\.augint\deployments.yaml` on Windows).
 
 Schema: a map of `owner/repo` slugs to a flat list of `{label, url}` entries.
 

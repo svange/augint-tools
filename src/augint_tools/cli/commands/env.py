@@ -118,6 +118,13 @@ def classify(ctx, force_var, force_secret, filename):
 )
 @click.option("--verbose", "-v", is_flag=True, help="Print detailed output.")
 @click.option(
+    "--env",
+    "env_file",
+    type=click.Path(),
+    default=None,
+    help="Read GH_TOKEN/GH_ACCOUNT/GH_REPO from this .env file (layered with ~/.augint/.env).",
+)
+@click.option(
     "--force-var",
     default="",
     help="Comma-separated key names to force-classify as variables.",
@@ -129,7 +136,7 @@ def classify(ctx, force_var, force_secret, filename):
 )
 @click.argument("filename", type=click.Path(exists=True), default=".env")
 @click.pass_context
-def push(ctx, dry_run, verbose, force_var, force_secret, filename):
+def push(ctx, dry_run, verbose, env_file, force_var, force_secret, filename):
     """Push .env secrets and variables to GitHub repository settings."""
     from augint_tools.env.sync import perform_sync
 
@@ -147,6 +154,7 @@ def push(ctx, dry_run, verbose, force_var, force_secret, filename):
             perform_sync(
                 filename,
                 dry_run,
+                env_file=env_file,
                 force_var=fv,
                 force_secret=fs,
                 quiet_writer=quiet_writer,
@@ -183,9 +191,16 @@ def push(ctx, dry_run, verbose, force_var, force_secret, filename):
 @click.option(
     "--dry-run", "-d", is_flag=True, help="Show what would be done without making changes."
 )
+@click.option(
+    "--env",
+    "env_file",
+    type=click.Path(),
+    default=None,
+    help="Read GH_TOKEN/GH_ACCOUNT/GH_REPO from this .env file (layered with ~/.augint/.env).",
+)
 @click.argument("filename", type=click.Path(), default=".env")
 @click.pass_context
-def sync(ctx, no_sync, verbose, dry_run, filename):
+def sync(ctx, no_sync, verbose, dry_run, env_file, filename):
     """Back up .env to chezmoi and sync secrets to GitHub."""
     from augint_tools.env.chezmoi import chezmoi_backup
 
@@ -199,6 +214,7 @@ def sync(ctx, no_sync, verbose, dry_run, filename):
             sync_github=not no_sync,
             verbose=verbose,
             dry_run=dry_run,
+            env_file=env_file,
             quiet_writer=quiet_writer,
         )
     except click.ClickException as e:

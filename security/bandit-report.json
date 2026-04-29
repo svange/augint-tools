@@ -1,17 +1,17 @@
 {
   "errors": [],
-  "generated_at": "2026-04-25T01:30:39Z",
+  "generated_at": "2026-04-29T01:10:53Z",
   "metrics": {
     "_totals": {
-      "CONFIDENCE.HIGH": 132,
+      "CONFIDENCE.HIGH": 135,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 11,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 143,
+      "SEVERITY.LOW": 146,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 17506,
+      "loc": 17600,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -141,7 +141,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 184,
+      "loc": 200,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -158,7 +158,7 @@
       "nosec": 0,
       "skipped_tests": 0
     },
-    "src/augint_tools/cli/commands/init.py": {
+    "src/augint_tools/cli/commands/new.py": {
       "CONFIDENCE.HIGH": 2,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
@@ -198,15 +198,15 @@
       "skipped_tests": 0
     },
     "src/augint_tools/config/__init__.py": {
-      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.HIGH": 3,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 0,
+      "SEVERITY.LOW": 3,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 2,
+      "loc": 67,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -323,7 +323,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 253,
+      "loc": 254,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -336,7 +336,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 216,
+      "loc": 217,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1090,7 +1090,7 @@
       "SEVERITY.LOW": 4,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 169,
+      "loc": 175,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1116,7 +1116,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 104,
+      "loc": 108,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1415,7 +1415,7 @@
       "SEVERITY.LOW": 3,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 139,
+      "loc": 140,
       "nosec": 0,
       "skipped_tests": 0
     },

@@ -1370,12 +1370,12 @@ class DashboardApp(App[None]):
         auto_discover: bool = False,
         saved_prefs: DashboardPrefs | None = None,
         warm_start: bool = False,
-        auth_source: str = "auto",
+        env_file: str | None = None,
     ) -> None:
         super().__init__()
         self._repos = list(repos or [])
         self._warm_start = warm_start
-        self._auth_source = auth_source
+        self._env_file = env_file
         self._refresh_seconds = refresh_seconds
         self._health_config = health_config or {}
         self._org_name = org_name
@@ -1666,7 +1666,7 @@ class DashboardApp(App[None]):
             from ._common import get_github_client
 
             try:
-                self._github_client = get_github_client(auth_source=self._auth_source)
+                self._github_client = get_github_client(env_file=self._env_file)
                 engine_cfg = self._health_config.setdefault("standards_engine", {})
                 engine_cfg["gh"] = self._github_client
             except Exception as exc:
@@ -2736,7 +2736,7 @@ def run_dashboard(
     auto_discover: bool = False,
     saved_prefs: DashboardPrefs | None = None,
     warm_start: bool = False,
-    auth_source: str = "auto",
+    env_file: str | None = None,
 ) -> None:
     """Launch the v2 interactive dashboard."""
     app_cls = DashboardApp
@@ -2759,7 +2759,7 @@ def run_dashboard(
             auto_discover=auto_discover,
             saved_prefs=cur_prefs,
             warm_start=cur_warm_start,
-            auth_source=auth_source,
+            env_file=env_file,
         )
         app.run()
 

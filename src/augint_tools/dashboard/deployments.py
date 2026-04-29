@@ -1,6 +1,6 @@
 """Deployment-link store for the dashboard.
 
-Manages ``~/.augint-tools/deployments.yaml`` -- a per-user file that maps
+Manages ``~/.augint/deployments.yaml`` -- a per-user file that maps
 ``owner/repo`` slugs to a flat list of ``{label, url}`` entries. The dashboard
 reads this file to surface deployment URLs on each repo card and in the
 detail drawer.
@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING, Literal
 import yaml
 from loguru import logger
 
+from augint_tools.config import get_augint_home
+
 if TYPE_CHECKING:
     from ._data import RepoStatus
 
@@ -43,8 +45,8 @@ class DeploymentLink:
 
 
 def get_deployments_path() -> Path:
-    """Path to ``~/.augint-tools/deployments.yaml`` (resolves to %USERPROFILE% on Windows)."""
-    return Path.home() / ".augint-tools" / "deployments.yaml"
+    """Path to ``~/.augint/deployments.yaml`` (resolves to %USERPROFILE% on Windows)."""
+    return get_augint_home() / "deployments.yaml"
 
 
 def _load_raw(path: Path | None = None) -> dict[str, list[dict]]:

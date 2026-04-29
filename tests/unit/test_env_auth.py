@@ -8,18 +8,22 @@ import pytest
 from augint_tools.env.auth import load_env_config, resolve_token
 
 
-class TestLoadEnvConfig:
-    def test_prefers_process_env_over_dotenv(self, tmp_path, monkeypatch):
-        env_path = tmp_path / ".env"
-        env_path.write_text("GH_REPO=file-repo\nGH_ACCOUNT=file-account\nGH_TOKEN=file-token\n")
+@pytest.fixture(autouse=True)
+def _isolate_augint_home(tmp_path, monkeypatch):
+    """Prevent tests from reading a real ~/.augint/.env."""
+    monkeypatch.setenv("AUGINT_HOME", str(tmp_path / "no-augint-home"))
 
+
+class TestLoadEnvConfig:
+    def test_reads_env_vars_by_default(self, monkeypatch):
         monkeypatch.setenv("GH_REPO", "env-repo")
         monkeypatch.setenv("GH_ACCOUNT", "env-account")
         monkeypatch.setenv("GH_TOKEN", "env-token")
 
-        assert load_env_config(str(env_path)) == ("env-repo", "env-account", "env-token")
+        assert load_env_config() == ("env-repo", "env-account", "env-token")
 
-    def test_reads_dotenv_when_process_env_missing(self, tmp_path, monkeypatch):
+    @patch("augint_tools.env.auth.detect_github_remote", return_value=None)
+    def test_no_env_file_ignores_dotenv(self, _mock_remote, tmp_path, monkeypatch):
         env_path = tmp_path / ".env"
         env_path.write_text("GH_REPO=file-repo\nGH_ACCOUNT=file-account\nGH_TOKEN=file-token\n")
 
@@ -27,13 +31,64 @@ class TestLoadEnvConfig:
         monkeypatch.delenv("GH_ACCOUNT", raising=False)
         monkeypatch.delenv("GH_TOKEN", raising=False)
 
-        assert load_env_config(str(env_path)) == ("file-repo", "file-account", "file-token")
+        assert load_env_config() == ("", "", "")
+
+    def test_env_file_reads_dotenv(self, tmp_path, monkeypatch):
+        env_path = tmp_path / ".env"
+        env_path.write_text("GH_REPO=file-repo\nGH_ACCOUNT=file-account\nGH_TOKEN=file-token\n")
+
+        monkeypatch.delenv("GH_REPO", raising=False)
+        monkeypatch.delenv("GH_ACCOUNT", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+
+        assert load_env_config(env_file=str(env_path)) == (
+            "file-repo",
+            "file-account",
+            "file-token",
+        )
+
+    def test_env_file_overrides_process_env(self, tmp_path, monkeypatch):
+        env_path = tmp_path / ".env"
+        env_path.write_text("GH_REPO=file-repo\nGH_ACCOUNT=file-account\n")
+
+        monkeypatch.setenv("GH_REPO", "env-repo")
+        monkeypatch.setenv("GH_ACCOUNT", "env-account")
+
+        repo, account, _ = load_env_config(env_file=str(env_path))
+        assert repo == "file-repo"
+        assert account == "file-account"
+
+    @patch("augint_tools.env.auth.detect_github_remote", return_value=("remote-org", "remote-repo"))
+    def test_git_remote_fallback(self, _mock_remote, monkeypatch):
+        monkeypatch.delenv("GH_REPO", raising=False)
+        monkeypatch.delenv("GH_ACCOUNT", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+
+        repo, account, _ = load_env_config()
+        assert repo == "remote-repo"
+        assert account == "remote-org"
+
+    @patch("augint_tools.env.auth.detect_github_remote", return_value=("remote-org", "remote-repo"))
+    def test_env_vars_override_git_remote(self, _mock_remote, monkeypatch):
+        monkeypatch.setenv("GH_REPO", "env-repo")
+        monkeypatch.setenv("GH_ACCOUNT", "env-account")
+
+        repo, account, _ = load_env_config()
+        assert repo == "env-repo"
+        assert account == "env-account"
+
+    @patch("augint_tools.env.auth.detect_github_remote", return_value=("remote-org", "remote-repo"))
+    def test_partial_env_var_uses_remote_for_missing(self, _mock_remote, monkeypatch):
+        monkeypatch.setenv("GH_ACCOUNT", "env-account")
+        monkeypatch.delenv("GH_REPO", raising=False)
+
+        repo, account, _ = load_env_config()
+        assert repo == "remote-repo"
+        assert account == "env-account"
 
 
 class TestResolveToken:
-    def test_prefers_gh_cli_over_env_var(self, tmp_path, monkeypatch):
-        env_path = tmp_path / ".env"
-        env_path.write_text("GH_TOKEN=file-token\n")
+    def test_prefers_gh_cli(self, monkeypatch):
         monkeypatch.setenv("GH_TOKEN", "env-token")
 
         with patch("augint_tools.env.auth.subprocess.run") as mock_run:
@@ -42,12 +97,10 @@ class TestResolveToken:
                 returncode=0,
                 stdout="gh-token\n",
             )
-            assert resolve_token(str(env_path)) == "gh-token"
+            assert resolve_token() == "gh-token"
 
-    def test_gh_cli_probe_strips_env_token(self, tmp_path, monkeypatch):
+    def test_gh_cli_probe_strips_env_token(self, monkeypatch):
         """gh auth token must run with GH_TOKEN stripped so it returns the keyring value."""
-        env_path = tmp_path / ".env"
-        env_path.write_text("")
         monkeypatch.setenv("GH_TOKEN", "env-token")
         monkeypatch.setenv("GITHUB_TOKEN", "env-gh-token")
 
@@ -57,53 +110,21 @@ class TestResolveToken:
                 returncode=0,
                 stdout="keyring-token\n",
             )
-            resolve_token(str(env_path))
+            resolve_token()
             passed_env = mock_run.call_args.kwargs["env"]
             assert "GH_TOKEN" not in passed_env
             assert "GITHUB_TOKEN" not in passed_env
 
-    def test_falls_back_to_env_var_when_gh_cli_unavailable(self, tmp_path, monkeypatch):
-        env_path = tmp_path / ".env"
-        env_path.write_text("GH_TOKEN=file-token\n")
+    def test_falls_back_to_env_var(self, monkeypatch):
         monkeypatch.setenv("GH_TOKEN", "env-token")
 
         with patch(
             "augint_tools.env.auth.subprocess.run",
             side_effect=FileNotFoundError,
         ):
-            assert resolve_token(str(env_path)) == "env-token"
+            assert resolve_token() == "env-token"
 
-    def test_falls_back_to_dotenv_when_no_keyring_and_no_env_var(self, tmp_path, monkeypatch):
-        env_path = tmp_path / ".env"
-        env_path.write_text("GH_TOKEN=file-token\n")
-        monkeypatch.delenv("GH_TOKEN", raising=False)
-
-        with patch(
-            "augint_tools.env.auth.subprocess.run",
-            side_effect=FileNotFoundError,
-        ):
-            assert resolve_token(str(env_path)) == "file-token"
-
-    def test_dotenv_mode_uses_dotenv_file(self, tmp_path, monkeypatch):
-        env_path = tmp_path / ".env"
-        env_path.write_text("GH_TOKEN=file-token\n")
-        monkeypatch.setenv("GH_TOKEN", "env-token")
-
-        with patch("augint_tools.env.auth.subprocess.run") as mock_run:
-            assert resolve_token(str(env_path), auth_source="dotenv") == "file-token"
-            mock_run.assert_not_called()
-
-    def test_dotenv_mode_requires_dotenv_token(self, tmp_path, monkeypatch):
-        env_path = tmp_path / ".env"
-        env_path.write_text("GH_ACCOUNT=myorg\n")
-        monkeypatch.delenv("GH_TOKEN", raising=False)
-
-        with pytest.raises(RuntimeError, match="No GitHub token found in \\.env"):
-            resolve_token(str(env_path), auth_source="dotenv")
-
-    def test_raises_when_no_token_found(self, tmp_path, monkeypatch):
-        env_path = tmp_path / ".env"
-        env_path.write_text("APP_NAME=test\n")
+    def test_raises_when_no_token_found(self, monkeypatch):
         monkeypatch.delenv("GH_TOKEN", raising=False)
 
         with patch(
@@ -111,12 +132,25 @@ class TestResolveToken:
             side_effect=FileNotFoundError,
         ):
             with pytest.raises(RuntimeError, match="No GitHub token found"):
-                resolve_token(str(env_path))
+                resolve_token()
 
-    def test_gh_cli_empty_output_falls_back(self, tmp_path, monkeypatch):
-        """gh auth token exiting 0 with empty stdout (no keyring) should fall back."""
+    def test_env_file_reads_from_dotenv(self, tmp_path, monkeypatch):
         env_path = tmp_path / ".env"
         env_path.write_text("GH_TOKEN=file-token\n")
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+
+        assert resolve_token(env_file=str(env_path)) == "file-token"
+
+    def test_env_file_raises_when_missing_token(self, tmp_path, monkeypatch):
+        env_path = tmp_path / ".env"
+        env_path.write_text("GH_ACCOUNT=myorg\n")
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+
+        with pytest.raises(RuntimeError, match="No GH_TOKEN found in .env"):
+            resolve_token(env_file=str(env_path))
+
+    def test_gh_cli_empty_output_falls_back_to_env(self, monkeypatch):
+        """gh auth token exiting 0 with empty stdout should fall back to env var."""
         monkeypatch.setenv("GH_TOKEN", "env-token")
 
         with patch("augint_tools.env.auth.subprocess.run") as mock_run:
@@ -125,4 +159,17 @@ class TestResolveToken:
                 returncode=0,
                 stdout="\n",
             )
-            assert resolve_token(str(env_path)) == "env-token"
+            assert resolve_token() == "env-token"
+
+    def test_default_does_not_read_dotenv(self, tmp_path, monkeypatch):
+        """Without --env, a .env file with GH_TOKEN should be ignored."""
+        env_path = tmp_path / ".env"
+        env_path.write_text("GH_TOKEN=file-token\n")
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+
+        with patch(
+            "augint_tools.env.auth.subprocess.run",
+            side_effect=FileNotFoundError,
+        ):
+            with pytest.raises(RuntimeError, match="No GitHub token found"):
+                resolve_token()

@@ -74,10 +74,11 @@ def _apply_debug_cache_dir() -> None:
     help="Days before a PR is considered stale.",
 )
 @click.option(
-    "--env-auth",
-    "--dotenv-auth",
-    is_flag=True,
-    help="Use GH_TOKEN from .env instead of gh auth token/keyring.",
+    "--env",
+    "env_file",
+    type=click.Path(),
+    default=None,
+    help="Read GH_TOKEN/GH_ACCOUNT from this .env file (layered with ~/.augint/.env).",
 )
 @click.option(
     "--no-refresh",
@@ -117,7 +118,7 @@ def dashboard_command(
     theme: str | None,
     layout: str | None,
     stale_days: int,
-    env_auth: bool,
+    env_file: str | None,
     no_refresh: bool,
     standards_yaml_url: str | None,
     verbose: bool,
@@ -181,17 +182,16 @@ def dashboard_command(
                 auto_discover=show_all,
                 saved_prefs=prefs,
                 warm_start=True,
-                auth_source="dotenv" if env_auth else "auto",
+                env_file=env_file,
             )
         except KeyboardInterrupt:
             print("\n[dim]Dashboard stopped.[/dim]")
         return
 
-    _, gh_account, _ = load_env_config()
-    auth_source = "dotenv" if env_auth else "auto"
-    if env_auth:
-        logger.debug("Dashboard auth mode forced to .env (--env-auth).")
-    g = get_github_client(auth_source=auth_source)
+    _, gh_account, _ = load_env_config(env_file=env_file)
+    if env_file:
+        logger.debug("Dashboard auth mode forced to .env (--env %s).", env_file)
+    g = get_github_client(env_file=env_file)
 
     # ------------------------------------------------------------------
     # Multi-org mode (--all or --interactive without --org):
@@ -265,15 +265,16 @@ def dashboard_command(
             raise click.ClickException(f"No repositories found for {org}.")
         owners = [org]
     else:
-        gh_repo, gh_account_env, _ = load_env_config()
+        gh_repo, gh_account_env, _ = load_env_config(env_file=env_file)
         if not gh_repo or not gh_account_env:
             raise click.ClickException(
-                "GH_REPO and GH_ACCOUNT must be set in .env or environment. "
-                "Use --all or --interactive for multi-repo mode."
+                "Could not determine GitHub repo. "
+                "Run from a git repo with a GitHub remote, set GH_REPO/GH_ACCOUNT, "
+                "or use --all/--interactive for multi-repo mode."
             )
         from ._common import get_github_repo
 
-        repos = [get_github_repo(gh_account_env, gh_repo, auth_source=auth_source)]
+        repos = [get_github_repo(gh_account_env, gh_repo, env_file=env_file)]
         owners = [gh_account_env]
 
     warn_rate_limit(len(repos), refresh_seconds)

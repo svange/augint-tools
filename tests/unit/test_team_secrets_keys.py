@@ -25,12 +25,12 @@ from augint_tools.team_secrets.models import TeamConfig
 
 def test_get_config_dir():
     result = get_config_dir()
-    assert result == Path.home() / ".augint-tools"
+    assert result == Path.home() / ".augint"
 
 
 def test_get_key_cache_path():
     result = get_key_cache_path("woxom")
-    assert result == Path.home() / ".augint-tools" / "keys" / "woxom" / "age-key.txt"
+    assert result == Path.home() / ".augint" / "keys" / "woxom" / "age-key.txt"
 
 
 def test_load_teams_config_empty(tmp_path, monkeypatch):

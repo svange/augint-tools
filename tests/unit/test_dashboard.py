@@ -178,13 +178,13 @@ class TestDashboardCLI:
     @patch("augint_tools.dashboard.cmd.get_viewer_login", return_value="myaccount")
     @patch("augint_tools.dashboard.cmd.load_env_config")
     @patch("augint_tools.dashboard.cmd.get_github_client")
-    def test_dashboard_env_auth(self, mock_client, mock_env, mock_viewer, mock_list, mock_run):
+    def test_dashboard_env_flag(self, mock_client, mock_env, mock_viewer, mock_list, mock_run):
         mock_env.return_value = ("", "myaccount", "tok")
         mock_list.return_value = [_mock_repo()]
         runner = CliRunner()
-        result = runner.invoke(main, ["dashboard", "--all", "--env-auth"])
+        result = runner.invoke(main, ["dashboard", "--all", "--env", ".env"])
         assert result.exit_code == 0
-        mock_client.assert_called_once_with(auth_source="dotenv")
+        mock_client.assert_called_once_with(env_file=".env")
 
 
 # ---------------------------------------------------------------------------

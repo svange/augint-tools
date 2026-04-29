@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class TeamConfig:
-    """Persisted team configuration from ~/.augint-tools/teams.yaml."""
+    """Persisted team configuration from ~/.augint/teams.yaml."""
 
     name: str
     org: str  # GitHub org (default: augmenting-integrations)

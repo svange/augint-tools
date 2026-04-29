@@ -289,7 +289,7 @@ def _write_keys_dir(repo_path: Path) -> None:
             "ai-tools team-secrets <team> setup\n"
             "```\n"
             "\n"
-            "The decrypted key is cached at `~/.augint-tools/keys/<team>/age-key.txt`\n"
+            "The decrypted key is cached at `~/.augint/keys/<team>/age-key.txt`\n"
             "with 600 permissions and is never committed to any repository.\n"
         )
 

@@ -101,7 +101,7 @@ source = ["src"]
 omit = ["*/tests/*", "*/test_*.py", "*/cli/*"]
 
 [tool.coverage.report]
-fail_under = 50
+fail_under = 80
 
 [tool.semantic_release]
 assets = ["uv.lock"]

@@ -4,7 +4,10 @@
 [![PyPI](https://img.shields.io/pypi/v/augint-tools.svg)](https://pypi.org/project/augint-tools/)
 [![CI/CD Pipeline](https://github.com/svange/augint-tools/actions/workflows/publish.yaml/badge.svg)](https://github.com/svange/augint-tools/actions)
 
-CLI orchestration layer for AI-assisted repository workflows.
+`augint-tools` is a CLI orchestration layer for AI-assisted repository development
+workflows, written in **Python 3.12+** and managed with [uv](https://docs.astral.sh/uv/).
+It ships as a [PyPI library](https://pypi.org/project/augint-tools/) -- a command-line
+package you install and run locally -- **not a hosted service**.
 
 ---
 
@@ -32,6 +35,21 @@ CLI orchestration layer for AI-assisted repository workflows.
 - **GitHub integration**: Issue management, PR creation, CI status monitoring
 - **Health dashboard**: Real-time TUI showing CI, PRs, issues, and compliance across all your repos
 - **YAML compliance engine**: Declarative standards checking driven by a single `standards.yaml` -- rule ownership lives with the standards maintainer, not in this tool
+
+---
+
+## Documentation
+
+New here? Start with the document that matches what you need. Everything lives in-repo.
+
+| Role | Document | What's inside |
+|------|----------|---------------|
+| Architecture | [CLAUDE.md](CLAUDE.md#architecture) | CLI command surface, the shared detection engine, the check system, the dashboard TUI, and the YAML compliance engine |
+| Agent rules (Claude Code) | [CLAUDE.md](CLAUDE.md) | Critical rules, project conventions, and the develop -> submit -> monitor workflow |
+| Agent rules (any agent) | [AGENTS.md](AGENTS.md) | Branch/commit conventions, coding style, testing, and code-review priorities |
+| Agent rules (GitHub Copilot) | [.github/copilot-instructions.md](.github/copilot-instructions.md) | Copilot-specific branch, commit, and test conventions |
+| Runbook | [CLAUDE.md](CLAUDE.md#development-commands) | Setup, test, lint, type-check, and pre-commit commands |
+| Compliance config | [.github/.ai-compliance.yaml](.github/.ai-compliance.yaml) | Per-repo opt-outs and overrides for the org standards engine |
 
 ---
 
@@ -97,7 +115,22 @@ uv tool install augint-tools
 4. **Review the PR** when the agent is done. CI runs automatically.
 5. **Merge** once CI is green.
 
-If you need to work manually, see the full [contributor guide](CONTRIBUTING.md) (if available).
+If you need to work manually, see [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) for the
+full command set and project conventions.
+
+---
+
+## Branch & release model
+
+`augint-tools` runs a **single environment** -- there is no staging tier. `main` is the only
+long-lived branch, and a release publishes straight to PyPI. Releases are cut automatically by
+semantic-release from [conventional commits](https://www.conventionalcommits.org/); versions are
+never bumped by hand.
+
+| Branch | On push | Result |
+|--------|---------|--------|
+| `{type}/issue-N-...` (feature) | PR checks: code quality, security, compliance, unit tests, build validation | reviewed, then merged into `main` |
+| `main` | semantic-release evaluates conventional commits | version tag `augint-tools-v{x.y.z}`, publish to [PyPI](https://pypi.org/project/augint-tools/), docs to [GitHub Pages](https://svange.github.io/augint-tools/) |
 
 ---
 

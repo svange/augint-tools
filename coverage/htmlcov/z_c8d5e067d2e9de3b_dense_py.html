@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/augint_tools/dashboard/layouts/dense.py: 29%</title>
+    <title>Coverage for src/augint_tools/dashboard/layouts/dense.py: 100%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_9ff733b0.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>src&#8201;/&#8201;augint_tools&#8201;/&#8201;dashboard&#8201;/&#8201;layouts&#8201;/&#8201;dense.py</b>:
-            <span class="pc_cov">29%</span>
+            <span class="pc_cov">100%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">24 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">7<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">17<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">24<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">0<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_c8d5e067d2e9de3b_grouped_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-29 01:11 +0000
+            created at 2026-08-01 16:30 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -92,26 +92,26 @@
     <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t">    <span class="nam">priority</span> <span class="op">=</span> <span class="num">30</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t">    <span class="key">def</span> <span class="nam">apply</span><span class="op">(</span><span class="nam">self</span><span class="op">,</span> <span class="nam">container</span><span class="op">,</span> <span class="nam">cards</span><span class="op">,</span> <span class="nam">ctx</span><span class="op">:</span> <span class="nam">LayoutContext</span><span class="op">)</span> <span class="op">-></span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t">        <span class="nam">container</span><span class="op">.</span><span class="nam">remove_class</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t">            <span class="str">"layout--packed"</span><span class="op">,</span> <span class="str">"layout--grouped"</span><span class="op">,</span> <span class="str">"layout--list"</span><span class="op">,</span> <span class="str">"layout--severity"</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">        <span class="nam">container</span><span class="op">.</span><span class="nam">add_class</span><span class="op">(</span><span class="str">"layout--dense"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t">        <span class="nam">container</span><span class="op">.</span><span class="nam">clear_group_headers</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t">        <span class="nam">width</span> <span class="op">=</span> <span class="num">24</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t">        <span class="key">if</span> <span class="nam">ctx</span><span class="op">.</span><span class="nam">available_width</span> <span class="op">></span> <span class="num">0</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t">            <span class="nam">columns</span> <span class="op">=</span> <span class="nam">max</span><span class="op">(</span><span class="num">1</span><span class="op">,</span> <span class="nam">ctx</span><span class="op">.</span><span class="nam">available_width</span> <span class="op">//</span> <span class="nam">max</span><span class="op">(</span><span class="num">10</span><span class="op">,</span> <span class="nam">width</span> <span class="op">+</span> <span class="num">2</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t">        <span class="nam">container</span><span class="op">.</span><span class="nam">remove_class</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t">            <span class="str">"layout--packed"</span><span class="op">,</span> <span class="str">"layout--grouped"</span><span class="op">,</span> <span class="str">"layout--list"</span><span class="op">,</span> <span class="str">"layout--severity"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">        <span class="nam">container</span><span class="op">.</span><span class="nam">add_class</span><span class="op">(</span><span class="str">"layout--dense"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t">        <span class="nam">container</span><span class="op">.</span><span class="nam">clear_group_headers</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t">        <span class="nam">width</span> <span class="op">=</span> <span class="num">24</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t">        <span class="key">if</span> <span class="nam">ctx</span><span class="op">.</span><span class="nam">available_width</span> <span class="op">></span> <span class="num">0</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t">            <span class="nam">columns</span> <span class="op">=</span> <span class="nam">max</span><span class="op">(</span><span class="num">1</span><span class="op">,</span> <span class="nam">ctx</span><span class="op">.</span><span class="nam">available_width</span> <span class="op">//</span> <span class="nam">max</span><span class="op">(</span><span class="num">10</span><span class="op">,</span> <span class="nam">width</span> <span class="op">+</span> <span class="num">2</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t">        <span class="key">else</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t">            <span class="nam">columns</span> <span class="op">=</span> <span class="num">6</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t">            <span class="nam">container</span><span class="op">.</span><span class="nam">styles</span><span class="op">.</span><span class="nam">grid_size_columns</span> <span class="op">=</span> <span class="nam">columns</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t">        <span class="key">except</span> <span class="nam">Exception</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t">            <span class="key">pass</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t">        <span class="key">for</span> <span class="nam">card</span> <span class="key">in</span> <span class="nam">cards</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t28" href="#t28">28</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">styles</span><span class="op">.</span><span class="nam">width</span> <span class="op">=</span> <span class="nam">width</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t29" href="#t29">29</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">styles</span><span class="op">.</span><span class="nam">height</span> <span class="op">=</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t30" href="#t30">30</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">render_mode</span> <span class="op">=</span> <span class="str">"dense"</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t31" href="#t31">31</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">remove_class</span><span class="op">(</span><span class="str">"card--list"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t32" href="#t32">32</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">add_class</span><span class="op">(</span><span class="str">"card--dense"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t">            <span class="nam">columns</span> <span class="op">=</span> <span class="num">6</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t">            <span class="nam">container</span><span class="op">.</span><span class="nam">styles</span><span class="op">.</span><span class="nam">grid_size_columns</span> <span class="op">=</span> <span class="nam">columns</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t">        <span class="key">except</span> <span class="nam">Exception</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t">            <span class="key">pass</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t">        <span class="key">for</span> <span class="nam">card</span> <span class="key">in</span> <span class="nam">cards</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t28" href="#t28">28</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">styles</span><span class="op">.</span><span class="nam">width</span> <span class="op">=</span> <span class="nam">width</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t29" href="#t29">29</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">styles</span><span class="op">.</span><span class="nam">height</span> <span class="op">=</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t30" href="#t30">30</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">render_mode</span> <span class="op">=</span> <span class="str">"dense"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t31" href="#t31">31</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">remove_class</span><span class="op">(</span><span class="str">"card--list"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t32" href="#t32">32</a></span><span class="t">            <span class="nam">card</span><span class="op">.</span><span class="nam">add_class</span><span class="op">(</span><span class="str">"card--dense"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t33" href="#t33">33</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t34" href="#t34">34</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t35" href="#t35">35</a></span><span class="t"><span class="nam">register_layout</span><span class="op">(</span><span class="nam">DenseLayout</span><span class="op">(</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -124,7 +124,7 @@
             <a class="nav" href="z_c8d5e067d2e9de3b_grouped_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-29 01:11 +0000
+            created at 2026-08-01 16:30 +0000
         </p>
     </div>
 </footer>

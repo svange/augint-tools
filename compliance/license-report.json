@@ -32,7 +32,7 @@
   {
     "License": "MIT",
     "Name": "PyJWT",
-    "Version": "2.12.1"
+    "Version": "2.13.0"
   },
   {
     "License": "Apache Software License",
@@ -67,7 +67,7 @@
   {
     "License": "UNKNOWN",
     "Name": "augint-tools",
-    "Version": "5.42.3"
+    "Version": "5.42.4"
   },
   {
     "License": "Apache-2.0",
@@ -110,9 +110,9 @@
     "Version": "3.4.7"
   },
   {
-    "License": "BSD License",
+    "License": "BSD-3-Clause",
     "Name": "click",
-    "Version": "8.1.8"
+    "Version": "8.4.2"
   },
   {
     "License": "BSD-3-Clause",
@@ -127,7 +127,7 @@
   {
     "License": "Apache-2.0 OR BSD-3-Clause",
     "Name": "cryptography",
-    "Version": "47.0.0"
+    "Version": "50.0.0"
   },
   {
     "License": "Apache Software License",
@@ -172,7 +172,7 @@
   {
     "License": "BSD-3-Clause",
     "Name": "idna",
-    "Version": "3.13"
+    "Version": "3.18"
   },
   {
     "License": "Apache Software License",
@@ -372,7 +372,7 @@
   {
     "License": "MIT",
     "Name": "python-semantic-release",
-    "Version": "10.5.3"
+    "Version": "10.6.1"
   },
   {
     "License": "Apache Software License",
@@ -472,7 +472,7 @@
   {
     "License": "MIT",
     "Name": "urllib3",
-    "Version": "2.6.3"
+    "Version": "2.7.0"
   },
   {
     "License": "MIT",

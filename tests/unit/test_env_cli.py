@@ -192,7 +192,10 @@ class TestOutputQuieting:
             logger.info("Creating secret VERBOSE_KEY...")
             return {"secrets": ["VERBOSE_KEY"], "variables": []}
 
-        runner = CliRunner(mix_stderr=False)
+        # click >= 8.2 removed the ``mix_stderr`` argument and always keeps
+        # stdout/stderr separate (the former ``mix_stderr=False`` behavior),
+        # so ``result.stderr`` is available without it.
+        runner = CliRunner()
         with runner.isolated_filesystem():
             Path(".env").write_text("VERBOSE_KEY=ghp_abc\n")
             with patch("augint_tools.env.sync.perform_sync", new=_stub):

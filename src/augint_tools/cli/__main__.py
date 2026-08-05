@@ -9,6 +9,7 @@ from augint_tools import __version__
 from augint_tools.cli.commands.config import config_cmd
 from augint_tools.cli.commands.env import gh, sync
 from augint_tools.cli.commands.new import new
+from augint_tools.cli.commands.proxy import proxy_group
 from augint_tools.cli.commands.team_secrets import team_secrets_group
 from augint_tools.dashboard.cmd import dashboard_command
 
@@ -33,6 +34,7 @@ cli.add_command(new)
 cli.add_command(config_cmd)
 cli.add_command(dashboard_command)
 cli.add_command(team_secrets_group)
+cli.add_command(proxy_group)
 
 
 def main():

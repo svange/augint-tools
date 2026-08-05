@@ -16,9 +16,14 @@ dependencies = [
     "textual>=1.0.0,<2",
     "requests>=2.31.0",
     "boto3>=1.34.0",
+    "asyncssh>=2.14.0",
 ]
 
 [project.optional-dependencies]
+proxy = [
+    "aws-cdk-lib>=2.100.0",
+    "constructs>=10.0.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
@@ -81,11 +86,19 @@ module = "github.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["textual.*", "loguru", "dotenv", "requests.*"]
+module = ["textual.*", "loguru", "dotenv", "requests.*", "asyncssh", "asyncssh.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["boto3", "boto3.*", "botocore", "botocore.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "augint_tools.proxy.*"
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["aws_cdk", "aws_cdk.*", "constructs"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -98,7 +111,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/tests/*", "*/test_*.py", "*/cli/*"]
+omit = ["*/tests/*", "*/test_*.py", "*/cli/*", "*/proxy/*"]
 
 [tool.coverage.report]
 fail_under = 80

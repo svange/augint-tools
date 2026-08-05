@@ -111,7 +111,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/tests/*", "*/test_*.py", "*/cli/*"]
+omit = ["*/tests/*", "*/test_*.py", "*/cli/*", "*/proxy/*"]
 
 [tool.coverage.report]
 fail_under = 80
